@@ -349,6 +349,49 @@ export function fbm(p: Vec2, octaves = 3): Float {
     return mk(p.owner, p.owner.call(SLOP.FBM, TYPE.FLOAT, [p.ref], [octaves]), TYPE.FLOAT)
 }
 
+/** "#rgb", "#rrggbb" or "#rrggbbaa" to 0..1 components. */
+export function parseColor(hex: string): [number, number, number, number] {
+    const m = /^#([0-9a-fA-F]{3,8})$/.exec(hex.trim())
+    if (m === null) throw new SLError(`"${hex}" is not a colour; use #rgb, #rrggbb or #rrggbbaa`)
+    const h = m[1]
+    const grab = (i: number, n: number) => parseInt(n === 1 ? h[i] + h[i] : h.slice(i * 2, i * 2 + 2), 16) / 255
+    if (h.length === 3) return [grab(0, 1), grab(1, 1), grab(2, 1), 1]
+    if (h.length === 6) return [grab(0, 2), grab(1, 2), grab(2, 2), 1]
+    if (h.length === 8) return [grab(0, 2), grab(1, 2), grab(2, 2), grab(3, 2)]
+    throw new SLError(`"${hex}" is not a colour; use #rgb, #rrggbb or #rrggbbaa`)
+}
+
+/**
+ * Maps 0..1 through evenly spaced colour stops.
+ *
+ * A MACRO, not an opcode. It expands into the mixes and smoothsteps already in
+ * the table, which is worth more than a dedicated instruction would be: it needs
+ * no new encoding, no ramp uniforms competing for space with the program, and no
+ * second implementation in the HLSL emitter. Both backends get it right by
+ * getting `mix` right, and a ramp of any length works rather than however many
+ * stops an instruction could carry.
+ *
+ * This is the argument for the EDSL in miniature. A library function that
+ * composes from primitives costs one function here and nothing anywhere else.
+ */
+export function ramp(t: Num, stops: Array<string | [number, number, number, number]>): Vec4 {
+    if (stops.length < 2) throw new SLError(`a ramp needs at least 2 stops, got ${stops.length}`)
+    const tv = (typeof t === "number" ? float(t) : t).saturate()
+    const cols = stops.map((c) => {
+        const v = typeof c === "string" ? parseColor(c) : c
+        return vec4(v[0], v[1], v[2], v[3])
+    })
+    const spans = stops.length - 1
+    let out = cols[0]
+    for (let i = 0; i < spans; i++) {
+        // Local 0..1 across this span, clamped, so stops outside it contribute
+        // nothing and the chain reads as "each span paints over the last".
+        const local = (tv.mul(spans).sub(i) as Float).saturate()
+        out = mix(out, cols[i + 1], local) as Vec4
+    }
+    return out
+}
+
 export const uniform = {
     float(name: string, value = 0): Float {
         const b = ctx()

@@ -191,7 +191,9 @@ export function encode(program: Program): Encoded {
         owner[dst] = ref
         reg.set(ref, dst)
         peak = Math.max(peak, REGISTERS - free.length)
-        out.push(emit(n, dst, args))
+        // The width of the first operand, for the ops whose result narrows.
+        const srcWidth = reads.length > 0 ? program.nodes[reads[0]].type : undefined
+        out.push(emit(n, dst, args, srcWidth))
     })
 
     const data = new Float32Array(out.length * TEXELS_PER_INSTRUCTION * 4)
@@ -213,7 +215,15 @@ export function encode(program: Program): Encoded {
 
 const NONE: [number, number, number, number] = [0, 0, 0, 0]
 
-function emit(n: SLNode, dst: number, args: number[]): Instr {
+/**
+ * Ops whose result is narrower than their input, so the shader cannot infer how
+ * many components to read from the destination type.
+ */
+const WIDTH_SENSITIVE = new Set<number>([
+    SLOP.LENGTH, SLOP.DISTANCE, SLOP.DOT, SLOP.NORMALIZE, SLOP.LUMINANCE,
+])
+
+function emit(n: SLNode, dst: number, args: number[], srcWidth?: SLType): Instr {
     switch (n.k) {
         case "const": {
             const v = n.v
@@ -237,6 +247,16 @@ function emit(n: SLNode, dst: number, args: number[]): Instr {
                     op: SLOP.COMPOSE, dst, a: args[0] ?? 0, b: args[1] ?? 0,
                     imm: [args[2] ?? 0, args[3] ?? 0, args.length, n.type],
                 }
+            }
+            // Ops whose RESULT is narrower than their input need the source
+            // width, because a register is a float4 whatever the value in it is
+            // and length(vec2) is not length of four components. Found by
+            // writing the shader, not by writing the encoder: nothing in the IR
+            // is wrong, the information simply was not reaching the consumer.
+            if (WIDTH_SENSITIVE.has(n.op)) {
+                const src = srcWidth
+                if (src === undefined) throw new SLError(`internal: ${n.op} has no source width`)
+                return { op: n.op, dst, a: args[0] ?? 0, b: args[1] ?? 0, imm: [src, 0, 0, 0] }
             }
             if (args.length > 3) {
                 throw new SLError(`internal: ${n.op} has ${args.length} operands and the encoding holds 3`)

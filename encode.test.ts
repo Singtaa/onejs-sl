@@ -245,3 +245,36 @@ describe("limits", () => {
         }).toThrow(/runs at most 256/)
     })
 })
+
+describe("width sensitive ops", () => {
+    it("carries the SOURCE width, since a register is a float4 whatever it holds", () => {
+        // length(vec2) is not the length of four components, and the destination
+        // type cannot say so: it is always a float.
+        const p = sl.program(({ uv }) => {
+            const d = uv.length()
+            return sl.vec4(d, d, d, 1)
+        })
+        const enc = encode(p)
+        const len = decode(enc.data, enc.instructions).filter((i) => i.op === SLOP.LENGTH)
+        expect(len.length).toBe(1)
+        expect(len[0].imm[0]).toBe(2)   // uv is a vec2
+    })
+
+    it("distinguishes a vec4 dot from a vec2 dot", () => {
+        const two = sl.program(({ uv }) => {
+            const d = uv.dot(uv)
+            return sl.vec4(d, d, d, 1)
+        })
+        const four = sl.program(({ uv }) => {
+            const c = sl.vec4(uv, 1, 1)
+            const d = c.dot(c)
+            return sl.vec4(d, d, d, 1)
+        })
+        const at = (p: any, op: number) => {
+            const e = encode(p)
+            return decode(e.data, e.instructions).filter((i) => i.op === op)[0]
+        }
+        expect(at(two, SLOP.DOT).imm[0]).toBe(2)
+        expect(at(four, SLOP.DOT).imm[0]).toBe(4)
+    })
+})

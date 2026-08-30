@@ -273,3 +273,38 @@ describe("the opcode table", () => {
         expect(new Set(codes).size).toBe(codes.length)
     })
 })
+
+describe("ramp is a macro, not an opcode", () => {
+    it("expands into ops both backends already have", () => {
+        const p = sl.program(({ uv }) => sl.ramp(uv.x, ["#000018", "#0080ff", "#ffffff"]))
+        // No RAMP instruction anywhere: it became mixes.
+        expect(p.nodes.some((n) => n.k === "call" && n.op === SLOP.RAMP)).toBe(false)
+        expect(p.nodes.some((n) => n.k === "call" && n.op === SLOP.MIX)).toBe(true)
+    })
+
+    it("takes a ramp of any length, which an instruction could not", () => {
+        const p = sl.program(({ uv }) =>
+            sl.ramp(uv.x, ["#000", "#111", "#222", "#333", "#444", "#555", "#666", "#777"]))
+        expect(p.nodes.length).toBeGreaterThan(0)
+    })
+
+    it("reads the three hex forms", () => {
+        expect(sl.parseColor("#fff")).toEqual([1, 1, 1, 1])
+        expect(sl.parseColor("#ff0000")).toEqual([1, 0, 0, 1])
+        expect(sl.parseColor("#00ff0080")[3]).toBeCloseTo(128 / 255, 5)
+    })
+
+    it("refuses something that is not a colour", () => {
+        expect(() => sl.parseColor("red")).toThrow(/not a colour/)
+        expect(() => sl.program(({ uv }) => sl.ramp(uv.x, ["#fff"]))).toThrow(/at least 2 stops/)
+    })
+
+    it("makes the spec's headline example actually run", () => {
+        const plasma = sl.program(({ uv, time }) => {
+            const q = uv.mul(8).add(time.mul(0.4))
+            const v = sl.sin(q.x).add(sl.sin(q.y)).add(sl.sin(q.x.add(q.y).mul(0.7)))
+            return sl.ramp(v.mul(0.25).add(0.5), ["#000018", "#0080ff", "#ffffff"])
+        })
+        expect(plasma.hash).toMatch(/^[0-9a-f]{8}$/)
+    })
+})
