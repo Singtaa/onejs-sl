@@ -235,11 +235,27 @@ export function float(v: Num): Float {
 /** Builds a wider value from narrower parts, which must add up exactly. */
 function compose(width: SLType, parts: Num[]): Val {
     const b = ctx()
+    // Wide parts are SPLIT into their components here, so COMPOSE only ever
+    // sees scalars.
+    //
+    // The VM keeps every value in a float4 register and took the x of each
+    // operand, which silently dropped everything after the first component:
+    // vec4(uv, 0, 1) rendered (uv.x, 0, 1, 0) instead of (uv.x, uv.y, 0, 1).
+    // Teaching the shader each part's width would need widths in an encoding
+    // that has no room for them, and would put the complexity in the half that
+    // is hardest to test. Splitting at record time costs a few extra swizzle
+    // nodes, which the register allocator reclaims immediately, and leaves the
+    // VM's COMPOSE trivially correct.
     const refs: NodeRef[] = []
     let total = 0
     for (const p of parts) {
-        if (typeof p === "number") { refs.push(b.constant([p])); total += 1 }
-        else { refs.push(lift(b, p, p.width)); total += p.width }
+        if (typeof p === "number") { refs.push(b.constant([p])); total += 1; continue }
+        if (p.owner !== b) throw new SLError("a value from another program cannot be used in this one")
+        if (p.width === 1) { refs.push(p.ref); total += 1; continue }
+        for (let c = 0; c < p.width; c++) {
+            refs.push(b.add({ k: "swizzle", type: TYPE.FLOAT, src: p.ref, chans: [c] }))
+            total += 1
+        }
     }
     if (total !== width) {
         throw new SLError(`vec${width} needs ${width} components, got ${total}`)
@@ -315,11 +331,20 @@ export function select(cond: Num, whenTrue: Num, whenFalse: Num): Val {
     return mk(b, b.call(SLOP.SELECT, (t as Val).width, [(c as Val).ref, tr, fr]), (t as Val).width)
 }
 
+/**
+ * The interpolant is broadcast to the operand width before it crosses.
+ *
+ * A register is a float4 whatever it holds, so a scalar `t` sits there as
+ * (t, 0, 0, 0) and the shader's lerp ran per component against those zeros:
+ * a black to white ramp at its midpoint rendered (0.5, 0, 0, 1) instead of
+ * grey. Broadcasting here rather than in the shader keeps `t` free to be a
+ * genuine per component vector when an author wants one.
+ */
 export function mix(a: Num, bv: Num, t: Num): Val {
     const av = typeof a === "number" ? float(a) : a
     const [x, y] = align2(av as Val, bv)
-    const tt = typeof t === "number" ? float(t) : t
-    return mk(av.owner, av.owner.call(SLOP.MIX, (av as Val).width, [x, y, (tt as Val).ref]), (av as Val).width)
+    const [, tr] = align2(av as Val, t)
+    return mk(av.owner, av.owner.call(SLOP.MIX, (av as Val).width, [x, y, tr]), (av as Val).width)
 }
 
 export function step(edge: Num, x: Num): Val {
@@ -333,6 +358,15 @@ export function smoothstep(e0: Num, e1: Num, x: Num): Val {
     const [a, r0] = align2(xv as Val, e0)
     const [, r1] = align2(xv as Val, e1)
     return mk(xv.owner, xv.owner.call(SLOP.SMOOTHSTEP, (xv as Val).width, [r0, r1, a]), (xv as Val).width)
+}
+
+/** Uniform defaults, in slot order, for a host that has to seed them. */
+export function uniformDefaults(p: Program): number[] {
+    const out: number[] = []
+    for (const u of p.uniforms) {
+        for (let i = 0; i < 4; i++) out.push(u.value[i] ?? (i === 3 ? 1 : 0))
+    }
+    return out
 }
 
 /** fBm and friends, as superinstructions rather than as graphs of primitives. */
