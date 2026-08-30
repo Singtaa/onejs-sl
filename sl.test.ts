@@ -79,7 +79,7 @@ describe("types are checked at the call site", () => {
     })
 
     it("widens a swizzle by its length", () => {
-        const p = sl.program(({ uv }) => {
+        const p = sl.program(() => {
             const c = sl.vec4(1, 2, 3, 4)
             return c.swz("wzyx")
         })

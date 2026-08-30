@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { sl } from "./index"
 import { emitFragmentBody, emitShader, uniformProperty } from "./hlsl"
-import { SLOP } from "./ops"
 
 describe("the HLSL emitter", () => {
     it("gives one local per node, so CSE survives into the shader", () => {

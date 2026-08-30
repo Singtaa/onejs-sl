@@ -49,6 +49,10 @@ export type Num = Val | number
  * view of it, which is where mixing a Vec2 with a Vec3 becomes an error at the
  * call site rather than a black rectangle.
  */
+// The `interface Val` further down declares the swizzle getters that the PAIRS
+// loop installs on this prototype. They exist at runtime, so the merge is the
+// point rather than a hazard; see the comment above that loop.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class Val {
     constructor(readonly owner: Builder, readonly ref: NodeRef, readonly width: SLType) {}
 
@@ -146,6 +150,8 @@ for (const p of PAIRS) {
 
 /** The two component swizzles defined above, so the types match the runtime. */
 type Pair<S extends string> = { readonly [K in `${S}${S}` & string]: Vec2 }
+// Deliberate: the type half of the getters defined on Val.prototype directly above.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export interface Val extends Pair<"x" | "y" | "z" | "w">, Pair<"r" | "g" | "b" | "a"> {}
 
 /** TypeScript's view of a recorded value. One runtime class, four static types. */
