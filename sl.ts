@@ -27,7 +27,7 @@ import {
     type InputName, type NodeRef, type Program, type SLNode, type SLType,
 } from "./ir"
 import { SLOP, type SLOpCode } from "./ops"
-import { SDF_SHAPES, type SdfKind } from "../fx/sdf"
+import { SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
 
 // MARK: values
 
@@ -491,9 +491,9 @@ export function ramp(t: Num, stops: Array<string | [number, number, number, numb
  * Which parameters a shape takes is the shape's own business; `circle` wants a
  * radius, `roundedBox` wants half extents and a corner. See SDF2D.cginc.
  */
-export function sdf(kind: SdfKind, p: Vec2, params: number[] = []): Float {
-    const id = SDF_SHAPES[kind]
-    if (id === undefined) throw new SLError(`"${kind}" is not a shape; see SDF_SHAPES for the 42 names`)
+export function sdf(kind: SlSdfKind, p: Vec2, params: number[] = []): Float {
+    const id = SL_SDF_SHAPES[kind]
+    if (id === undefined) throw new SLError(`"${kind}" is not a shape; see SL_SDF_SHAPES for the 42 names`)
     if (params.length > 4) {
         throw new SLError(
             `sl.sdf takes at most 4 shape parameters and "${kind}" was given ${params.length}. ` +

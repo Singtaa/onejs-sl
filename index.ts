@@ -20,6 +20,8 @@ export type { Encoded } from "./encode"
 export { emitShader, emitFragmentBody, uniformProperty } from "./hlsl"
 export type { EmitOptions } from "./hlsl"
 export { manifest } from "./manifest"
+export { SL_SDF_SHAPES } from "./shapes"
+export type { SlSdfKind } from "./shapes"
 export type { ProgramManifest, ManifestEntry } from "./manifest"
 export type { SLOpCode } from "./ops"
 export {

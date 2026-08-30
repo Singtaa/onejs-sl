@@ -3,6 +3,7 @@ import { sl } from "./index"
 import { MAX_TEXTURES, SLError, TYPE, hashProgram } from "./ir"
 import { SLOP } from "./ops"
 import { SDF_SHAPES } from "../fx/sdf"
+import { SL_SDF_SHAPES } from "./shapes"
 
 /**
  * Phase 1 is pure TypeScript on purpose, so everything the IR promises can be
@@ -382,5 +383,17 @@ describe("sdf and voronoi", () => {
         })
         const n = p.nodes.find((x) => x.k === "call" && x.op === SLOP.VORONOI)
         expect(n?.type).toBe(TYPE.FLOAT)
+    })
+})
+
+describe("the sl shape table is pinned to fx's", () => {
+    it("has identical names and ids", () => {
+        // sl keeps its own copy so the eject scaffold can vendor it as a self
+        // contained module; the scaffold does not rewrite relative imports
+        // across modules and refuses rather than shipping something that cannot
+        // build. This is the guard that makes the copy safe: both tables index
+        // the same switch in SDF2D.cginc, so a divergence would draw the wrong
+        // shape rather than fail.
+        expect(SL_SDF_SHAPES).toEqual(SDF_SHAPES)
     })
 })
