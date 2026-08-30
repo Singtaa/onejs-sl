@@ -111,12 +111,41 @@ export class Val {
     get g(): Float { return this.swz("g") }
     get b(): Float { return this.swz("b") }
     get a(): Float { return this.swz("a") }
-    get xy(): Vec2 { return this.swz("xy") }
     get xyz(): Vec3 { return this.swz("xyz") }
     get xyzw(): Vec4 { return this.swz("xyzw") }
     get rgb(): Vec3 { return this.swz("rgb") }
     get rgba(): Vec4 { return this.swz("rgba") }
 }
+
+/**
+ * Every two component swizzle, as a real getter.
+ *
+ * These are defined rather than listed because `uv.yx` is an ordinary thing to
+ * write and JavaScript answers an undeclared property with `undefined` rather
+ * than an error. That `undefined` then travels into `vec4(...)` and fails
+ * somewhere else entirely, about a value the author never wrote. Anything
+ * reachable at runtime should be reachable in the types too, so the interfaces
+ * below declare the same set.
+ *
+ * Three and four component permutations stay on `swz()`, which is typed by its
+ * argument. There are 320 of them and almost nobody writes `.zwyx`.
+ */
+const PAIRS: string[] = []
+for (const set of ["xyzw", "rgba"]) {
+    for (const a of set) for (const b of set) PAIRS.push(a + b)
+}
+for (const p of PAIRS) {
+    if (p in Val.prototype) continue
+    Object.defineProperty(Val.prototype, p, {
+        get(this: Val) { return this.swz(p) },
+        enumerable: false,
+        configurable: true,
+    })
+}
+
+/** The two component swizzles defined above, so the types match the runtime. */
+type Pair<S extends string> = { readonly [K in `${S}${S}` & string]: Vec2 }
+export interface Val extends Pair<"x" | "y" | "z" | "w">, Pair<"r" | "g" | "b" | "a"> {}
 
 /** TypeScript's view of a recorded value. One runtime class, four static types. */
 export interface Float extends Val { readonly width: 1 }

@@ -308,3 +308,25 @@ describe("ramp is a macro, not an opcode", () => {
         expect(plasma.hash).toMatch(/^[0-9a-f]{8}$/)
     })
 })
+
+describe("two component swizzles are real properties", () => {
+    it("answers uv.yx rather than undefined", () => {
+        // JavaScript gives `undefined` for an undeclared property, and that
+        // undefined then fails inside vec4() about a value the author never
+        // wrote. Anything reachable at runtime should be in the types too.
+        const p = sl.program(({ uv }) => sl.vec4(uv.yx, 0, 1))
+        expect(p.nodes.some((n) => n.k === "swizzle" && n.chans.join("") === "10")).toBe(true)
+    })
+
+    it("covers both naming sets", () => {
+        const p = sl.program(() => {
+            const c = sl.vec4(1, 2, 3, 4)
+            return sl.vec4(c.gb, c.zw)
+        })
+        expect(p.nodes.filter((n) => n.k === "swizzle" && n.chans.length === 2).length).toBeGreaterThan(0)
+    })
+
+    it("still refuses a component the value does not have", () => {
+        expect(() => sl.program(({ uv }) => sl.vec4(uv.zw, 0, 1))).toThrow(/component 3 of a vec2/)
+    })
+})

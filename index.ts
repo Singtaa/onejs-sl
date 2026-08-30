@@ -19,6 +19,8 @@ export { REGISTERS, MAX_INSTRUCTIONS, TEXELS_PER_INSTRUCTION, INPUT_ID, encode, 
 export type { Encoded } from "./encode"
 export { emitShader, emitFragmentBody, uniformProperty } from "./hlsl"
 export type { EmitOptions } from "./hlsl"
+export { manifest } from "./manifest"
+export type { ProgramManifest, ManifestEntry } from "./manifest"
 export type { SLOpCode } from "./ops"
 export {
     TYPE, INPUTS, MAX_TEXTURES, MAX_NODES, SLError, hashProgram, widthName,
