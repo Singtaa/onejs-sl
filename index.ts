@@ -17,6 +17,8 @@ export * as sl from "./sl"
 export { SLOP, SL_ARITY, SL_NAME, SL_WIRE_VERSION, isSampling } from "./ops"
 export { REGISTERS, MAX_INSTRUCTIONS, TEXELS_PER_INSTRUCTION, INPUT_ID, encode, reachable, liveRanges } from "./encode"
 export type { Encoded } from "./encode"
+export { emitShader, emitFragmentBody, uniformProperty } from "./hlsl"
+export type { EmitOptions } from "./hlsl"
 export type { SLOpCode } from "./ops"
 export {
     TYPE, INPUTS, MAX_TEXTURES, MAX_NODES, SLError, hashProgram, widthName,

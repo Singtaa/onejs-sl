@@ -3,6 +3,7 @@ import { writeFileSync, mkdirSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { sl } from "../index"
 import { encode } from "../encode"
+import { emitShader } from "../hlsl"
 
 /**
  * Emits the fixtures the Unity side renders and checks.
@@ -29,6 +30,9 @@ interface Fixture {
     resultRegister: number
     /** Flat float4 per uniform slot, so the host can seed declared defaults. */
     uniforms: number[]
+    /** The same program as generated HLSL, for the golden comparison. */
+    hlsl: string
+    hash: string
     /** Expected colour at uv = (0.5, 0.5), the centre of a 1x1 render. */
     expected: [number, number, number, number]
 }
@@ -41,6 +45,7 @@ describe("sl GPU fixtures", () => {
             fx.push({
                 name, note, data: [...e.data], instructions: e.instructions,
                 resultRegister: e.resultRegister, uniforms: sl.uniformDefaults(p), expected,
+                hlsl: emitShader(p, { name: `Hidden/SLTest/${p.hash}` }), hash: p.hash,
             })
         }
 
