@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { sl } from "./index"
 import { MAX_TEXTURES, SLError, TYPE, hashProgram } from "./ir"
 import { SLOP } from "./ops"
+import { SDF_SHAPES } from "../fx/sdf"
 
 /**
  * Phase 1 is pure TypeScript on purpose, so everything the IR promises can be
@@ -339,5 +340,47 @@ describe("hsv2rgb", () => {
         })
         const n = p.nodes.find((x) => x.k === "call" && x.op === SLOP.HSV2RGB)
         expect(n?.type).toBe(TYPE.VEC3)
+    })
+})
+
+describe("sdf and voronoi", () => {
+    it("uses the same shape ids fx does, so a hexagon means one thing", () => {
+        const p = sl.program(({ uv }) => {
+            const d = sl.sdf("hexagon", uv.sub(0.5), [0.3])
+            return sl.vec4(d, d, d, 1)
+        })
+        const n = p.nodes.find((x) => x.k === "call" && x.op === SLOP.SDF)
+        expect(n?.type).toBe(TYPE.FLOAT)
+        expect((n as any).imm[0]).toBe(SDF_SHAPES.hexagon)
+    })
+
+    it("refuses a name that is not a shape", () => {
+        expect(() => sl.program(({ uv }) => sl.vec4(sl.sdf("blob" as any, uv), 0, 0, 1)))
+            .toThrow(/not a shape/)
+    })
+
+    it("refuses more parameters than one instruction holds, and says why", () => {
+        expect(() => sl.program(({ uv }) => sl.vec4(sl.sdf("circle", uv, [1, 2, 3, 4, 5]), 0, 0, 1)))
+            .toThrow(/at most 4 shape parameters/)
+    })
+
+    it("takes an already transformed point rather than an offset", () => {
+        // Position and rotation are not parameters on purpose: transforming the
+        // point composes with the rest of the language and keeps the shape's own
+        // parameters inside one instruction.
+        const p = sl.program(({ uv }) => {
+            const d = sl.sdf("circle", uv.sub(sl.vec2(0.5, 0.5)), [0.25])
+            return sl.vec4(sl.smoothstep(0.01, 0, d), 0, 0, 1)
+        })
+        expect(p.nodes.some((n) => n.k === "call" && n.op === SLOP.SUB)).toBe(true)
+    })
+
+    it("gives voronoi a float from a vec2", () => {
+        const p = sl.program(({ uv }) => {
+            const v = sl.voronoi(uv.mul(6))
+            return sl.vec4(v, v, v, 1)
+        })
+        const n = p.nodes.find((x) => x.k === "call" && x.op === SLOP.VORONOI)
+        expect(n?.type).toBe(TYPE.FLOAT)
     })
 })

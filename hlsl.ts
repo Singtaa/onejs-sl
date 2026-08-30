@@ -243,6 +243,12 @@ function call(n: Extract<SLNode, { k: "call" }>, name: (r: number) => string): s
         case SLOP.NOISE: return `sl_valueNoise(${a[0]})`
         case SLOP.SIMPLEX: return `sl_simplex(${a[0]})`
         case SLOP.FBM: return `sl_fbm(${a[0]}, ${Math.round(imm[0] ?? 3)})`
+        case SLOP.SDF: {
+            const id = Math.round(imm[0] ?? 0)
+            const q = [imm[1] ?? 0, imm[2] ?? 0, imm[3] ?? 0, imm[4] ?? 0].map(lit)
+            return `sl_sdfDistance(${id}, ${a[0]}, float4(${q.join(", ")}), float2(0.0, 0.0))`
+        }
+        case SLOP.VORONOI: return `sl_voronoi(${a[0]})`
         case SLOP.SAMPLE: return `tex2D(_Tex${Math.round(imm[0] ?? 0)}, ${a[0]})`
 
         default:

@@ -258,6 +258,16 @@ function emit(n: SLNode, dst: number, args: number[], srcWidth?: SLType): Instr 
                 if (src === undefined) throw new SLError(`internal: ${n.op} has no source width`)
                 return { op: n.op, dst, a: args[0] ?? 0, b: args[1] ?? 0, imm: [src, 0, 0, 0] }
             }
+            // SDF carries a shape id plus four parameters, which is one more
+            // number than the immediate holds. The id goes in the second
+            // operand slot, free because SDF reads one register.
+            if (n.op === SLOP.SDF) {
+                const im = n.imm ?? []
+                return {
+                    op: SLOP.SDF, dst, a: args[0] ?? 0, b: im[0] ?? 0,
+                    imm: [im[1] ?? 0, im[2] ?? 0, im[3] ?? 0, im[4] ?? 0],
+                }
+            }
             if (args.length > 3) {
                 throw new SLError(`internal: ${n.op} has ${args.length} operands and the encoding holds 3`)
             }

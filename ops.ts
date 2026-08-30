@@ -131,7 +131,7 @@ export const SL_ARITY: Record<number, number> = {
 
     [SLOP.RAMP]: -1, [SLOP.HSV2RGB]: 1, [SLOP.RGB2HSV]: 1, [SLOP.LUMINANCE]: 1,
 
-    [SLOP.NOISE]: 1, [SLOP.SIMPLEX]: 1, [SLOP.FBM]: 1, [SLOP.SDF]: -1,
+    [SLOP.NOISE]: 1, [SLOP.SIMPLEX]: 1, [SLOP.FBM]: 1, [SLOP.SDF]: 1,
     [SLOP.VORONOI]: 1,
 
     [SLOP.SAMPLE]: 1, [SLOP.SAMPLE_LOD]: 2,

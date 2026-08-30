@@ -27,6 +27,7 @@ import {
     type InputName, type NodeRef, type Program, type SLNode, type SLType,
 } from "./ir"
 import { SLOP, type SLOpCode } from "./ops"
+import { SDF_SHAPES, type SdfKind } from "../fx/sdf"
 
 // MARK: values
 
@@ -465,6 +466,47 @@ export function ramp(t: Num, stops: Array<string | [number, number, number, numb
         out = mix(out, cols[i + 1], local) as Vec4
     }
     return out
+}
+
+/**
+ * Signed distance to a shape, positive outside and negative inside.
+ *
+ * The 42 shapes are the same ones `fx` draws, from the same HLSL, so a hexagon
+ * means one thing across the whole library rather than two.
+ *
+ *     const d = sl.sdf("hexagon", uv.sub(0.5), [0.3])
+ *     return sl.vec4(sl.smoothstep(0.01, 0, d), 0, 0, 1)
+ *
+ * POSITION AND ROTATION ARE NOT PARAMETERS, deliberately. Transform the point
+ * before calling, as `uv.sub(centre)` above does. That is how signed distance
+ * code is normally written, it composes with everything else in the language,
+ * and it keeps the instruction to the four shape parameters that fit in one.
+ *
+ * Which parameters a shape takes is the shape's own business; `circle` wants a
+ * radius, `roundedBox` wants half extents and a corner. See SDF2D.cginc.
+ */
+export function sdf(kind: SdfKind, p: Vec2, params: number[] = []): Float {
+    const id = SDF_SHAPES[kind]
+    if (id === undefined) throw new SLError(`"${kind}" is not a shape; see SDF_SHAPES for the 42 names`)
+    if (params.length > 4) {
+        throw new SLError(
+            `sl.sdf takes at most 4 shape parameters and "${kind}" was given ${params.length}. ` +
+            `The wider forms fx offers do not fit in one VM instruction; compose the extra ` +
+            `transform out of ordinary arithmetic on the point instead.`,
+        )
+    }
+    for (const v of params) {
+        if (!Number.isFinite(v)) throw new SLError(`sl.sdf parameters must be finite, got ${v}`)
+    }
+    const imm = [params[0] ?? 0, params[1] ?? 0, params[2] ?? 0, params[3] ?? 0]
+    // The shape id rides in the second operand slot, which a one argument op
+    // leaves free, so all four immediate floats stay available for parameters.
+    return mk(p.owner, p.owner.call(SLOP.SDF, TYPE.FLOAT, [p.ref], [id, ...imm]), TYPE.FLOAT)
+}
+
+/** Distance to the nearest point of a jittered lattice. Cells, cracks, scales. */
+export function voronoi(p: Vec2): Float {
+    return mk(p.owner, p.owner.call(SLOP.VORONOI, TYPE.FLOAT, [p.ref]), TYPE.FLOAT)
 }
 
 export const uniform = {

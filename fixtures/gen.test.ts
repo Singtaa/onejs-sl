@@ -91,6 +91,22 @@ describe("sl GPU fixtures", () => {
         add("uniform default", "an unset uniform reads its declared default",
             sl.program(() => sl.vec4(sl.uniform.float("k", 0.375), 0, 0, 1)), [0.375, 0, 0, 1])
 
+        // At the pixel centre uv is (0.5, 0.5), so the point handed to the shape
+        // is exactly (0, 0): the centre of a circle of radius 0.25, where the
+        // signed distance is -0.25. Known from geometry, not from running
+        // anything.
+        add("sdf circle at its centre", "signed distance at the centre of a radius 0.25 circle is -0.25",
+            sl.program(({ uv }) => {
+                const d = sl.sdf("circle", uv.sub(0.5), [0.25])
+                return sl.vec4(d, 0, 0, 1)
+            }), [-0.25, 0, 0, 1])
+
+        // Voronoi is deliberately NOT here. Its value at a point depends on a
+        // hash nobody should reimplement in JavaScript just to assert it, and a
+        // reference implementation would share its author's mistakes with the
+        // thing it checks. Both backends call the same sl_voronoi in
+        // SLCommon.cginc, so their agreement is structural rather than tested.
+
         add("ramp midpoint", "halfway along a black to white ramp is 0.5 grey",
             sl.program(({ uv }) => sl.ramp(uv.x, ["#000000", "#ffffff"])), [0.5, 0.5, 0.5, 1])
 
