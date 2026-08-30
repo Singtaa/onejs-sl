@@ -330,3 +330,14 @@ describe("two component swizzles are real properties", () => {
         expect(() => sl.program(({ uv }) => sl.vec4(uv.zw, 0, 1))).toThrow(/component 3 of a vec2/)
     })
 })
+
+describe("hsv2rgb", () => {
+    it("stays a vec3 and reaches both backends", () => {
+        const p = sl.program(({ uv }) => {
+            const rgb = sl.hsv2rgb(sl.vec3(uv.x, 1, 1))
+            return sl.vec4(rgb, 1)
+        })
+        const n = p.nodes.find((x) => x.k === "call" && x.op === SLOP.HSV2RGB)
+        expect(n?.type).toBe(TYPE.VEC3)
+    })
+})

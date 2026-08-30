@@ -339,6 +339,18 @@ export function luminance(c: Num): Float {
     return mk(v.owner, v.owner.call(SLOP.LUMINANCE, TYPE.FLOAT, [v.ref]), TYPE.FLOAT)
 }
 
+/**
+ * Hue, saturation and value to RGB.
+ *
+ * The opcode was already implemented in both backends and simply had no name
+ * out here, which is the kind of gap only writing something real finds: a demo
+ * wanted a hue uniform, and a ramp cannot have one because its stops are
+ * constants.
+ */
+export function hsv2rgb(c: Vec3): Vec3 {
+    return mk(c.owner, c.owner.call(SLOP.HSV2RGB, TYPE.VEC3, [c.ref]), TYPE.VEC3)
+}
+
 export function atan2(y: Num, x: Num): Float {
     const b = ctx()
     const yy = typeof y === "number" ? float(y) : y
