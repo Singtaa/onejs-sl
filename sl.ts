@@ -251,11 +251,21 @@ export function vec2(...parts: Num[]): Vec2 { return compose(TYPE.VEC2, parts) a
 export function vec3(...parts: Num[]): Vec3 { return compose(TYPE.VEC3, parts) as Vec3 }
 export function vec4(...parts: Num[]): Vec4 { return compose(TYPE.VEC4, parts) as Vec4 }
 
-function unary<T extends Num>(op: SLOpCode) {
-    return (v: T): T extends number ? Float : T => {
-        const val = typeof v === "number" ? float(v) : (v as Val)
-        return un(op, val) as any
+/**
+ * A one argument op, typed so the width survives.
+ *
+ * Overloads rather than a conditional return type: the conditional form widened
+ * `sl.sin(aFloat)` to `Float | Val`, so `let v = uv.x; v = sl.sin(v)` failed to
+ * typecheck. An author hitting that would reasonably conclude the types were
+ * decorative.
+ */
+function unary(op: SLOpCode) {
+    function f(v: number): Float
+    function f<T extends Val>(v: T): T
+    function f(v: Num): Val {
+        return un(op, typeof v === "number" ? (float(v) as Val) : v)
     }
+    return f
 }
 
 export const sin = unary(SLOP.SIN)
@@ -269,7 +279,20 @@ export const sqrt = unary(SLOP.SQRT)
 export const sign = unary(SLOP.SIGN)
 export const ceil = unary(SLOP.CEIL)
 export const round = unary(SLOP.ROUND)
-export const luminance = unary(SLOP.LUMINANCE)
+
+/**
+ * Collapses a colour to a single brightness.
+ *
+ * NOT declared through `unary`, which preserves width. Luminance is one of the
+ * few ops whose result is narrower than its input, and having it return a Vec4
+ * meant `sl.vec4(sl.mix(lum, c.x, 0.5), c.y, c.z, c.w)` silently became seven
+ * components. The error surfaced two calls away from the cause, which is what
+ * width preserving by default costs when it is wrong.
+ */
+export function luminance(c: Num): Float {
+    const v = typeof c === "number" ? float(c) : c
+    return mk(v.owner, v.owner.call(SLOP.LUMINANCE, TYPE.FLOAT, [v.ref]), TYPE.FLOAT)
+}
 
 export function atan2(y: Num, x: Num): Float {
     const b = ctx()

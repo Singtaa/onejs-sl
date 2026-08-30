@@ -89,6 +89,19 @@ describe("types are checked at the call site", () => {
         expect(() => sl.program(({ uv }) => uv as any)).toThrow(/must return a vec4/)
     })
 
+    it("narrows luminance to a float whatever it is given", () => {
+        // Width preserving by default is right for sin and wrong for this, and
+        // when it was wrong the error surfaced two calls away as "vec4 needs 4
+        // components, got 7".
+        const p = sl.program(({ uv }) => {
+            const c = sl.vec4(uv, 0, 1)
+            const lum = sl.luminance(c)
+            return sl.vec4(lum, lum, lum, 1)
+        })
+        const lum = p.nodes.find((n) => n.k === "call" && n.op === SLOP.LUMINANCE)
+        expect(lum?.type).toBe(TYPE.FLOAT)
+    })
+
     it("insists vec parts add up exactly", () => {
         expect(() => sl.program(({ uv }) => sl.vec4(uv, 0))).toThrow(/needs 4 components, got 3/)
         expect(() => sl.program(({ uv }) => sl.vec4(uv, uv, uv))).toThrow(/needs 4 components, got 6/)
