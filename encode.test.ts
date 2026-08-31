@@ -278,3 +278,47 @@ describe("width sensitive ops", () => {
         expect(at(four, SLOP.DOT).imm[0]).toBe(4)
     })
 })
+
+/**
+ * The uniform names, in slot order.
+ *
+ * The VM addresses a uniform by slot and the instructions carry only that, so
+ * a host holding the name "warp" needs this to find slot 0. Without it the
+ * host set a material property by name instead, which the generated shader
+ * honoured and the interpreter ignored, so every uniform in the container read
+ * zero and no game could change its own picture.
+ */
+describe("the uniform table", () => {
+    it("lists names in the order their slots were handed out", () => {
+        const p = sl.program(() => {
+            const a = sl.uniform.float("alpha", 0.1)
+            const b = sl.uniform.float("beta", 0.2)
+            return sl.vec4(a, b, 0, 1)
+        })
+        expect(encode(p).uniforms).toEqual(["alpha", "beta"])
+    })
+
+    it("indexes at the slot the instruction encodes", () => {
+        const p = sl.program(() => {
+            const a = sl.uniform.float("first", 0)
+            const b = sl.uniform.float("second", 0)
+            return sl.vec4(b, a, 0, 1)
+        })
+        const e = encode(p)
+        for (const [slot, name] of e.uniforms.entries()) {
+            expect(p.uniforms[slot]!.name, `slot ${slot} is ${name}`).toBe(name)
+        }
+    })
+
+    it("declares one entry per uniform, not one per use", () => {
+        const p = sl.program(({ uv }) => {
+            const k = sl.uniform.float("k", 0.5)
+            return sl.vec4(uv.x.mul(k), uv.y.mul(k), k, 1)
+        })
+        expect(encode(p).uniforms).toEqual(["k"])
+    })
+
+    it("is empty for a program that declares none", () => {
+        expect(encode(sl.program(({ uv }) => sl.vec4(uv, 0, 1))).uniforms).toEqual([])
+    })
+})

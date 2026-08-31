@@ -72,6 +72,15 @@ export interface Encoded {
     resultRegister: number
     /** Registers actually used, for the shader to size nothing and for reporting. */
     registersUsed: number
+    /**
+     * Uniform names in SLOT ORDER, so a host can set one by name.
+     *
+     * The VM addresses uniforms by slot and knows nothing about names, and the
+     * encoded instructions carry the slot only. Without this the host had a
+     * name from the game and no way to turn it into a slot, so it set a
+     * material property instead and every uniform stayed at zero.
+     */
+    uniforms: string[]
     hash: string
 }
 
@@ -209,6 +218,9 @@ export function encode(program: Program): Encoded {
         instructions: out.length,
         resultRegister: reg.get(program.result)!,
         registersUsed: peak,
+        // Slot order, which is declaration order: Builder.uniform pushes and
+        // uses the resulting index as the slot.
+        uniforms: program.uniforms.map((u) => u.name),
         hash: program.hash,
     }
 }
