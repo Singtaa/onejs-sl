@@ -65,6 +65,18 @@ export interface TextureDecl {
     slot: number
 }
 
+/**
+ * The nodes one `sl.repeat` call unrolled into, as the half open range
+ * `[start, end)` of `nodes`. Diagnostic only: the instruction ceiling error
+ * uses it to say which loop the operations came from, since a program that is
+ * "too long" has usually been made so by one count.
+ */
+export interface LoopSpan {
+    count: number
+    start: NodeRef
+    end: NodeRef
+}
+
 export interface Program {
     nodes: SLNode[]
     /** Must be VEC4: a program produces a colour. */
@@ -73,6 +85,8 @@ export interface Program {
     textures: TextureDecl[]
     /** Canonical, stable across machines. See `hashProgram`. */
     hash: string
+    /** Not part of the hash: it changes nothing about what the program computes. */
+    loops: LoopSpan[]
 }
 
 /**
@@ -103,6 +117,7 @@ export class Builder {
     readonly nodes: SLNode[] = []
     readonly uniforms: UniformDecl[] = []
     readonly textures: TextureDecl[] = []
+    readonly loops: LoopSpan[] = []
     private readonly interned = new Map<string, NodeRef>()
 
     add(node: SLNode): NodeRef {

@@ -85,6 +85,10 @@ layered noise and small iterated distance fields, which is most of what 2D
 shaders loop for. A data dependent loop is out of scope: the VM would need a
 nested bounded loop with a dynamic trip count while codegen would handle it
 fine, and the two backends agreeing is the property the whole design protects.
+Because it unrolls, the count multiplies the body's operation count toward the
+VM's 256-instruction ceiling. The ceiling error names any `repeat` that fills a
+quarter of the budget or more, so the fix reads as "lower this count" rather
+than "fewer instructions".
 
 ## See also
 

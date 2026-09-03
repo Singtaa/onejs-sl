@@ -244,6 +244,27 @@ describe("limits", () => {
             encode(p)
         }).toThrow(/runs at most 256/)
     })
+
+    it("names the repeat that unrolled past the ceiling, since the author wrote one line, not 256", () => {
+        expect(() => {
+            const p = sl.program(({ uv, time }) => {
+                const v = sl.repeat(64, (i, acc) => acc.add(sl.noise(uv.mul(i + 1).add(time)).mul(0.5)), sl.float(0))
+                return sl.vec4(v, v, v, 1)
+            })
+            encode(p)
+        }).toThrow(/repeat\(64\) accounts for \d+/)
+    })
+
+    it("does not blame a loop that is not the cause", () => {
+        expect(() => {
+            const p = sl.program(({ uv }) => {
+                let v = sl.repeat(2, (_i, acc) => acc.add(1), uv.x)
+                for (let i = 0; i < 300; i++) v = v.add(i)
+                return sl.vec4(v, v, v, 1)
+            })
+            encode(p)
+        }).toThrow(/^(?!.*Lower the count).*runs at most 256/s)
+    })
 })
 
 describe("width sensitive ops", () => {

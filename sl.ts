@@ -257,6 +257,7 @@ export function program(fn: (inputs: ProgramInputs) => Vec4): Program {
             uniforms: b.uniforms.slice(),
             textures: b.textures.slice(),
             hash: hashProgram(nodes, out.ref, b.uniforms, b.textures),
+            loops: b.loops.slice(),
         }
     } finally {
         current = null
@@ -564,7 +565,10 @@ export function repeat<T extends Val>(n: number, body: (i: number, acc: T) => T,
     if (!Number.isInteger(n) || n < 0 || n > 64) {
         throw new SLError(`repeat count must be a whole number from 0 to 64, got ${n}`)
     }
+    const b = ctx()
+    const start = b.nodes.length
     let acc = seed
     for (let i = 0; i < n; i++) acc = body(i, acc)
+    b.loops.push({ count: n, start, end: b.nodes.length })
     return acc
 }

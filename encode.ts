@@ -137,12 +137,30 @@ export function liveRanges(nodes: SLNode[], order: NodeRef[], result: NodeRef): 
     return last
 }
 
+/**
+ * Names the `sl.repeat` calls behind an over-long program. A repeat unrolls, so
+ * a count that reads as one line of source is emitted once per iteration, and
+ * without this the error blames "instructions" the author never wrote. A loop
+ * is named only when it fills a quarter of the budget or more: a repeat(2) in a
+ * program made long by other code is not the thing to lower.
+ */
+function blameLoops(program: Program, order: NodeRef[]): string {
+    const parts: string[] = []
+    for (const loop of program.loops ?? []) {
+        const ops = order.filter((r) => r >= loop.start && r < loop.end).length
+        if (ops * 4 >= MAX_INSTRUCTIONS) parts.push(`repeat(${loop.count}) accounts for ${ops}`)
+    }
+    if (parts.length === 0) return ""
+    return ` sl.repeat unrolls, so every iteration is emitted in full: ${parts.join(", ")}. ` +
+        `Lower the count or slim the body.`
+}
+
 export function encode(program: Program): Encoded {
     const order = reachable(program.nodes, program.result)
     if (order.length > MAX_INSTRUCTIONS) {
         throw new SLError(
             `this program is ${order.length} operations and the VM runs at most ${MAX_INSTRUCTIONS}. ` +
-            `The loop in the shader is bounded and has to be.`,
+            `The loop in the shader is bounded and has to be.` + blameLoops(program, order),
         )
     }
     for (const t of program.textures) {
