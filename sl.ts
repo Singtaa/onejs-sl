@@ -22,6 +22,7 @@
  * `p` is written once and used twice, so it is one node with two references.
  */
 
+import { parseColor as parseHex } from "../color"
 import {
     Builder, INPUTS, SLError, TYPE, hashProgram, widthName,
     type InputName, type NodeRef, type Program, type SLNode, type SLType,
@@ -432,16 +433,13 @@ export function fbm(p: Vec2, octaves = 3): Float {
     return mk(p.owner, p.owner.call(SLOP.FBM, TYPE.FLOAT, [p.ref], [octaves]), TYPE.FLOAT)
 }
 
-/** "#rgb", "#rrggbb" or "#rrggbbaa" to 0..1 components. */
+/** "#rgb", "#rrggbb" or "#rrggbbaa" to 0..1 components. Shared with fx. */
 export function parseColor(hex: string): [number, number, number, number] {
-    const m = /^#([0-9a-fA-F]{3,8})$/.exec(hex.trim())
-    if (m === null) throw new SLError(`"${hex}" is not a colour; use #rgb, #rrggbb or #rrggbbaa`)
-    const h = m[1]
-    const grab = (i: number, n: number) => parseInt(n === 1 ? h[i] + h[i] : h.slice(i * 2, i * 2 + 2), 16) / 255
-    if (h.length === 3) return [grab(0, 1), grab(1, 1), grab(2, 1), 1]
-    if (h.length === 6) return [grab(0, 2), grab(1, 2), grab(2, 2), 1]
-    if (h.length === 8) return [grab(0, 2), grab(1, 2), grab(2, 2), grab(3, 2)]
-    throw new SLError(`"${hex}" is not a colour; use #rgb, #rrggbb or #rrggbbaa`)
+    try {
+        return parseHex(hex)
+    } catch (e) {
+        throw new SLError((e as Error).message)
+    }
 }
 
 /**
