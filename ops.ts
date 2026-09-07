@@ -98,6 +98,10 @@ export const SLOP = {
     FBM: 130,
     SDF: 131,
     VORONOI: 132,
+    // Same field family as fx noise: |simplex| octaves summed, and the crease
+    // made bright. imm.x carries the octave count, as FBM does.
+    TURBULENCE: 133,
+    RIDGED: 134,
 
     // Sampling
     SAMPLE: 144,
@@ -135,7 +139,7 @@ export const SL_ARITY: Record<number, number> = {
     [SLOP.RAMP]: -1, [SLOP.HSV2RGB]: 1, [SLOP.RGB2HSV]: 1, [SLOP.LUMINANCE]: 1, [SLOP.TO_LINEAR]: 1,
 
     [SLOP.NOISE]: 1, [SLOP.SIMPLEX]: 1, [SLOP.FBM]: 1, [SLOP.SDF]: 1,
-    [SLOP.VORONOI]: 1,
+    [SLOP.VORONOI]: 1, [SLOP.TURBULENCE]: 1, [SLOP.RIDGED]: 1,
 
     [SLOP.SAMPLE]: 1, [SLOP.SAMPLE_LOD]: 2,
 }

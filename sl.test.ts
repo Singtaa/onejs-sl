@@ -276,6 +276,22 @@ describe("the opcode table", () => {
     })
 })
 
+describe("noise is the fx family", () => {
+    it("emits turbulence and ridged as their own opcodes carrying the octave count", () => {
+        const p = sl.program(({ uv }) => { const n = sl.turbulence(uv, 2).add(sl.ridged(uv, 4)); return sl.vec4(n, n, n, 1) })
+        const ops = p.nodes.filter((n) => n.k === "call").map((n) => [n.op, n.imm?.[0]])
+        expect(ops).toContainEqual([SLOP.TURBULENCE, 2])
+        expect(ops).toContainEqual([SLOP.RIDGED, 4])
+    })
+
+    it("lets fbm pick a simplex base and refuses more octaves than the shader unrolls", () => {
+        const p = sl.program(({ uv }) => { const n = sl.fbm(uv, 3, "simplex"); return sl.vec4(n, n, n, 1) })
+        const fbm = p.nodes.find((n) => n.k === "call" && n.op === SLOP.FBM)
+        expect(fbm?.imm).toEqual([3, 1])
+        expect(() => sl.program(({ uv }) => { const n = sl.fbm(uv, 5); return sl.vec4(n, n, n, 1) })).toThrow(/1 to 4/)
+    })
+})
+
 describe("ramp is a macro, not an opcode", () => {
     it("expands into ops both backends already have", () => {
         const p = sl.program(({ uv }) => sl.ramp(uv.x, ["#000018", "#0080ff", "#ffffff"]))

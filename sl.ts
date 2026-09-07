@@ -432,18 +432,36 @@ export function uniformDefaults(p: Program): number[] {
     return out
 }
 
-/** fBm and friends, as superinstructions rather than as graphs of primitives. */
+/**
+ * Noise, as superinstructions rather than graphs of primitives, and the same
+ * fields `fx.noise` draws: a value or simplex base, layered as fBm, or the
+ * turbulence and ridged variants built on simplex. A program has no seed;
+ * offset the input for a different field. Octaves are 1 to 4, as in fx.
+ */
 export function noise(p: Vec2): Float {
     return mk(p.owner, p.owner.call(SLOP.NOISE, TYPE.FLOAT, [p.ref]), TYPE.FLOAT)
 }
 export function simplex(p: Vec2): Float {
     return mk(p.owner, p.owner.call(SLOP.SIMPLEX, TYPE.FLOAT, [p.ref]), TYPE.FLOAT)
 }
-export function fbm(p: Vec2, octaves = 3): Float {
-    if (!Number.isInteger(octaves) || octaves < 1 || octaves > 8) {
-        throw new SLError(`fbm octaves must be a whole number from 1 to 8, got ${octaves}`)
+function octaveCount(name: string, octaves: number): number {
+    if (!Number.isInteger(octaves) || octaves < 1 || octaves > 4) {
+        throw new SLError(`${name} octaves must be a whole number from 1 to 4, got ${octaves}`)
     }
-    return mk(p.owner, p.owner.call(SLOP.FBM, TYPE.FLOAT, [p.ref], [octaves]), TYPE.FLOAT)
+    return octaves
+}
+/** Layered noise. `base` picks the grid ("value", the default) or triangles ("simplex"). */
+export function fbm(p: Vec2, octaves = 3, base: "value" | "simplex" = "value"): Float {
+    const kind = base === "simplex" ? 1 : 0
+    return mk(p.owner, p.owner.call(SLOP.FBM, TYPE.FLOAT, [p.ref], [octaveCount("fbm", octaves), kind]), TYPE.FLOAT)
+}
+/** Sum of |simplex| octaves: creases that stack into veins and licks. Fire, smoke, marble. */
+export function turbulence(p: Vec2, octaves = 3): Float {
+    return mk(p.owner, p.owner.call(SLOP.TURBULENCE, TYPE.FLOAT, [p.ref], [octaveCount("turbulence", octaves)]), TYPE.FLOAT)
+}
+/** The turbulence crease made bright and squared: ridges, lightning, cracks. */
+export function ridged(p: Vec2, octaves = 3): Float {
+    return mk(p.owner, p.owner.call(SLOP.RIDGED, TYPE.FLOAT, [p.ref], [octaveCount("ridged", octaves)]), TYPE.FLOAT)
 }
 
 /** "#rgb", "#rrggbb" or "#rrggbbaa" to 0..1 components. Shared with fx. */

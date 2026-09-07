@@ -106,3 +106,12 @@ ramp, and converts the result once through `TO_LINEAR`; `sl.color("#hex")` is
 own for a vec4 built from raw components. Both backends implement it gamma
 aware (`sl_toLinear` in `SLCommon.cginc`), so a Gamma project gets the value as
 written. Alpha is coverage and is never converted. Same rule as `fx`.
+
+## Noise
+
+`sl.noise`, `sl.simplex`, `sl.fbm(p, octaves, base)`, `sl.turbulence` and
+`sl.ridged` are the fields `fx.noise` draws, from the same `Noise2D.cginc`, so
+a simplex here is the simplex there. Octaves are 1 to 4. A program has no seed;
+offset the input for a different field. `sl.simplex` used to be value noise on
+a rotated lattice, and `sl.fbm` had its own value noise; both changed on
+2026-09-06 when the fields were unified.

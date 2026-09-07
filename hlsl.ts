@@ -243,7 +243,9 @@ function call(n: Extract<SLNode, { k: "call" }>, name: (r: number) => string): s
         case SLOP.HSV2RGB: return `sl_hsv2rgb(${a[0]})`
         case SLOP.NOISE: return `sl_valueNoise(${a[0]})`
         case SLOP.SIMPLEX: return `sl_simplex(${a[0]})`
-        case SLOP.FBM: return `sl_fbm(${a[0]}, ${Math.round(imm[0] ?? 3)})`
+        case SLOP.FBM: return `sl_fbm(${a[0]}, ${Math.round(imm[0] ?? 3)}, ${Math.round(imm[1] ?? 0)})`
+        case SLOP.TURBULENCE: return `sl_fbm(${a[0]}, ${Math.round(imm[0] ?? 3)}, 2)`
+        case SLOP.RIDGED: return `sl_fbm(${a[0]}, ${Math.round(imm[0] ?? 3)}, 3)`
         case SLOP.SDF: {
             const id = Math.round(imm[0] ?? 0)
             const q = [imm[1] ?? 0, imm[2] ?? 0, imm[3] ?? 0, imm[4] ?? 0].map(lit)
