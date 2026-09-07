@@ -231,6 +231,7 @@ function call(n: Extract<SLNode, { k: "call" }>, name: (r: number) => string): s
         case SLOP.NORMALIZE: return `normalize(${a[0]})`
         case SLOP.REFLECT: return `reflect(${a[0]}, ${a[1]})`
         case SLOP.LUMINANCE: return `sl_luminance(${a[0]}.rgb)`
+        case SLOP.TO_LINEAR: return `sl_toLinear(${a[0]})`
 
         case SLOP.MIX: return `lerp(${a[0]}, ${a[1]}, ${a[2]})`
         case SLOP.STEP: return `step(${a[0]}, ${a[1]})`

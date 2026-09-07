@@ -84,6 +84,9 @@ export const SLOP = {
     HSV2RGB: 113,
     RGB2HSV: 114,
     LUMINANCE: 115,
+    // A colour as written (sRGB, like CSS) to the working space the target
+    // holds. Gamma-aware in both backends; alpha is left alone.
+    TO_LINEAR: 116,
 
     // Procedural. These are SUPERINSTRUCTIONS: one opcode expanding to a
     // substantial block in the shader, the way SOURCE_NOISE and SOURCE_SDF
@@ -129,7 +132,7 @@ export const SL_ARITY: Record<number, number> = {
     [SLOP.MIX]: 3, [SLOP.STEP]: 2, [SLOP.SMOOTHSTEP]: 3, [SLOP.SELECT]: 3,
     [SLOP.REMAP]: 5,
 
-    [SLOP.RAMP]: -1, [SLOP.HSV2RGB]: 1, [SLOP.RGB2HSV]: 1, [SLOP.LUMINANCE]: 1,
+    [SLOP.RAMP]: -1, [SLOP.HSV2RGB]: 1, [SLOP.RGB2HSV]: 1, [SLOP.LUMINANCE]: 1, [SLOP.TO_LINEAR]: 1,
 
     [SLOP.NOISE]: 1, [SLOP.SIMPLEX]: 1, [SLOP.FBM]: 1, [SLOP.SDF]: 1,
     [SLOP.VORONOI]: 1,

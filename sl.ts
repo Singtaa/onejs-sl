@@ -343,6 +343,19 @@ export const round = unary(SLOP.ROUND)
  * components. The error surfaced two calls away from the cause, which is what
  * width preserving by default costs when it is wrong.
  */
+/**
+ * A colour as written (sRGB, the way CSS reads a hex) to the working space the
+ * target holds. `ramp` and `color` already apply it; call it yourself on a
+ * vec4 built from raw components that mean a colour. Alpha is left alone.
+ */
+export const toLinear = unary(SLOP.TO_LINEAR)
+
+/** A hex colour as a vec4 in the working space: `parseColor` plus `toLinear`. */
+export function color(hex: string): Vec4 {
+    const v = parseColor(hex)
+    return toLinear(vec4(v[0], v[1], v[2], v[3]))
+}
+
 export function luminance(c: Num): Float {
     const v = typeof c === "number" ? float(c) : c
     return mk(v.owner, v.owner.call(SLOP.LUMINANCE, TYPE.FLOAT, [v.ref]), TYPE.FLOAT)
@@ -470,7 +483,10 @@ export function ramp(t: Num, stops: Array<string | [number, number, number, numb
         const local = (tv.mul(spans).sub(i) as Float).saturate()
         out = mix(out, cols[i + 1], local) as Vec4
     }
-    return out
+    // The stops are sRGB as written and the mixes ran in that space, which is
+    // what reads as an even ramp; one conversion at the end puts the result in
+    // the target's working space. Same rule as fx's gradient and ramp.
+    return toLinear(out)
 }
 
 /**

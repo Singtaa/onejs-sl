@@ -284,6 +284,18 @@ describe("ramp is a macro, not an opcode", () => {
         expect(p.nodes.some((n) => n.k === "call" && n.op === SLOP.MIX)).toBe(true)
     })
 
+    it("ends in one TO_LINEAR, so the stops are mixed in sRGB and converted once", () => {
+        const p = sl.program(({ uv }) => sl.ramp(uv.x, ["#000018", "#0080ff", "#ffffff"]))
+        const calls = p.nodes.filter((n) => n.k === "call" && n.op === SLOP.TO_LINEAR)
+        expect(calls.length).toBe(1)
+        expect(p.nodes.indexOf(calls[0]!)).toBe(p.nodes.length - 1)
+    })
+
+    it("color is parseColor plus toLinear", () => {
+        const p = sl.program(() => sl.color("#808080"))
+        expect(p.nodes.some((n) => n.k === "call" && n.op === SLOP.TO_LINEAR)).toBe(true)
+    })
+
     it("takes a ramp of any length, which an instruction could not", () => {
         const p = sl.program(({ uv }) =>
             sl.ramp(uv.x, ["#000", "#111", "#222", "#333", "#444", "#555", "#666", "#777"]))

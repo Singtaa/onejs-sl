@@ -96,3 +96,13 @@ than "fewer instructions".
   measurements that decided the VM's shape
 - `Tools/shader-vm-spike/`, the harness behind those numbers
 - `../fx/`, the image pipeline this becomes a source and an operand for
+
+## Colours
+
+A hex colour is sRGB as written, the way CSS reads it, and the target holds
+linear light. `sl.ramp` mixes its stops in sRGB, which is what reads as an even
+ramp, and converts the result once through `TO_LINEAR`; `sl.color("#hex")` is
+`parseColor` plus that conversion, and `sl.toLinear` is the conversion on its
+own for a vec4 built from raw components. Both backends implement it gamma
+aware (`sl_toLinear` in `SLCommon.cginc`), so a Gamma project gets the value as
+written. Alpha is coverage and is never converted. Same rule as `fx`.
