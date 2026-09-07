@@ -107,8 +107,13 @@ describe("sl GPU fixtures", () => {
         // thing it checks. Both backends call the same sl_voronoi in
         // SLCommon.cginc, so their agreement is structural rather than tested.
 
-        add("ramp midpoint", "halfway along a black to white ramp is 0.5 grey",
-            sl.program(({ uv }) => sl.ramp(uv.x, ["#000000", "#ffffff"])), [0.5, 0.5, 0.5, 1])
+        // Stops are sRGB as written and mixed in that space, so the midpoint is
+        // the sRGB grey #808080 converted to the target's linear working space
+        // (0.214 exact; the shader's fast curve gives 0.215), not 0.5.
+        add("ramp midpoint", "halfway along a black to white ramp is sRGB mid grey, 0.214 linear",
+            sl.program(({ uv }) => sl.ramp(uv.x, ["#000000", "#ffffff"])), [0.214, 0.214, 0.214, 1])
+        add("colour as written", "sl.color reads a hex as sRGB and stores linear light",
+            sl.program(() => sl.color("#ff4705")), [1, 0.0631, 0.0015, 1])
 
         mkdirSync(dirname(OUT), { recursive: true })
         writeFileSync(OUT, JSON.stringify({ generatedBy: "onejs-unity/src/sl/fixtures/gen.test.ts", fixtures: fx }, null, 1))
