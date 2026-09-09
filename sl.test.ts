@@ -287,7 +287,7 @@ describe("noise is the fx family", () => {
     it("lets fbm pick a simplex base and refuses more octaves than the shader unrolls", () => {
         const p = sl.program(({ uv }) => { const n = sl.fbm(uv, 3, "simplex"); return sl.vec4(n, n, n, 1) })
         const fbm = p.nodes.find((n) => n.k === "call" && n.op === SLOP.FBM)
-        expect(fbm?.imm).toEqual([3, 1])
+        expect(fbm?.k === "call" ? fbm.imm : undefined).toEqual([3, 1])
         expect(() => sl.program(({ uv }) => { const n = sl.fbm(uv, 5); return sl.vec4(n, n, n, 1) })).toThrow(/1 to 4/)
     })
 })
