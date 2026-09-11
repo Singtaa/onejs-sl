@@ -119,3 +119,28 @@ describe("the HLSL emitter", () => {
         expect(() => uniformProperty("not valid")).toThrow(/usable shader property name/)
     })
 })
+
+describe("what a program is given", () => {
+    /**
+     * `_ScreenParams` is the WINDOW, not the target.
+     *
+     * A program is drawn with Graphics.Blit into the element's own render
+     * texture, and Unity sets _ScreenParams per camera and leaves it alone for
+     * a blit: rendering into a 64x256 target read it as 1737x1226. Both
+     * backends read the same wrong thing, so they agreed with each other and
+     * the eject test, which compares them, saw nothing. Only a picture did:
+     * `aspect` stretched every circle by the shape of whatever window it was
+     * in. Pinned here so the emitter cannot drift back.
+     */
+    it("reads resolution, fragCoord and aspect from the target, never from the screen", () => {
+        const p = sl.program(({ uv, fragCoord, resolution, aspect }) =>
+            sl.vec4(uv.x.add(fragCoord.x).add(resolution.x).add(aspect), 0, 0, 1))
+        const out = emitShader(p)
+        expect(out).not.toContain("_ScreenParams")
+        expect(out).toContain("float4 _Res;")
+        expect(out).toContain('_Res ("Target size", Vector)')
+        expect(out).toContain("i.uv * _Res.xy")
+        expect(out).toContain("_Res.x / max(_Res.y, 1.0)")
+    })
+})
+

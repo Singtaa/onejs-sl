@@ -74,8 +74,9 @@ export function emitShader(p: Program, options: EmitOptions = {}): string {
     const props: string[] = [
         `        _Secs ("Seconds", Float) = 0`,
         `        _FlipY ("Flip Y", Float) = 0`,
+        `        _Res ("Target size", Vector) = (1, 1, 0, 0)`,
     ]
-    const decls: string[] = [`            float _Secs;`, `            float _FlipY;`]
+    const decls: string[] = [`            float _Secs;`, `            float _FlipY;`, `            float4 _Res;`]
 
     for (const u of p.uniforms) {
         const prop = uniformProperty(u.name)
@@ -166,12 +167,22 @@ function expr(n: SLNode, name: (r: number) => string, p: Program): string {
         case "const":
             return ctor(n.type, n.v.map(lit))
         case "input": {
+            // `_Res` is the TARGET's size, set by the host, not `_ScreenParams`.
+            //
+            // A program is drawn with Graphics.Blit into the element's own
+            // render texture, and Unity leaves _ScreenParams at whatever the
+            // last camera set: blitting into a 64x256 target reads it as the
+            // game view's 1737x1226. So `resolution` and `fragCoord` were the
+            // window's and `aspect` was the window's ratio, identically wrong
+            // on both backends, which is why nothing caught it. Aspect
+            // correction, the thing `aspect` exists for, stretched every
+            // circle by the shape of the window it happened to be in.
             switch (INPUT_ID[n.name]) {
                 case 0: return "i.uv"
-                case 1: return "i.uv * _ScreenParams.xy"
-                case 2: return "_ScreenParams.xy"
+                case 1: return "i.uv * _Res.xy"
+                case 2: return "_Res.xy"
                 case 3: return "_Secs"
-                default: return "_ScreenParams.x / max(_ScreenParams.y, 1.0)"
+                default: return "(_Res.x / max(_Res.y, 1.0))"
             }
         }
         case "uniform": {

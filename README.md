@@ -122,6 +122,21 @@ than "fewer instructions".
 - `Tools/shader-vm-spike/`, the harness behind those numbers
 - `../fx/`, the image pipeline this becomes a source and an operand for
 
+## What a program is given
+
+`uv`, `fragCoord`, `resolution`, `time` and `aspect`, and the last three are the
+**target's**, not the window's. A program is drawn with `Graphics.Blit` into the
+element's own render texture, and Unity sets `_ScreenParams` per camera and
+leaves it alone for a blit: reading it from a 64x256 target answers with the
+game view's size. Both backends read the same wrong thing, so they agreed with
+each other and the eject test, which compares them, saw nothing. What saw it was
+a picture, because aspect correction, the one thing `aspect` exists for,
+stretched every circle by the shape of whatever window it was in. The host now
+sets `_Res` from the target and both backends read that.
+
+`fx` had already learned this: `ShaderEffectElement` sets `_Aspect` from the
+render texture with a comment saying why. The lesson did not travel.
+
 ## Colours
 
 A hex colour is sRGB as written, the way CSS reads it, and the target holds

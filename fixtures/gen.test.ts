@@ -127,6 +127,15 @@ describe("sl GPU fixtures", () => {
         add("colour as written", "sl.color reads a hex as sRGB and stores linear light",
             sl.program(() => sl.color("#ff4705")), [1, 0.0631, 0.0015, 1])
 
+        // Rendered at 1x1, where aspect is 1. Its reason for existing is the
+        // C# test that renders it at 64x32 and 32x64: `aspect` came from
+        // _ScreenParams, which is the WINDOW and not the target, so both
+        // backends read the game view's ratio and agreed with each other while
+        // stretching every circle. Nothing had ever rendered into a non-square
+        // target, so nothing saw it.
+        add("aspect", "width over height of the TARGET, which is 1 at 1x1",
+            sl.program(({ aspect }) => sl.vec4(aspect, 0, 0, 1)), [1, 0, 0, 1])
+
         // A program written as a `.sl` FILE rather than through the EDSL.
         //
         // The parity test already proves a file and its EDSL twin are the same
