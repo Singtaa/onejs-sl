@@ -309,6 +309,19 @@ function compose(width: SLType, parts: Num[]): Val {
     // is hardest to test. Splitting at record time costs a few extra swizzle
     // nodes, which the register allocator reclaims immediately, and leaves the
     // VM's COMPOSE trivially correct.
+    // A constructor of literals is ONE constant, not a COMPOSE of four.
+    //
+    // `vec4(0.1, 0.2, 0.3, 0.4)` was five instructions holding four registers
+    // at once, because every part became its own CONST and COMPOSE kept them
+    // all live. The IR has always been able to say it in one node: a const
+    // carries up to four components. A two stop `ramp` used five of the eight
+    // registers on nothing but its own stop colours, which put the language's
+    // headline colour tool within one or two registers of unusable in any
+    // program that also did something.
+    if (parts.length === width && parts.every((p) => typeof p === "number")) {
+        return mk(b, b.constant(parts as number[]), width)
+    }
+
     const refs: NodeRef[] = []
     let total = 0
     for (const p of parts) {
@@ -565,17 +578,24 @@ export function parseColor(hex: string): [number, number, number, number] {
 export function ramp(t: Num, stops: Array<string | [number, number, number, number]>): Vec4 {
     if (stops.length < 2) throw new SLError(`a ramp needs at least 2 stops, got ${stops.length}`)
     const tv = (typeof t === "number" ? float(t) : t).saturate()
-    const cols = stops.map((c) => {
-        const v = typeof c === "string" ? parseColor(c) : c
+    // Each stop is built IMMEDIATELY BEFORE the mix that consumes it, not all
+    // of them up front. The graph is identical either way and so is the hash,
+    // which is a Merkle hash over the shape and not over storage order, but the
+    // register allocator walks the array: built up front, every stop stayed
+    // live until the last mix, and a four stop ramp reserved four of the VM's
+    // eight registers before the program did anything. That put the language's
+    // headline colour tool a couple of registers from unusable.
+    const colourAt = (i: number) => {
+        const v = typeof stops[i] === "string" ? parseColor(stops[i] as string) : (stops[i] as number[])
         return vec4(v[0], v[1], v[2], v[3])
-    })
+    }
     const spans = stops.length - 1
-    let out = cols[0]
+    let out = colourAt(0)
     for (let i = 0; i < spans; i++) {
         // Local 0..1 across this span, clamped, so stops outside it contribute
         // nothing and the chain reads as "each span paints over the last".
         const local = (tv.mul(spans).sub(i) as Float).saturate()
-        out = mix(out, cols[i + 1], local) as Vec4
+        out = mix(out, colourAt(i + 1), local) as Vec4
     }
     // The stops are sRGB as written and the mixes ran in that space, which is
     // what reads as an even ramp; one conversion at the end puts the result in

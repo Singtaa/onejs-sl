@@ -98,6 +98,15 @@ export interface Encoded {
      * the caller's own `uniforms` write over them.
      */
     defaults: number[]
+    /**
+     * Texture names in SLOT order, so a host can bind one by name.
+     *
+     * The same reason the uniform names are here: the VM addresses a texture by
+     * slot and the generated shader declares `_Tex0`, so a host handed the name
+     * an author wrote had no way to reach either. Setting a material property
+     * called `grain` bound nothing, in both backends, silently.
+     */
+    textures: string[]
     hash: string
     /**
      * The program as HLSL, for a host that can compile it.
@@ -271,6 +280,7 @@ export function encode(program: Program): Encoded {
         // uses the resulting index as the slot.
         uniforms: program.uniforms.map((u) => u.name),
         defaults: uniformDefaults(program),
+        textures: program.textures.map((t) => t.name),
         hash: program.hash,
     } as Encoded
     let hlsl: string | undefined
