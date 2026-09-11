@@ -23,8 +23,7 @@
  */
 
 import { SLError, TYPE, type Program, type SLNode, type SLType } from "./ir"
-import { SLOP } from "./ops"
-import { INPUT_ID } from "./encode"
+import { INPUT_ID, SLOP } from "./ops"
 
 const HLSL_TYPE: Record<SLType, string> = { 1: "float", 2: "float2", 3: "float3", 4: "float4" }
 

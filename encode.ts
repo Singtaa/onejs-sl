@@ -26,7 +26,12 @@
 import {
     MAX_TEXTURES, SLError, type NodeRef, type Program, type SLNode, type SLType,
 } from "./ir"
-import { SLOP } from "./ops"
+import { INPUT_ID, SLOP } from "./ops"
+import { emitShader } from "./hlsl"
+
+// Lives in ops.ts with the other wire constants; re-exported so nothing that
+// reached it through the encoder has to move.
+export { INPUT_ID }
 
 /**
  * Registers in the VM's file. Phase 0's answer, not a preference.
@@ -82,6 +87,16 @@ export interface Encoded {
      */
     uniforms: string[]
     hash: string
+    /**
+     * The program as HLSL, for a host that can compile it.
+     *
+     * Lazy, and absent from enumeration: in Play nothing ever reads it, so the
+     * emitter never runs there. In an editor the host asks for it once per
+     * program it has no compiled shader for, records it, and generates the
+     * shader, which is how an ejected game ends up compiled without anybody
+     * writing a manifest.
+     */
+    readonly hlsl: string
 }
 
 interface Instr {
@@ -231,7 +246,7 @@ export function encode(program: Program): Encoded {
         data[o + 6] = ins.imm[2]; data[o + 7] = ins.imm[3]
     })
 
-    return {
+    const encoded = {
         data,
         instructions: out.length,
         resultRegister: reg.get(program.result)!,
@@ -240,7 +255,13 @@ export function encode(program: Program): Encoded {
         // uses the resulting index as the slot.
         uniforms: program.uniforms.map((u) => u.name),
         hash: program.hash,
-    }
+    } as Encoded
+    let hlsl: string | undefined
+    Object.defineProperty(encoded, "hlsl", {
+        enumerable: false,
+        get: () => (hlsl ??= emitShader(program)),
+    })
+    return encoded
 }
 
 const NONE: [number, number, number, number] = [0, 0, 0, 0]
@@ -310,11 +331,6 @@ function emit(n: SLNode, dst: number, args: number[], srcWidth?: SLType): Instr 
             return { op: n.op, dst, a: args[0] ?? 0, b: args[1] ?? 0, imm }
         }
     }
-}
-
-/** Input ids, fixed here because the shader switches on them. */
-export const INPUT_ID: Record<string, number> = {
-    uv: 0, fragCoord: 1, resolution: 2, time: 3, aspect: 4,
 }
 
 /**

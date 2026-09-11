@@ -25,6 +25,11 @@
 /** Bumped when the encoding changes. The VM accepts 1..CURRENT and refuses newer. */
 export const SL_WIRE_VERSION = 1
 
+/** Input ids, fixed here because the shader switches on them. */
+export const INPUT_ID: Record<string, number> = {
+    uv: 0, fragCoord: 1, resolution: 2, time: 3, aspect: 4,
+}
+
 export const SLOP = {
     // Construct and swizzle
     CONST: 0,

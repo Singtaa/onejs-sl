@@ -23,8 +23,14 @@ does not change what the author wrote, it changes what is possible, because an
 editor compiles shaders at build time.
 
 So the same source is interpreted by a VM on play.onejs.com and compiled from
-generated HLSL after an eject, with no edit in between. Neither backend exists
-yet. This module is the contract they will share.
+generated HLSL after an eject, with no edit in between. Both backends exist:
+`encode.ts` feeds `Runtime/SL/SLProgramBridge.cs` and `FxProgram.shader`, and
+`hlsl.ts` feeds `Editor/SLShaderGenerator.cs`. Nobody writes a manifest for the
+second: an editor that interprets a program asks the encoded program for its
+`hlsl` (a lazy getter, never read in Play), records it into
+`Assets/OneJS.Generated/Shaders/Recorded.sl.json`, generates the shader and
+moves the live material onto it. `manifest()` is still there for an app that
+would rather write its programs out at build time.
 
 ## Why an EDSL rather than a text language
 

@@ -343,3 +343,15 @@ describe("the uniform table", () => {
         expect(encode(sl.program(({ uv }) => sl.vec4(uv, 0, 1))).uniforms).toEqual([])
     })
 })
+
+describe("the encoded program carries its HLSL for a host that can compile it", () => {
+    it("emits lazily, once, and keeps it out of enumeration", () => {
+        const p = sl.program(({ uv }) => sl.vec4(uv, 0, 1))
+        const enc = encode(p)
+        expect(Object.keys(enc)).not.toContain("hlsl")
+        expect(JSON.stringify(enc)).not.toContain("Shader ")
+        const first = enc.hlsl
+        expect(first).toContain(`Shader "Hidden/SLGenerated/${p.hash}"`)
+        expect(enc.hlsl).toBe(first)
+    })
+})

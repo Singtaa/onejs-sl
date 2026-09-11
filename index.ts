@@ -11,11 +11,13 @@
  *   - generated HLSL, compiled at build time, for a project that has an editor
  *
  * Same source, interpreted in the browser and compiled after an eject, with no
- * edit in between. Neither backend exists yet; this is the contract they share.
+ * edit in between. Both backends exist: `encode.ts` feeds the VM in
+ * `Runtime/SL/SLProgramBridge.cs`, and `hlsl.ts` feeds `SLShaderGenerator.cs`,
+ * which an editor runs for every program it sees interpreted.
  */
 export * as sl from "./sl"
-export { SLOP, SL_ARITY, SL_NAME, SL_WIRE_VERSION, isSampling } from "./ops"
-export { REGISTERS, MAX_INSTRUCTIONS, TEXELS_PER_INSTRUCTION, INPUT_ID, encode, reachable, liveRanges } from "./encode"
+export { SLOP, SL_ARITY, SL_NAME, SL_WIRE_VERSION, INPUT_ID, isSampling } from "./ops"
+export { REGISTERS, MAX_INSTRUCTIONS, TEXELS_PER_INSTRUCTION, encode, reachable, liveRanges } from "./encode"
 export type { Encoded } from "./encode"
 export { emitShader, emitFragmentBody, uniformProperty } from "./hlsl"
 export type { EmitOptions } from "./hlsl"
