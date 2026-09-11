@@ -153,20 +153,24 @@ export function liveRanges(nodes: SLNode[], order: NodeRef[], result: NodeRef): 
 }
 
 /**
- * Names the `sl.repeat` calls behind an over-long program. A repeat unrolls, so
- * a count that reads as one line of source is emitted once per iteration, and
- * without this the error blames "instructions" the author never wrote. A loop
- * is named only when it fills a quarter of the budget or more: a repeat(2) in a
+ * Names the loops behind an over-long program. A loop unrolls, so a count that
+ * reads as one line of source is emitted once per iteration, and without this
+ * the error blames "instructions" the author never wrote. A loop is named only
+ * when it fills a quarter of the budget or more: a two iteration loop in a
  * program made long by other code is not the thing to lower.
+ *
+ * Worded for both surfaces: the span comes from `sl.repeat` in the EDSL and
+ * from `for` in a `.sl` file, and an author who wrote one should not be told
+ * about the other.
  */
 function blameLoops(program: Program, order: NodeRef[]): string {
     const parts: string[] = []
     for (const loop of program.loops ?? []) {
         const ops = order.filter((r) => r >= loop.start && r < loop.end).length
-        if (ops * 4 >= MAX_INSTRUCTIONS) parts.push(`repeat(${loop.count}) accounts for ${ops}`)
+        if (ops * 4 >= MAX_INSTRUCTIONS) parts.push(`a loop of ${loop.count} accounts for ${ops}`)
     }
     if (parts.length === 0) return ""
-    return ` sl.repeat unrolls, so every iteration is emitted in full: ${parts.join(", ")}. ` +
+    return ` A loop unrolls, so every iteration is emitted in full: ${parts.join(", ")}. ` +
         `Lower the count or slim the body.`
 }
 

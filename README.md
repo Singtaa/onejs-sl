@@ -32,7 +32,25 @@ second: an editor that interprets a program asks the encoded program for its
 moves the live material onto it. `manifest()` is still there for an app that
 would rather write its programs out at build time.
 
-## Why an EDSL rather than a text language
+## Two ways to write one
+
+A `.sl` file is HLSL text and `sl.program` is a TypeScript EDSL, and they record
+the same graph: a file lowers THROUGH the EDSL, so `sin(x)` and `sl.sin(x)` are
+one call. `lang/` is the parser and `lang/README.md` covers it; the rest of this
+file is the IR, the hash and the EDSL, which both surfaces sit on.
+
+```hlsl
+float4 main() {
+    float2 p = uv * 8 + time * 0.4;
+    float v = sin(p.x) + sin(p.y);
+    return float4(v * 0.5 + 0.5, 0, 0, 1);
+}
+```
+
+Docs lead with the file. The EDSL is the programmatic form: the IR builder, the
+parser's target, and what a program built by code uses.
+
+## Why an EDSL came first
 
 A TypeScript EDSL inherits completion, type errors at the call site, jump to
 definition, rename and the author's editor for free. Monaco in the Play editor
@@ -44,8 +62,9 @@ shared node**. `const p = uv.mul(8)` used three times is one node with three
 references, and writing it out long hand three times costs exactly the same,
 because nodes are interned as they are built.
 
-A text syntax stays possible later and costs only a parser, since the parser
-would emit this same IR.
+That reasoning is why the parser, when it came, cost only a parser: it emits
+this same IR, so it inherited the encoder, the emitter, the hash and every test
+that runs on a program.
 
 ## What is checked, and when
 
@@ -82,7 +101,7 @@ than for any cryptographic reason.
 
 ## Control flow
 
-There is none, deliberately. `sl.select`, `sl.step`, `sl.smoothstep` and
+There is none in the IR, deliberately. `sl.select`, `sl.step`, `sl.smoothstep` and
 `sl.mix` cover branching without branching, and `sl.repeat(n, body, seed)`
 unrolls at record time because `n` is a JavaScript number.
 

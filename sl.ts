@@ -73,8 +73,8 @@ export class Val {
     min(o: Num): this { return bin(SLOP.MIN, this, o) as this }
     max(o: Num): this { return bin(SLOP.MAX, this, o) as this }
     clamp(lo: Num, hi: Num): this {
-        const [a, l, h] = align3(this, lo, hi)
-        return mk(this.owner, this.owner.call(SLOP.CLAMP, this.width, [a, l, h]), this.width) as this
+        const { refs, width } = alignN([this, lo, hi])
+        return mk(this.owner, this.owner.call(SLOP.CLAMP, width, refs), width) as this
     }
 
     /** Length, distance and dot collapse to a Float whatever the input width. */
@@ -200,10 +200,35 @@ function align2(a: Val, o: Num): [NodeRef, NodeRef] {
     throw new SLError(`cannot combine a ${widthName(a.width)} with a ${widthName(o.width)}`)
 }
 
-function align3(a: Val, x: Num, y: Num): [NodeRef, NodeRef, NodeRef] {
-    const [ra, rx] = align2(a, x)
-    const [, ry] = align2(a, y)
-    return [ra, rx, ry]
+/**
+ * Aligns any number of operands of a component wise op to their widest.
+ *
+ * THE RESULT WIDTH IS THE WIDEST OPERAND, not the first one. `align2` gets that
+ * right for two operands because `bin` takes the max itself; the three and four
+ * operand ops used to take the width from one chosen operand, so
+ * `mix(0, aVec3, t)` produced a node typed float that held three components.
+ * The VM keeps every value in a float4 register and never noticed, while the
+ * HLSL emitter declared `float` and truncated, so the two backends rendered
+ * different pictures from one program. Anything component wise with more than
+ * two operands goes through here.
+ */
+function alignN(vs: Num[]): { refs: NodeRef[]; width: SLType } {
+    let width: SLType = 1
+    let owner: Builder | null = null
+    for (const v of vs) {
+        if (typeof v === "number") continue
+        if (owner === null) owner = v.owner
+        else if (v.owner !== owner) throw new SLError("a value from another program cannot be used in this one")
+        if (v.width > width) width = v.width
+    }
+    const b = owner ?? ctx()
+    const refs = vs.map((v) => {
+        if (typeof v === "number") return lift(b, v, width)
+        if (v.width === width) return v.ref
+        if (v.width === 1) return broadcast(v, width)
+        throw new SLError(`cannot combine a ${widthName(v.width)} with a ${widthName(width)}`)
+    })
+    return { refs, width }
 }
 
 /** float -> vecN by repeating the component. */
@@ -373,6 +398,53 @@ export function hsv2rgb(c: Vec3): Vec3 {
     return mk(c.owner, c.owner.call(SLOP.HSV2RGB, TYPE.VEC3, [c.ref]), TYPE.VEC3)
 }
 
+/**
+ * Cross and reflect, both vec3 only.
+ *
+ * The VM evaluates them as `cross(a.xyz, b.xyz)`, so a vec2 or vec4 would mean
+ * one thing in a compiled build and another in the interpreter. Refusing the
+ * other widths here is what keeps the two honest.
+ */
+export function cross(a: Vec3, b: Vec3): Vec3 {
+    if (a.width !== TYPE.VEC3 || b.width !== TYPE.VEC3) {
+        throw new SLError(`cross takes two vec3s, got a ${widthName(a.width)} and a ${widthName(b.width)}`)
+    }
+    const [x, y] = align2(a, b)
+    return mk(a.owner, a.owner.call(SLOP.CROSS, TYPE.VEC3, [x, y]), TYPE.VEC3)
+}
+
+export function reflect(incident: Vec3, normal: Vec3): Vec3 {
+    if (incident.width !== TYPE.VEC3 || normal.width !== TYPE.VEC3) {
+        throw new SLError(
+            `reflect takes two vec3s, got a ${widthName(incident.width)} and a ${widthName(normal.width)}`,
+        )
+    }
+    const [i, n] = align2(incident, normal)
+    return mk(incident.owner, incident.owner.call(SLOP.REFLECT, TYPE.VEC3, [i, n]), TYPE.VEC3)
+}
+
+/**
+ * One range to another, linearly and without clamping.
+ *
+ * A MACRO, like `ramp`, and for the same reason: it expands into arithmetic
+ * both backends already have, so it needs no opcode, no second implementation
+ * in the emitter and no VM case. `SLOP.REMAP` stays a reserved number.
+ *
+ * Unclamped on purpose, which is what HLSL authors expect of the one liner they
+ * would otherwise write; wrap it in `saturate` when the ends matter.
+ */
+export function remap(v: Num, fromMin: Num, fromMax: Num, toMin: Num, toMax: Num): Val {
+    const x = typeof v === "number" ? float(v) : v
+    const t = x.sub(fromMin).div(difference(fromMax, fromMin))
+    return mix(toMin, toMax, t)
+}
+
+/** `a - b` where either side may still be a plain number, so a constant stays one. */
+function difference(a: Num, b: Num): Num {
+    if (typeof a === "number" && typeof b === "number") return a - b
+    return (typeof a === "number" ? float(a) : a).sub(b)
+}
+
 export function atan2(y: Num, x: Num): Float {
     const b = ctx()
     const yy = typeof y === "number" ? float(y) : y
@@ -390,8 +462,14 @@ export function select(cond: Num, whenTrue: Num, whenFalse: Num): Val {
     const c = typeof cond === "number" ? float(cond) : cond
     const t = typeof whenTrue === "number" ? float(whenTrue) : whenTrue
     const f = typeof whenFalse === "number" ? float(whenFalse) : whenFalse
-    const [tr, fr] = align2(t as Val, f)
-    return mk(b, b.call(SLOP.SELECT, (t as Val).width, [(c as Val).ref, tr, fr]), (t as Val).width)
+    // The condition is widened with the branches, not left at its own width.
+    // A register is a float4 whatever it holds, so a scalar condition sits
+    // there as (c, 0, 0, 0) and the VM's `step(0.5, cond)` answered 0 for
+    // components y, z and w, while the HLSL backend broadcasts a scalar
+    // itself. The two DISAGREED on every vector valued select, which is the one
+    // failure this design cannot tolerate.
+    const { refs, width } = alignN([c, t, f])
+    return mk(b, b.call(SLOP.SELECT, width, refs), width)
 }
 
 /**
@@ -404,23 +482,21 @@ export function select(cond: Num, whenTrue: Num, whenFalse: Num): Val {
  * genuine per component vector when an author wants one.
  */
 export function mix(a: Num, bv: Num, t: Num): Val {
-    const av = typeof a === "number" ? float(a) : a
-    const [x, y] = align2(av as Val, bv)
-    const [, tr] = align2(av as Val, t)
-    return mk(av.owner, av.owner.call(SLOP.MIX, (av as Val).width, [x, y, tr]), (av as Val).width)
+    const { refs, width } = alignN([a, bv, t])
+    const b = ctx()
+    return mk(b, b.call(SLOP.MIX, width, refs), width)
 }
 
 export function step(edge: Num, x: Num): Val {
-    const xv = typeof x === "number" ? float(x) : x
-    const [a, e] = align2(xv as Val, edge)
-    return mk(xv.owner, xv.owner.call(SLOP.STEP, (xv as Val).width, [e, a]), (xv as Val).width)
+    const { refs, width } = alignN([edge, x])
+    const b = ctx()
+    return mk(b, b.call(SLOP.STEP, width, refs), width)
 }
 
 export function smoothstep(e0: Num, e1: Num, x: Num): Val {
-    const xv = typeof x === "number" ? float(x) : x
-    const [a, r0] = align2(xv as Val, e0)
-    const [, r1] = align2(xv as Val, e1)
-    return mk(xv.owner, xv.owner.call(SLOP.SMOOTHSTEP, (xv as Val).width, [r0, r1, a]), (xv as Val).width)
+    const { refs, width } = alignN([e0, e1, x])
+    const b = ctx()
+    return mk(b, b.call(SLOP.SMOOTHSTEP, width, refs), width)
 }
 
 /** Uniform defaults, in slot order, for a host that has to seed them. */
@@ -597,10 +673,26 @@ export function repeat<T extends Val>(n: number, body: (i: number, acc: T) => T,
     if (!Number.isInteger(n) || n < 0 || n > 64) {
         throw new SLError(`repeat count must be a whole number from 0 to 64, got ${n}`)
     }
+    return unrolled(n, () => {
+        let acc = seed
+        for (let i = 0; i < n; i++) acc = body(i, acc)
+        return acc
+    })
+}
+
+/**
+ * Records the nodes a body produced as one unrolled span.
+ *
+ * Diagnostic only: the instruction ceiling error uses the span to say which
+ * loop spent the budget, so the fix reads as "lower this count" rather than
+ * "fewer instructions". `repeat` is the EDSL's form of it and the text
+ * language's `for` is the other, and neither should be reaching into the
+ * Builder to push a span itself.
+ */
+export function unrolled<T>(count: number, body: () => T): T {
     const b = ctx()
     const start = b.nodes.length
-    let acc = seed
-    for (let i = 0; i < n; i++) acc = body(i, acc)
-    b.loops.push({ count: n, start, end: b.nodes.length })
-    return acc
+    const out = body()
+    b.loops.push({ count, start, end: b.nodes.length })
+    return out
 }
