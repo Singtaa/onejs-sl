@@ -14,6 +14,11 @@
  * edit in between. Both backends exist: `encode.ts` feeds the VM in
  * `Runtime/SL/SLProgramBridge.cs`, and `hlsl.ts` feeds `SLShaderGenerator.cs`,
  * which an editor runs for every program it sees interpreted.
+ *
+ * THE PARSER IS NOT HERE. `.sl` files are parsed at build time, by the esbuild
+ * loader, and a played game never needs a line of it. `onejs-unity/sl/compiler`
+ * is that surface; this one is what a game imports and what the eject scaffold
+ * vendors into a downloaded project.
  */
 export * as sl from "./sl"
 export { SLOP, SL_ARITY, SL_NAME, SL_WIRE_VERSION, INPUT_ID, isSampling } from "./ops"
@@ -21,10 +26,6 @@ export { REGISTERS, MAX_INSTRUCTIONS, TEXELS_PER_INSTRUCTION, encode, reachable,
 export type { Encoded } from "./encode"
 export { emitShader, emitFragmentBody, uniformProperty } from "./hlsl"
 export type { EmitOptions } from "./hlsl"
-export { analyze, parse, parseUnit, preludeFunctions, tokenize, PRELUDE_SOURCE, SLParseError } from "./lang"
-export type { Checked, Expr, FuncDecl, ParseOptions, Stmt, Unit } from "./lang"
-export { SL_HLSL, SL_CALL_NAMES, SL_GLSL_HINT, SL_UNIMPLEMENTED, VM_TEXTURES, VM_UNIFORMS } from "./ops"
-export type { SLSurface } from "./ops"
 export { manifest } from "./manifest"
 export { SL_SDF_SHAPES } from "./shapes"
 export type { SlSdfKind } from "./shapes"

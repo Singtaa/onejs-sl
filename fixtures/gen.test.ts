@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path"
 import { sl } from "../index"
 import { encode } from "../encode"
 import { emitShader } from "../hlsl"
+import { parse } from "../lang"
 
 /**
  * Emits the fixtures the Unity side renders and checks.
@@ -30,6 +31,16 @@ interface Fixture {
     resultRegister: number
     /** Flat float4 per uniform slot, so the host can seed declared defaults. */
     uniforms: number[]
+    /**
+     * The same uniforms by name, in slot order.
+     *
+     * The native backend binds a uniform as the material property `_u_<name>`,
+     * so the C# test has to know the names to set one. It used to assume "k",
+     * which was true of the only fixture that had a uniform; the first fixture
+     * with a different name would have been set on a property no shader has,
+     * and passed anyway by falling back on the shader's declared default.
+     */
+    uniformNames: string[]
     /** The same program as generated HLSL, for the golden comparison. */
     hlsl: string
     hash: string
@@ -44,7 +55,8 @@ describe("sl GPU fixtures", () => {
             const e = encode(p)
             fx.push({
                 name, note, data: [...e.data], instructions: e.instructions,
-                resultRegister: e.resultRegister, uniforms: sl.uniformDefaults(p), expected,
+                resultRegister: e.resultRegister, uniforms: sl.uniformDefaults(p),
+                uniformNames: p.uniforms.map((u: { name: string }) => u.name), expected,
                 hlsl: emitShader(p, { name: `Hidden/SLTest/${p.hash}` }), hash: p.hash,
             })
         }
@@ -114,6 +126,37 @@ describe("sl GPU fixtures", () => {
             sl.program(({ uv }) => sl.ramp(uv.x, ["#000000", "#ffffff"])), [0.214, 0.214, 0.214, 1])
         add("colour as written", "sl.color reads a hex as sRGB and stores linear light",
             sl.program(() => sl.color("#ff4705")), [1, 0.0631, 0.0015, 1])
+
+        // A program written as a `.sl` FILE rather than through the EDSL.
+        //
+        // The parity test already proves a file and its EDSL twin are the same
+        // graph, which is the stronger claim and needs no GPU. These two are
+        // here because the eject path is checked on real hardware from this
+        // file: SLEjectPathTests generates a shader per fixture, renders it and
+        // the VM, and compares. Without one that started as text, that end to
+        // end check would still only ever have seen the EDSL.
+        add("a .sl file with a uniform default",
+            "signed distance at the centre of a radius 0.25 circle is -0.25, plus a 0.75 default",
+            parse(`
+                uniform float bias = 0.75;
+                float4 main() {
+                    float d = sdf.circle(uv - 0.5, 0.25);
+                    return float4(d + bias, 0, 0, 1);
+                }
+            `, { file: "bias.sl" }), [0.5, 0, 0, 1])
+
+        // An `if` is a `select` on both backends, which is the lowering most
+        // likely to drift: the VM evaluates step(0.5, cond) per component and
+        // the HLSL emitter writes a lerp. Rendering both is how that stays true.
+        add("a .sl file whose if became a select",
+            "uv.x is 0.5 at the centre, so the branch taken is the 0.75 one",
+            parse(`
+                float4 main() {
+                    float v = 0.25;
+                    if (uv.x > 0.25) { v = 0.75; }
+                    return float4(v, 0, 0, 1);
+                }
+            `, { file: "branch.sl" }), [0.75, 0, 0, 1])
 
         mkdirSync(dirname(OUT), { recursive: true })
         writeFileSync(OUT, JSON.stringify({ generatedBy: "onejs-unity/src/sl/fixtures/gen.test.ts", fixtures: fx }, null, 1))

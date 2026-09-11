@@ -28,6 +28,7 @@ import {
 } from "./ir"
 import { INPUT_ID, SLOP } from "./ops"
 import { emitShader } from "./hlsl"
+import { uniformDefaults } from "./sl"
 
 // Lives in ops.ts with the other wire constants; re-exported so nothing that
 // reached it through the encoder has to move.
@@ -86,6 +87,17 @@ export interface Encoded {
      * material property instead and every uniform stayed at zero.
      */
     uniforms: string[]
+    /**
+     * Declared uniform defaults, four floats per slot in slot order.
+     *
+     * The generated shader writes these into its Properties block, so a
+     * compiled material starts at them, while the VM's uniform array starts at
+     * zero. Without carrying them across, an unset uniform was its default
+     * after an eject and 0 in the browser: one program, two pictures, nothing
+     * to see in either. The host seeds these right after uploading and lets
+     * the caller's own `uniforms` write over them.
+     */
+    defaults: number[]
     hash: string
     /**
      * The program as HLSL, for a host that can compile it.
@@ -258,6 +270,7 @@ export function encode(program: Program): Encoded {
         // Slot order, which is declaration order: Builder.uniform pushes and
         // uses the resulting index as the slot.
         uniforms: program.uniforms.map((u) => u.name),
+        defaults: uniformDefaults(program),
         hash: program.hash,
     } as Encoded
     let hlsl: string | undefined

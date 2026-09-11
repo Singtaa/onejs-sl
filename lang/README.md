@@ -44,6 +44,55 @@ is told. So parity is the test to keep green, not the parser's unit tests.
 | `lower.ts` | AST to IR through the EDSL: SSA, unrolling, `select`, inlining |
 | `builtins.ts` | What each name does, keyed by the spelling `ops.ts` gives it |
 | `prelude.ts` | The standard library, written in the language |
+| `../../esbuild/sl.mjs` | The loader: `import plasma from "./plasma.sl"` |
+| `../compiler.ts` | The build time barrel. See below for why it is not `../index.ts` |
+
+## The loader
+
+`slPlugin()` parses and encodes at BUILD TIME, so an import resolves to a small
+object of numbers and the bundle carries neither the parser nor the source. A
+parse error becomes an esbuild error with the file, line and column, which the
+Play editor surfaces and every terminal editor links.
+
+It writes two things beside the code:
+
+- **`<name>.sl.d.ts`**, the way a USS module gets one, carrying the uniform
+  names in the type. `uniforms={{ wrap: 1 }}` is then a call site error rather
+  than a console warning on a frame nobody is looking at.
+- **`app.sl.json`** beside the bundle, the manifest `SLShaderGenerator` already
+  watches for. This is the thing the file format makes possible and the EDSL
+  cannot: a program in a file is known statically, so **an ejected game is
+  compiled from its first frame** rather than from its second. Runtime
+  recording stays for EDSL programs and for a build older than the loader; the
+  editor reads every `*.sl.json` it can find.
+
+An empty manifest is written only over one that is already there. Deleting the
+last `.sl` file has to stop its shaders being generated, and a project that has
+never had one should not find a new file beside its bundle.
+
+### Why the parser is compiled rather than imported
+
+The parser is TypeScript and the plugin runs under plain Node: an app's
+`esbuild.config.mjs` is executed by `node`, which cannot load a `.ts` file.
+Every plugin in that folder has the same constraint, which is why the Tailwind
+generator beside them is `.mjs`; a parser with two hundred tests is not going
+to be maintained twice.
+
+So the plugin compiles `sl/compiler.ts` once per process, with the esbuild
+already running the build, and imports the result: one source of truth, no
+generated artifact to go stale, about thirty milliseconds once. A Cloudflare
+Worker cannot evaluate code it builds, so PlaySite imports the parser
+statically and hands it in as `compiler`, and that path never runs there.
+
+### Why there are two barrels
+
+`onejs-unity/sl` is what a **game** imports, and the eject scaffold vendors it
+file for file into the downloaded project. `onejs-unity/sl/compiler` is what a
+**build** imports. Re-exporting the parser from the first put two thousand
+lines a played game never executes into every ejected project's source tree,
+where they could only read as clutter. The scaffold now vendors what a module's
+`index.ts` actually reaches rather than every file beside it, so the split is
+enforced by the eject's own test.
 
 ## Where the types are checked
 
