@@ -125,8 +125,15 @@ ${items.join("\n")}
             const h = hlsl(l)
             return typeof h === "string" ? `    ${tl(h)},` : `    {\n        gamma: ${tl(h.gamma)},\n        linear: ${tl(h.linear)},\n    },`
         }))
+    // Kept out of LIB_FUNCTIONS, which every emitter bundles: only an editor wants them.
+    const names = texts("LIB_PARAM_NAMES",
+        "/** Parameter names as the source writes them, by `LIB_FUNCTIONS` index. `onejs-sl/tables` reads them. */",
+        "readonly string[]", members.map((l) => `    [${fns[l[0]!]!.params.map((p) => q(p.name)).join(", ")}],`))
     return {
-        tables: { "src/lib/table.ts": table, "src/lib/glsl.ts": glsl, "src/lib/wgsl.ts": wgsl, "src/lib/hlsl.ts": shared },
+        tables: {
+            "src/lib/table.ts": table, "src/lib/glsl.ts": glsl, "src/lib/wgsl.ts": wgsl, "src/lib/hlsl.ts": shared,
+            "src/lib/names.ts": names,
+        },
         cginc,
     }
 }

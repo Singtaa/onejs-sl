@@ -37,7 +37,7 @@ only what it calls.
 |---|---|
 | `onejs-sl` | `parse` and `analyze`, the TypeScript form `sl`, the IR types, `SL_IR_VERSION`, `toJSON`/`fromJSON`, `SLParseError` (file, line, column, length) |
 | `onejs-sl/core` | the same without the parser: what a game needs at run time |
-| `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`: what completion and highlighting read |
+| `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`: what completion and highlighting read. `BUILTIN_PARAMS`, `SL_SDF_PARAM_NAMES` and `LIB_SIGNATURES` name every parameter, so an editor can show `lerp(x, y, s)` |
 | `onejs-sl/limits` | `vmFit(program)`: whether the VM runs it, and why not, without encoding |
 | `onejs-sl/vm` | `encode`, `SL_WIRE_VERSION` |
 | `onejs-sl/emit/hlsl-body` | `emitBody`: a program as a function body for a host's own frame; `emitLibrary`: the library functions it calls |
@@ -92,6 +92,8 @@ by `npm run lib`, and nobody edits the copies:
   the shape table read from `sl_sdfDistance`'s switch), and the text of each
   function as GLSL ES (`glsl.ts`), WGSL (`wgsl.ts`) and the shared subset
   (`hlsl.ts`). The web emitters and `emitLibrary` take only what a program calls.
+  `names.ts` holds each function's parameter names, which only
+  `onejs-sl/tables` reads.
 
 `lib/translate.ts` does the printing, at build time only. It reads a subset of
 HLSL, listed at its top (functions, locals, `if`, bounded `for`, `switch`,

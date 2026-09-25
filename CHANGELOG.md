@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3
+
+`onejs-sl/tables` names every parameter, so an editor can offer `lerp(x, y, s)` rather than an argument count. Nothing a program compiles to changes.
+
+- `BUILTIN_PARAMS` names every builtin's parameters
+- `SL_SDF_PARAM_NAMES` names every shape's parameters
+- `LIB_SIGNATURES` gives every library function's parameter names and types
+
 ## 0.1.2
 
 The helper library has one source, `lib/*.hlsl`, translated at build time into GLSL ES, WGSL and the shared subset and copied into OneJS as its `.cginc` files. The web draws exactly what it drew; the Unity shader's text changes where Metal needed it to, and draws the same.

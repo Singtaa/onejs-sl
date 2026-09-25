@@ -1,6 +1,6 @@
 {
   "name": "onejs-sl",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "The OneJS shader language: a small typed language for per pixel programs, compiled to a portable IR and emitted as HLSL, WGSL, GLSL ES or a VM buffer",
   "main": "src/index.ts",
   "types": "src/index.ts",
