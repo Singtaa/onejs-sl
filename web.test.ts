@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { emitFragmentBody } from "./hlsl"
 import { SLOP } from "./ops"
-import { SL_SDF_SHAPES } from "./shapes"
+import { SL_SDF_PARAMS, SL_SDF_SHAPES } from "./shapes"
 import { emitGLSL, emitWGSL, WEB_UNIFORM_SLOTS } from "./web"
 import { SDF_CALLS, WEB_LIB } from "./weblib"
 import { TYPE, type Program, type SLNode } from "./ir"
@@ -42,6 +42,16 @@ describe("the web emitters", () => {
             const fn = { octagon: "sdOctogon", hyperbola: "sdHyberbola" }[shape] ?? "sd" + shape
             expect(call.fn.toLowerCase(), `id ${id}`).toBe(fn.toLowerCase())
             expect(names.has(call.fn), `${call.fn} is in the library`).toBe(true)
+        }
+    })
+
+    it("read as many parameters per shape as SL_SDF_PARAMS says (#129)", () => {
+        // Derived from the call table, which maps each argument onto
+        // [a.x, a.y, a.z, a.w, b.x, b.y]: the highest index a shape reads is
+        // its count. Two tables written by hand, held level by this.
+        for (const [shape, id] of Object.entries(SL_SDF_SHAPES)) {
+            const read = Math.max(0, ...SDF_CALLS[id]!.args.map((a) => Array.isArray(a) ? Math.max(...a) + 1 : a.int + 1))
+            expect(SL_SDF_PARAMS[shape as keyof typeof SL_SDF_PARAMS], shape).toBe(read)
         }
     })
 

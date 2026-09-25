@@ -281,8 +281,11 @@ export const SL_HASH_VERSION = 1
  * A reader accepts every version up to its own and refuses a newer one with a
  * message naming both, the rule the particle wire and fx follow. Part of the
  * hash, so a bump recompiles every cached shader.
+ *
+ *   1  the first versioned IR
+ *   2  an SDF call carries up to six shape parameters, not four (#129)
  */
-export const SL_IR_VERSION = 1
+export const SL_IR_VERSION = 2
 
 function fnv1a(s: string): string {
     let h = 0x811c9dc5

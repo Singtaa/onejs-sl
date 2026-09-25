@@ -16,6 +16,17 @@ import { PRELUDE_SOURCE, analyze, parse } from "./index"
 const ops = (p: ReturnType<typeof parse>): number[] =>
     p.nodes.filter((n) => n.k === "call").map((n) => (n as { op: number }).op)
 
+describe("sdf", () => {
+    it("takes a shape's fifth and sixth parameters as written (#129)", () => {
+        const p = parse(`
+            float4 main() { return float4(sdf.orientedVesica(uv - 0.5, -0.3, 0, 0.3, 0, 0.1), 0, 0, 1); }
+        `)
+        const call = p.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF)!
+        expect(call.k === "call" && call.imm).toEqual([24, -0.3, 0, 0.3, 0, 0.1])
+        expect(encode(p).wire).toBe(2)
+    })
+})
+
 describe("declarations", () => {
     it("uniforms take slots in declaration order, used or not", () => {
         const p = parse(`

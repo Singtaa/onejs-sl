@@ -4,6 +4,7 @@ import { MAX_TEXTURES, SLError, TYPE, hashProgram } from "./ir"
 import { SLOP } from "./ops"
 import { SDF_SHAPES } from "../fx/sdf"
 import { SL_SDF_SHAPES } from "./shapes"
+import { encode, forVm } from "./encode"
 
 /**
  * Phase 1 is pure TypeScript on purpose, so everything the IR promises can be
@@ -388,9 +389,51 @@ describe("sdf and voronoi", () => {
             .toThrow(/not a shape/)
     })
 
-    it("refuses more parameters than one instruction holds, and says why", () => {
+    it("refuses more parameters than the shape takes, and names the limit", () => {
+        // Four for every shape, as before; six only for the shapes that read them.
         expect(() => sl.program(({ uv }) => sl.vec4(sl.sdf("circle", uv, [1, 2, 3, 4, 5]), 0, 0, 1)))
-            .toThrow(/at most 4 shape parameters/)
+            .toThrow(/"circle"\) takes at most 4 parameters and was given 5/)
+        expect(() => sl.program(({ uv }) => sl.vec4(sl.sdf("orientedVesica", uv, [1, 2, 3, 4, 5, 6]), 0, 0, 1)))
+            .toThrow(/"orientedVesica"\) takes at most 5/)
+        expect(() => sl.program(({ uv }) => sl.vec4(sl.sdf("bezier", uv, [1, 2, 3, 4, 5, 6]), 0, 0, 1))).not.toThrow()
+    })
+
+    it("carries a fifth and sixth parameter to every backend (#129)", () => {
+        const p = sl.program(({ uv }) => sl.vec4(sl.sdf("orientedVesica", uv.sub(0.5), [-0.3, 0, 0.3, 0, 0.1]), 0, 0, 1))
+        const node = p.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF)!
+        expect(node.k === "call" && node.imm).toEqual([24, -0.3, 0, 0.3, 0, 0.1])
+        const e = encode(p)
+        expect(e.wire).toBe(2)
+        expect(e.hlsl).toContain("float4(-0.3, 0.0, 0.3, 0.0), float2(0.1, 0.0)")
+        expect(e.glsl).toMatch(/sdOrientedVesica\([^)]*vec2\(-0\.3, 0\.0\), vec2\(0\.3, 0\.0\), 0\.1\)/)
+        expect(e.wgsl).toMatch(/sdOrientedVesica\([^)]*vec2f\(-0\.3, 0\.0\), vec2f\(0\.3, 0\.0\), 0\.1\)/)
+    })
+
+    it("leaves a program of four or fewer exactly as it was", () => {
+        // Same node, same instructions, wire 1: an existing picture cannot move.
+        const p = sl.program(({ uv }) => sl.vec4(sl.sdf("roundedBox", uv.sub(0.5), [0.3, 0.2, 0.05, 0.1]), 0, 0, 1))
+        const node = p.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF)!
+        expect(node.k === "call" && node.imm).toEqual([1, 0.3, 0.2, 0.05, 0.1])
+        expect(forVm(p)).toBe(p)
+        const e = encode(p)
+        expect(e.wire).toBe(1)
+        expect(e.hlsl).toContain("float2(0.0, 0.0)")
+    })
+
+    it("runs a wide shape on the VM as SDF_WIDE with the rest in one constant register", () => {
+        const p = sl.program(({ uv }) => sl.vec4(sl.sdf("orientedVesica", uv.sub(0.5), [-0.3, 0.1, 0.3, 0.2, 0.05]), 0, 0, 1))
+        const vm = forVm(p)
+        expect(vm.hash).toBe(p.hash)
+        const wide = vm.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF_WIDE)!
+        expect(wide.k === "call" && wide.imm).toEqual([24, -0.3, 0.1, 0])
+        const rest = wide.k === "call" ? vm.nodes[wide.args[1]!] : undefined
+        expect(rest).toEqual({ k: "const", type: 4, v: [0.3, 0.2, 0.05, 0] })
+        // Decoded from the buffer: the instruction really is SDF_WIDE.
+        const e = encode(p)
+        const ops: number[] = []
+        for (let i = 0; i < e.instructions; i++) ops.push(e.data[i * 8]!)
+        expect(ops).toContain(SLOP.SDF_WIDE)
+        expect(ops).not.toContain(SLOP.SDF)
     })
 
     it("takes an already transformed point rather than an offset", () => {

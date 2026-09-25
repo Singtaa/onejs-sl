@@ -24,7 +24,7 @@
  */
 
 import {
-    MAX_TEXTURES, SLError, type NodeRef, type Program, type SLNode, type SLType,
+    MAX_TEXTURES, SLError, TYPE, type NodeRef, type Program, type SLNode, type SLType,
 } from "./ir"
 import { INPUT_ID, SLOP } from "./ops"
 import { emitShader } from "./hlsl"
@@ -210,7 +210,40 @@ function blameLoops(program: Program, order: NodeRef[]): string {
         `Lower the count or slim the body.`
 }
 
-export function encode(program: Program): Encoded {
+/**
+ * The program as the VM runs it.
+ *
+ * The IR carries a shape's whole parameter list, up to six. One instruction
+ * holds a shape id and four immediates, so a shape given a fifth or sixth
+ * becomes SDF_WIDE: its first two parameters stay immediates and the other
+ * four come from a constant register. Only the VM sees this; every compiled
+ * backend reads the IR's SDF directly. The hash is the program's own, since
+ * nothing about what it computes changed.
+ */
+export function forVm(program: Program): Program {
+    const wide = (n: SLNode) => n.k === "call" && n.op === SLOP.SDF && (n.imm?.length ?? 0) > 5
+    if (!program.nodes.some(wide)) return program
+    const nodes: SLNode[] = []
+    const map: NodeRef[] = []
+    program.nodes.forEach((n, i) => {
+        if (n.k === "call" && wide(n)) {
+            const im = n.imm!
+            const rest = nodes.push({ k: "const", type: TYPE.VEC4, v: [im[3] ?? 0, im[4] ?? 0, im[5] ?? 0, im[6] ?? 0] }) - 1
+            map[i] = nodes.push({
+                k: "call", type: n.type, op: SLOP.SDF_WIDE, args: [map[n.args[0]!]!, rest], imm: [im[0] ?? 0, im[1] ?? 0, im[2] ?? 0, 0],
+            }) - 1
+            return
+        }
+        if (n.k === "swizzle") map[i] = nodes.push({ ...n, src: map[n.src]! }) - 1
+        else if (n.k === "call") map[i] = nodes.push({ ...n, args: n.args.map((a) => map[a]!) }) - 1
+        else map[i] = nodes.push(n) - 1
+    })
+    const at = (ref: NodeRef) => ref < map.length ? map[ref]! : nodes.length
+    return { ...program, nodes, result: map[program.result]!, loops: program.loops.map((l) => ({ ...l, start: at(l.start), end: at(l.end) })) }
+}
+
+export function encode(source: Program): Encoded {
+    const program = forVm(source)
     const order = reachable(program.nodes, program.result)
     if (order.length > MAX_INSTRUCTIONS) {
         throw new SLError(
@@ -297,22 +330,24 @@ export function encode(program: Program): Encoded {
         defaults: uniformDefaults(program),
         textures: program.textures.map((t) => t.name),
         hash: program.hash,
-        wire: 1,
+        // The lowest VM that can run it: 2 only where a wide shape made
+        // SDF_WIDE, so everything else still runs on a wire 1 container.
+        wire: program === source ? 1 : 2,
     } as Encoded
     let hlsl: string | undefined
     let wgsl: string | undefined
     let glsl: string | undefined
     Object.defineProperty(encoded, "hlsl", {
         enumerable: false,
-        get: () => (hlsl ??= emitShader(program)),
+        get: () => (hlsl ??= emitShader(source)),
     })
     Object.defineProperty(encoded, "wgsl", {
         enumerable: false,
-        get: () => (wgsl ??= emitWGSL(program)),
+        get: () => (wgsl ??= emitWGSL(source)),
     })
     Object.defineProperty(encoded, "glsl", {
         enumerable: false,
-        get: () => (glsl ??= emitGLSL(program)),
+        get: () => (glsl ??= emitGLSL(source)),
     })
     return encoded
 }

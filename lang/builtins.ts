@@ -139,7 +139,7 @@ function point(fn: string, v: Num): Val {
 }
 
 special(SLOP.SAMPLE, 2, 2)
-special(SLOP.SDF, 1, 5)
+special(SLOP.SDF, 1, 7)
 special(SLOP.RAMP, 3, 64)
 
 function octaves(fn: string, v: Num | undefined): number {

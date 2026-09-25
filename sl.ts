@@ -28,7 +28,7 @@ import {
     type InputName, type NodeRef, type Program, type SLNode, type SLType,
 } from "./ir"
 import { SLOP, type SLOpCode } from "./ops"
-import { SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
+import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
 
 // MARK: values
 
@@ -615,8 +615,11 @@ export function ramp(t: Num, stops: Array<string | [number, number, number, numb
  *
  * POSITION AND ROTATION ARE NOT PARAMETERS, deliberately. Transform the point
  * before calling, as `uv.sub(centre)` above does. That is how signed distance
- * code is normally written, it composes with everything else in the language,
- * and it keeps the instruction to the four shape parameters that fit in one.
+ * code is normally written and it composes with everything else in the language.
+ *
+ * A shape takes up to `SL_SDF_PARAMS[kind]` parameters, six at most. Fewer
+ * fills zeros, which is all a program could pass before six shapes grew their
+ * fifth and sixth.
  *
  * Which parameters a shape takes is the shape's own business; `circle` wants a
  * radius, `roundedBox` wants half extents and a corner. See SDF2D.cginc.
@@ -624,19 +627,18 @@ export function ramp(t: Num, stops: Array<string | [number, number, number, numb
 export function sdf(kind: SlSdfKind, p: Vec2, params: number[] = []): Float {
     const id = SL_SDF_SHAPES[kind]
     if (id === undefined) throw new SLError(`"${kind}" is not a shape; see SL_SDF_SHAPES for the 42 names`)
-    if (params.length > 4) {
-        throw new SLError(
-            `sl.sdf takes at most 4 shape parameters and "${kind}" was given ${params.length}. ` +
-            `The wider forms fx offers do not fit in one VM instruction; compose the extra ` +
-            `transform out of ordinary arithmetic on the point instead.`,
-        )
+    // At least four, so a program that passed a shape more than it reads, which
+    // was harmless when every shape took four, still builds.
+    const most = Math.max(4, SL_SDF_PARAMS[kind])
+    if (params.length > most) {
+        throw new SLError(`sl.sdf("${kind}") takes at most ${most} parameters and was given ${params.length}`)
     }
     for (const v of params) {
         if (!Number.isFinite(v)) throw new SLError(`sl.sdf parameters must be finite, got ${v}`)
     }
-    const imm = [params[0] ?? 0, params[1] ?? 0, params[2] ?? 0, params[3] ?? 0]
-    // The shape id rides in the second operand slot, which a one argument op
-    // leaves free, so all four immediate floats stay available for parameters.
+    // Four always, as before, and a fifth and sixth only when given: a program
+    // using four or fewer is the same node, and hashes the same, as it was.
+    const imm = [params[0] ?? 0, params[1] ?? 0, params[2] ?? 0, params[3] ?? 0, ...params.slice(4)]
     return mk(p.owner, p.owner.call(SLOP.SDF, TYPE.FLOAT, [p.ref], [id, ...imm]), TYPE.FLOAT)
 }
 

@@ -190,7 +190,7 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             // SLCommon's dispatcher returns 1e6 for an id it does not know.
             if (shape === undefined) return lit(1e6)
             lib(shape.fn)
-            const v = [im[1] ?? 0, im[2] ?? 0, im[3] ?? 0, im[4] ?? 0, 0, 0]
+            const v = [im[1] ?? 0, im[2] ?? 0, im[3] ?? 0, im[4] ?? 0, im[5] ?? 0, im[6] ?? 0]
             const args = shape.args.map((arg) => {
                 if (!Array.isArray(arg)) return String(Math.trunc(v[arg.int]))
                 const parts = arg.map((i) => lit(v[i]))

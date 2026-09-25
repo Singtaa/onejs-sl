@@ -138,6 +138,13 @@ refuses a newer one with a message naming both.
   one, only where the VM runs; a WebGL player draws compiled and never reads
   the buffer.
 
+IR 2 and wire 2 came with #129. A shape takes as many parameters as it reads
+(`SL_SDF_PARAMS`, six at most, and never fewer than four accepted), where it
+used to take four and lose the rest. One instruction holds a shape id and four
+immediates, so the encoder's `forVm` turns a shape given a fifth or sixth into
+`SDF_WIDE`, which reads the remaining four from a constant register. Only the
+VM sees it, and only those programs are wire 2.
+
 ## Control flow
 
 There is none in the IR, deliberately. `sl.select`, `sl.step`, `sl.smoothstep` and

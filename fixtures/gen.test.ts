@@ -113,6 +113,23 @@ describe("sl GPU fixtures", () => {
                 return sl.vec4(d, 0, 0, 1)
             }), [-0.25, 0, 0, 1])
 
+        // #129: shapes that read a fifth or sixth parameter, which the VM runs
+        // as SDF_WIDE. Both were NaN or a lost parameter before.
+        //
+        // The point is (0, 0), midway between the tips of a vesica from
+        // (-0.3, 0) to (0.3, 0) whose width is 0.1, so the distance is -0.1: in
+        // SDF2D.cginc, r = 0.3, d = (r*r - w*w) / (2w) = 0.4, q = 0, the second
+        // branch gives h = (-0.4, 0, 0.5), and |(0.4, 0)| - 0.5 = -0.1.
+        add("sdf orientedVesica reads its width", "the centre of a width 0.1 vesica is 0.1 inside",
+            sl.program(({ uv }) => sl.vec4(sl.sdf("orientedVesica", uv.sub(0.5), [-0.3, 0, 0.3, 0, 0.1]), 0, 0, 1)),
+            [-0.1, 0, 0, 1])
+        // The point is (-0.5, -0.5), the lower left quadrant, whose corner
+        // radius is the sixth parameter: q = 0.5 - 0.3 + 0.1 per axis, and the
+        // distance is 0.3 * sqrt(2) - 0.1. Without the sixth it is 0.2 * sqrt(2).
+        add("sdf roundedBox reads its sixth parameter", "the lower left corner is rounded by the last radius",
+            sl.program(({ uv }) => sl.vec4(sl.sdf("roundedBox", uv.sub(1), [0.3, 0.3, 0, 0, 0, 0.1]), 0, 0, 1)),
+            [0.3 * Math.SQRT2 - 0.1, 0, 0, 1])
+
         // Voronoi is deliberately NOT here. Its value at a point depends on a
         // hash nobody should reimplement in JavaScript just to assert it, and a
         // reference implementation would share its author's mistakes with the
