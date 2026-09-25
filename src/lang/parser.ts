@@ -67,6 +67,8 @@ class Parser {
         private readonly tokens: Token[],
         private readonly file: string,
         private readonly requireMain: boolean,
+        /** Collects errors and carries on, for `diagnose`; without it the first error throws. */
+        private readonly errors?: SLParseError[],
     ) {}
 
     // MARK: token plumbing
@@ -77,10 +79,62 @@ class Parser {
     private eat(text: string): boolean { if (this.at(text)) { this.i++; return true } return false }
 
     private fail(message: string, at: Token = this.peek(), fix?: SLFix): never {
+        throw this.error(message, at, fix)
+    }
+
+    private error(message: string, at: Token, fix?: SLFix): SLParseError {
         // The end of the file is no character, so an error there marks the last
         // token instead of one past it, where an editor has nothing to underline.
         if (at.kind === "eof" && this.tokens.length > 1) at = this.tokens[this.tokens.length - 2]!
-        throw new SLParseError(message, this.file, at as Pos, Math.max(1, at.text.length), fix)
+        return new SLParseError(message, this.file, at as Pos, Math.max(1, at.text.length), fix)
+    }
+
+    /** An error about something already read in full, so there is nothing to skip to carry on. */
+    private report(message: string, at: Token): void {
+        const e = this.error(message, at)
+        if (this.errors === undefined) throw e
+        this.errors.push(e)
+    }
+
+    // MARK: recovery
+
+    /**
+     * Runs one statement's or one declaration's parse. Collecting, an error is
+     * recorded and the tokens are skipped to where the next one starts, so a
+     * second mistake further down the file is found too.
+     */
+    private recover<T>(parse: () => T, level: "statement" | "declaration"): T | null {
+        if (this.errors === undefined) return parse()
+        const start = this.i
+        try {
+            return parse()
+        } catch (e) {
+            if (!(e instanceof SLParseError)) throw e
+            this.errors.push(e)
+            this.skip(level)
+            // A parse that failed on its first token and a skip that stopped there
+            // would try the same token forever.
+            if (this.i === start && this.peek().kind !== "eof" && !this.at("}")) this.i++
+            return null
+        }
+    }
+
+    /**
+     * Past the end of the broken statement: through its `;`, or through the
+     * block it opened, or up to the `}` of the body it is in. A declaration
+     * ends at a `;` or at the `}` of its own body.
+     */
+    private skip(level: "statement" | "declaration"): void {
+        let depth = 0
+        for (;;) {
+            const t = this.peek()
+            if (t.kind === "eof") return
+            if (t.text === "}" && depth === 0 && level === "statement") return
+            this.i++
+            if (t.text === "{") depth++
+            else if (t.text === "}") { depth--; if (depth <= 0) return }
+            else if (t.text === ";" && depth === 0) return
+        }
     }
 
     private expect(text: string, what: string): Token {
@@ -127,40 +181,35 @@ class Parser {
         }
 
         while (this.peek().kind !== "eof") {
-            const t = this.peek()
-
-            if (t.text === "uniform") { unit.uniforms.push(this.parseUniform()); continue }
-            if (t.text === "texture2D") { unit.textures.push(this.parseTexture()); continue }
-            if (t.text === "const") {
-                const c = this.parseConst()
-                unit.consts.push(c)
-                continue
-            }
-            if (t.kind === "ident") {
-                const fn = this.parseFunction()
-                if (fn.name === "main") {
-                    if (unit.main !== null) {
-                        this.fail("this file already declares main; a .sl file is exactly one fragment function", t)
-                    }
-                    unit.main = fn
-                } else {
-                    unit.funcs.push(fn)
-                }
-                continue
-            }
-            this.fail(
-                `expected a declaration (uniform, texture2D, const, or a function), got ${describe(t)}`, t,
-            )
+            this.recover(() => this.parseDeclaration(unit), "declaration")
         }
 
         if (unit.main === null && this.requireMain) {
-            this.fail(
+            this.report(
                 "this file declares no main. A .sl file is one fragment function: add " +
                 "`float4 main() { ... }`",
                 this.peek(),
             )
         }
         return unit
+    }
+
+    private parseDeclaration(unit: Unit): void {
+        const t = this.peek()
+
+        if (t.text === "uniform") { unit.uniforms.push(this.parseUniform()); return }
+        if (t.text === "texture2D") { unit.textures.push(this.parseTexture()); return }
+        if (t.text === "const") { unit.consts.push(this.parseConst()); return }
+        if (t.kind === "ident") {
+            const fn = this.parseFunction()
+            if (fn.name !== "main") unit.funcs.push(fn)
+            else if (unit.main === null) unit.main = fn
+            else this.report("this file already declares main; a .sl file is exactly one fragment function", t)
+            return
+        }
+        this.fail(
+            `expected a declaration (uniform, texture2D, const, or a function), got ${describe(t)}`, t,
+        )
     }
 
     private parseUniform(): UniformDecl {
@@ -230,7 +279,8 @@ class Parser {
         const out: Stmt[] = []
         while (!this.at("}")) {
             if (this.peek().kind === "eof") this.fail("this body is never closed", this.peek())
-            out.push(this.parseStmt())
+            const s = this.recover(() => this.parseStmt(), "statement")
+            if (s !== null) out.push(s)
         }
         this.next()
         return out
@@ -477,6 +527,11 @@ function describe(t: Token): string {
 export interface ParseOptions {
     file?: string
     /**
+     * Where to collect errors instead of throwing the first: the parse carries
+     * on past each one and returns what it could read. What `diagnose` uses.
+     */
+    errors?: SLParseError[]
+    /**
      * Off for the prelude, which is a library of functions and has no main.
      * Nothing else should turn it off: a `.sl` file without a main renders
      * nothing, and finding that out at parse time is the point.
@@ -486,5 +541,5 @@ export interface ParseOptions {
 
 export function parseUnit(source: string, options: ParseOptions = {}): Unit {
     const file = options.file ?? "program.sl"
-    return new Parser(tokenize(source, file), file, options.requireMain ?? true).parseUnit()
+    return new Parser(tokenize(source, file), file, options.requireMain ?? true, options.errors).parseUnit()
 }

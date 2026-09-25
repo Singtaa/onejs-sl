@@ -19,6 +19,7 @@
 
 import type { Program } from "../ir"
 import { check, type Checked } from "./check"
+import { SLParseError } from "./lexer"
 import { lower } from "./lower"
 import { parseUnit, type ParseOptions } from "./parser"
 import { preludeFunctions } from "./prelude"
@@ -29,7 +30,7 @@ export type {
     Expr, FuncDecl, Param, Stmt, TextureDecl, TypeName, UniformDecl, Unit,
 } from "./ast"
 export { TYPE_WIDTH } from "./ast"
-export { SLParseError } from "./lexer"
+export { SLParseError }
 export type { Pos, SLFix, Token } from "./lexer"
 export { tokenize } from "./lexer"
 export { classify } from "./classify"
@@ -55,4 +56,39 @@ export function parse(source: string, options: ParseOptions = {}): Program {
 export function analyze(source: string, options: ParseOptions = {}): Checked {
     const unit = parseUnit(source, options)
     return check(unit, preludeFunctions(), { requireMain: options.requireMain })
+}
+
+/**
+ * Every error in a file, in source order, for an editor checking as it is
+ * typed. Empty when the file compiles. Never throws a `SLParseError`.
+ *
+ * Errors of one kind at a time, the first kind the file has: what cannot be
+ * read, then names and shapes (`check`), then types and widths (lowering).
+ * Each stage carries on past an error, a statement or a declaration at a time;
+ * a later stage runs only on a file the earlier ones passed, since its errors
+ * about a file with a hole in it would be about the hole.
+ */
+export function diagnose(source: string, options: ParseOptions = {}): SLParseError[] {
+    const errors: SLParseError[] = []
+    try {
+        const unit = parseUnit(source, { ...options, errors })
+        if (errors.length === 0) {
+            const checked = check(unit, preludeFunctions(), { requireMain: options.requireMain, errors })
+            if (errors.length === 0) lower(checked, errors)
+        }
+    } catch (e) {
+        // The lexer's, which stops at the first character it cannot read.
+        if (!(e instanceof SLParseError)) throw e
+        errors.push(e)
+    }
+    // An error in a loop body or an inlined function is found once per copy.
+    const seen = new Set<string>()
+    return errors
+        .filter((e) => {
+            const key = `${e.offset}:${e.text}`
+            if (seen.has(key)) return false
+            seen.add(key)
+            return true
+        })
+        .sort((a, b) => a.offset - b.offset)
 }

@@ -35,7 +35,7 @@ only what it calls.
 
 | Entry | Contents |
 |---|---|
-| `onejs-sl` | `parse` and `analyze`, `classify` (every token with its class, comments kept, never throws), the TypeScript form `sl`, the IR types, `SL_IR_VERSION`, `toJSON`/`fromJSON`, `SLParseError` (file, line, column, offset, length, the bare `text`, and a `fix` where one is certain) |
+| `onejs-sl` | `parse` and `analyze`, `diagnose` (every error in a file, not just the first), `classify` (every token with its class, comments kept, never throws), the TypeScript form `sl`, the IR types, `SL_IR_VERSION`, `toJSON`/`fromJSON`, `SLParseError` (file, line, column, offset, length, the bare `text`, and a `fix` where one is certain) |
 | `onejs-sl/core` | the same without the parser: what a game needs at run time |
 | `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`, `SL_KEYWORDS`, `SL_TYPES`, `TYPE_WIDTH`, `PRELUDE_NAMES`: what completion and highlighting read. `BUILTIN_PARAMS`, `SL_SDF_PARAM_NAMES` and `LIB_SIGNATURES` name every parameter, so an editor can show `lerp(x, y, s)`, and `BUILTIN_DOCS`, `INPUT_DOCS` and `PRELUDE_DOCS` give each a line for its tooltip |
 | `onejs-sl/limits` | `vmFit(program)`: whether the VM runs it, and why not, without encoding |
@@ -179,7 +179,7 @@ generated HLSL after an eject, with no edit in between. Both backends exist:
 and `hlsl.ts` feeds its `Editor/SLShaderGenerator.cs`. Nobody writes a manifest for the
 second: an editor that interprets a program asks the encoded program for its
 `hlsl` (a lazy getter, never read in Play), records it into
-`Assets/OneJS.Generated/Shaders/Recorded.sl.json`, generates the shader and
+`Assets/OneJS/Recorded.sl.json`, generates the shader and
 moves the live material onto it. `manifest()` is still there for an app that
 would rather write its programs out at build time.
 

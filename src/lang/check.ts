@@ -69,6 +69,8 @@ export interface Checked {
 export interface CheckOptions {
     /** Off for the prelude, which is functions only. See `parseUnit`. */
     requireMain?: boolean
+    /** Where to collect errors instead of throwing the first. See `diagnose`. */
+    errors?: SLParseError[]
 }
 
 export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {}): Checked {
@@ -81,6 +83,23 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         (message, pos, length = 1, fix) => {
             throw new SLParseError(message, file, pos, length, fix)
         }
+
+    /**
+     * One declaration's or one statement's checks. Collecting, an error is
+     * recorded and the next one is checked; the name it declares is still
+     * declared, so a later use of it is not a second, false error.
+     */
+    const attempt = (check: () => void): boolean => {
+        if (options.errors === undefined) { check(); return true }
+        try {
+            check()
+            return true
+        } catch (e) {
+            if (!(e instanceof SLParseError)) throw e
+            options.errors.push(e)
+            return false
+        }
+    }
 
     const funcs = new Map<string, FuncDecl>()
     for (const fn of prelude) funcs.set(fn.name, fn)
@@ -126,11 +145,14 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     }
 
     for (const u of unit.uniforms) {
-        const clash = valueClash(u.name)
-        if (clash !== null) fail(`"${u.name}" already names ${clash}`, u.pos, u.name.length)
-        uniforms.set(u.name, u)
+        attempt(() => {
+            const clash = valueClash(u.name)
+            if (clash !== null) fail(`"${u.name}" already names ${clash}`, u.pos, u.name.length)
+        })
+        if (!uniforms.has(u.name)) uniforms.set(u.name, u)
     }
-    if (uniforms.size > VM_UNIFORMS) {
+    attempt(() => {
+        if (uniforms.size <= VM_UNIFORMS) return
         const over = unit.uniforms[VM_UNIFORMS]!
         fail(
             `this file declares ${uniforms.size} uniforms and a program may hold ${VM_UNIFORMS}. ` +
@@ -139,14 +161,17 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
             `a float4.`,
             over.pos, over.name.length,
         )
-    }
+    })
 
     for (const t of unit.textures) {
-        const clash = valueClash(t.name)
-        if (clash !== null) fail(`"${t.name}" already names ${clash}`, t.pos, t.name.length)
-        textures.set(t.name, t)
+        attempt(() => {
+            const clash = valueClash(t.name)
+            if (clash !== null) fail(`"${t.name}" already names ${clash}`, t.pos, t.name.length)
+        })
+        if (!textures.has(t.name)) textures.set(t.name, t)
     }
-    if (textures.size > VM_TEXTURES) {
+    attempt(() => {
+        if (textures.size <= VM_TEXTURES) return
         const over = unit.textures[VM_TEXTURES]!
         fail(
             `this file declares ${textures.size} textures and a program may sample ${VM_TEXTURES}. ` +
@@ -154,24 +179,28 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
             `and its own after an eject, which is two different pictures from one file.`,
             over.pos, over.name.length,
         )
-    }
+    })
 
     for (const c of unit.consts) {
-        const clash = valueClash(c.name)
-        if (clash !== null) fail(`"${c.name}" already names ${clash}`, c.pos, c.name.length)
-        consts.set(c.name, c)
+        attempt(() => {
+            const clash = valueClash(c.name)
+            if (clash !== null) fail(`"${c.name}" already names ${clash}`, c.pos, c.name.length)
+        })
+        if (!consts.has(c.name)) consts.set(c.name, c)
     }
 
     for (const fn of unit.funcs) {
-        const clash = taken(fn.name)
-        if (clash !== null) fail(`"${fn.name}" already names ${clash}`, fn.pos, fn.name.length)
-        if (unit.funcs.filter((f) => f.name === fn.name).length > 1) {
-            fail(
-                `this file declares ${fn.name} more than once. There is no overloading: a function ` +
-                `inlines, so two bodies under one name have nothing to pick between them`,
-                fn.pos, fn.name.length,
-            )
-        }
+        attempt(() => {
+            const clash = taken(fn.name)
+            if (clash !== null) fail(`"${fn.name}" already names ${clash}`, fn.pos, fn.name.length)
+            if (unit.funcs.filter((f) => f.name === fn.name).length > 1) {
+                fail(
+                    `this file declares ${fn.name} more than once. There is no overloading: a function ` +
+                    `inlines, so two bodies under one name have nothing to pick between them`,
+                    fn.pos, fn.name.length,
+                )
+            }
+        })
         funcs.set(fn.name, fn)
     }
 
@@ -179,19 +208,23 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     if (main === null) {
         if (options.requireMain ?? true) throw new Error("check() reached a unit with no main")
         for (const fn of unit.funcs) checkFunction(fn)
-        refuseRecursion()
+        attempt(refuseRecursion)
         return { unit, funcs, uniforms, textures, consts }
     }
-    if (main.ret !== "float4") {
-        fail(`main returns a colour, so it is declared \`float4 main()\`, not ${main.ret}`, main.pos)
-    }
-    if (main.params.length > 0) {
-        fail(
-            "main takes no parameters: what a program is given are the free identifiers uv, " +
-            "fragCoord, resolution, time and aspect",
-            main.params[0]!.pos,
-        )
-    }
+    attempt(() => {
+        if (main.ret !== "float4") {
+            fail(`main returns a colour, so it is declared \`float4 main()\`, not ${main.ret}`, main.pos)
+        }
+    })
+    attempt(() => {
+        if (main.params.length > 0) {
+            fail(
+                "main takes no parameters: what a program is given are the free identifiers uv, " +
+                "fragCoord, resolution, time and aspect",
+                main.params[0]!.pos,
+            )
+        }
+    })
 
     // MARK: bodies
 
@@ -201,7 +234,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     // which is not the author's mistake and not a name they can see.
     for (const fn of [...unit.funcs, main]) checkFunction(fn)
 
-    refuseRecursion()
+    attempt(refuseRecursion)
 
     /**
      * A function inlines, so a cycle is not slow, it is infinite.
@@ -272,9 +305,11 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     function checkFunction(fn: FuncDecl): void {
         const params = new Set<string>()
         for (const p of fn.params) {
-            const clash = valueClash(p.name)
-            if (clash !== null) fail(`"${p.name}" already names ${clash}`, p.pos, p.name.length)
-            if (params.has(p.name)) fail(`${fn.name} already has a parameter called "${p.name}"`, p.pos)
+            attempt(() => {
+                const clash = valueClash(p.name)
+                if (clash !== null) fail(`"${p.name}" already names ${clash}`, p.pos, p.name.length)
+                if (params.has(p.name)) fail(`${fn.name} already has a parameter called "${p.name}"`, p.pos)
+            })
             params.add(p.name)
         }
         checkBody(fn, fn.body, new Set(params), true)
@@ -291,8 +326,20 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         let returned: Stmt | null = null
         for (const s of body) {
             if (returned !== null) {
-                fail("this is after the return, so it can never run", s.pos)
+                // Once: everything after it is the same mistake.
+                attempt(() => fail("this is after the return, so it can never run", s.pos))
+                break
             }
+            attempt(() => checkStmt(s))
+            if (s.k === "var" || s.k === "const") scope.add(s.name)
+            // Only the outermost return ends a body; one inside an if is refused as that.
+            if (s.k === "return" && outermost) returned = s
+        }
+        if (outermost && returned === null) {
+            attempt(() => fail(`${fn.name} never returns a ${fn.ret}`, fn.pos, fn.name.length))
+        }
+
+        function checkStmt(s: Stmt): void {
             switch (s.k) {
                 case "var":
                 case "const": {
@@ -300,7 +347,6 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                     if (clash !== null) fail(`"${s.name}" already names ${clash}`, s.pos, s.name.length)
                     if (scope.has(s.name)) fail(`"${s.name}" is already declared in this body`, s.pos)
                     checkExpr(fn, s.init, scope)
-                    scope.add(s.name)
                     break
                 }
                 case "assign": {
@@ -347,8 +393,11 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                     const inner = new Set(scope)
                     inner.add(s.counter)
                     counters.add(s.counter)
-                    checkBody(fn, s.body, inner, false)
-                    counters.delete(s.counter)
+                    try {
+                        checkBody(fn, s.body, inner, false)
+                    } finally {
+                        counters.delete(s.counter)
+                    }
                     break
                 }
                 case "return":
@@ -361,12 +410,8 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                         )
                     }
                     checkExpr(fn, s.value, scope)
-                    returned = s
                     break
             }
-        }
-        if (outermost && returned === null) {
-            fail(`${fn.name} never returns a ${fn.ret}`, fn.pos, fn.name.length)
         }
     }
 

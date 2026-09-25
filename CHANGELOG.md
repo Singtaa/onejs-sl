@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6
+
+`diagnose(source)` returns every error in a file, for an editor checking as it is typed (`Specs/SL_NEXT.md` 5). Nothing a program compiles to changes.
+
+- `diagnose` finds a mistake in each statement and declaration, in source order, and never throws one
+- A refused local is still declared, so its uses are not reported again
+
 ## 0.1.5
 
 What an editor needs, and errors that fix themselves (`Specs/SL_NEXT.md` 5 and 9). Every program that compiled before compiles to exactly what it did, unless it names something after a keyword or a type.

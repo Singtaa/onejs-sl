@@ -82,7 +82,12 @@ class Scope {
     }
 }
 
-export function lower(checked: Checked): Program {
+/**
+ * `errors`, when given, collects every error lowering finds and carries on past
+ * each, one statement or declaration at a time, for `diagnose`. The program it
+ * returns then is not one to draw.
+ */
+export function lower(checked: Checked, errors?: SLParseError[]): Program {
     const { unit, funcs } = checked
     const file = unit.file
     const main = unit.main!
@@ -114,6 +119,26 @@ export function lower(checked: Checked): Program {
             throw new SLParseError(message, file, pos, length)
         }
 
+    /**
+     * Collecting, runs one statement or declaration, recording its error and
+     * returning `fallback()` instead of throwing. The fallback declares what the
+     * broken line would have, so a later use of that name is not a second error.
+     */
+    const recover = <T,>(step: () => T, fallback: () => T): T => {
+        if (errors === undefined) return step()
+        try {
+            return step()
+        } catch (e) {
+            if (!(e instanceof SLParseError)) throw e
+            errors.push(e)
+            return fallback()
+        }
+    }
+
+    /** A zero of a width, standing in for a value whose line was refused. */
+    const blank = (width: SLType, pos: Pos): LV =>
+        width === 1 ? 0 : at(pos, () => compose(width, new Array<LV>(width).fill(0)))
+
     // The globals every helper below reads, built inside the recording callback
     // and held out here so a function being inlined can see them and nothing
     // else the caller had in scope.
@@ -143,7 +168,10 @@ export function lower(checked: Checked): Program {
             // declaration still takes its slot and still reaches the host.
             for (const u of unit.uniforms) {
                 const width = TYPE_WIDTH[u.type]
-                const { components, colour } = uniformDefault(u.type, u.init)
+                const { components, colour } = recover(
+                    () => uniformDefault(u.type, u.init),
+                    () => ({ ...uniformDefault(u.type, null), colour: false }),
+                )
                 // A hex default says the uniform IS a colour, so every read of it
                 // converts, exactly as a hex literal in an expression does. Without
                 // that, `#ff8040` and a uniform defaulting to `#ff8040` would be two
@@ -158,12 +186,18 @@ export function lower(checked: Checked): Program {
             for (const t of unit.textures) samplers.set(t.name, at(t.pos, () => sl.texture(t.name)))
 
             for (const c of unit.consts) {
-                const v = fit(lowerExpr(c.init, global), TYPE_WIDTH[c.type], c.pos)
-                assertWidth(v, TYPE_WIDTH[c.type], c.name, c.type, c.pos)
-                global.declare(c.name, { width: TYPE_WIDTH[c.type], value: v })
+                const width = TYPE_WIDTH[c.type]
+                const v = recover(() => {
+                    const v = fit(lowerExpr(c.init, global), width, c.pos)
+                    assertWidth(v, width, c.name, c.type, c.pos)
+                    return v
+                }, () => blank(width, c.pos))
+                global.declare(c.name, { width, value: v })
             }
 
-            const out = exec(main.body, new Scope(global))
+            const out = exec(main.body, new Scope(global), 4)
+            // What a refused line left behind is not the program's colour.
+            if (errors !== undefined && errors.length > 0) return blank(4, main.pos) as never
             // Checked here rather than left to `sl.program`, which would refuse it
             // in the EDSL's words ("a vec4") about a file whose types are spelled
             // float4, and from outside the reach of a position.
@@ -280,17 +314,34 @@ export function lower(checked: Checked): Program {
 
     // MARK: statements
 
-    /** Runs a body. The value of its `return`, or nothing when it has none. */
-    function exec(body: Stmt[], scope: Scope): LV | undefined {
+    /**
+     * Runs a body. The value of its `return`, or nothing when it has none.
+     * `ret` is the width that return has, for the stand in when it is refused.
+     */
+    function exec(body: Stmt[], scope: Scope, ret: SLType): LV | undefined {
         for (const s of body) {
+            if (s.k === "return") {
+                returnedAt = s.pos
+                return recover(() => lowerExpr(s.value, scope), () => blank(ret, s.pos))
+            }
+            if (s.k === "var" || s.k === "const") {
+                const width = TYPE_WIDTH[s.type]
+                const v = recover(() => {
+                    const v = fit(lowerExpr(s.init, scope), width, s.pos)
+                    assertWidth(v, width, s.name, s.type, s.pos)
+                    return v
+                }, () => blank(width, s.pos))
+                scope.declare(s.name, { width, value: v })
+                continue
+            }
+            recover(() => run(s, scope, ret), () => undefined)
+        }
+        return undefined
+    }
+
+    /** An assignment, an if or a for. */
+    function run(s: Stmt, scope: Scope, ret: SLType): void {
             switch (s.k) {
-                case "var":
-                case "const": {
-                    const v = fit(lowerExpr(s.init, scope), TYPE_WIDTH[s.type], s.pos)
-                    assertWidth(v, TYPE_WIDTH[s.type], s.name, s.type, s.pos)
-                    scope.declare(s.name, { width: TYPE_WIDTH[s.type], value: v })
-                    break
-                }
                 case "assign": {
                     // The checker allowed exactly two shapes: a local, or a
                     // swizzle of one with no component named twice.
@@ -314,15 +365,15 @@ export function lower(checked: Checked): Program {
                     if (typeof cond === "number") {
                         // The one case where a branch really does vanish: the
                         // other side is never lowered, so it costs nothing.
-                        exec(cond >= 0.5 ? s.then : s.else, new Scope(scope))
+                        exec(cond >= 0.5 ? s.then : s.else, new Scope(scope), ret)
                         break
                     }
                     const locals = scope.locals()
                     const before = locals.map((b) => b.value)
-                    exec(s.then, new Scope(scope))
+                    exec(s.then, new Scope(scope), ret)
                     const whenTrue = locals.map((b) => b.value)
                     locals.forEach((b, i) => { b.value = before[i]! })
-                    exec(s.else, new Scope(scope))
+                    exec(s.else, new Scope(scope), ret)
                     const whenFalse = locals.map((b) => b.value)
                     locals.forEach((b, i) => {
                         const t = whenTrue[i]!
@@ -358,17 +409,14 @@ export function lower(checked: Checked): Program {
                         for (let i = from; s.inclusive ? i <= to : i < to; i += step) {
                             const inner = new Scope(scope)
                             inner.declare(s.counter, { width: 1, value: i })
-                            exec(s.body, inner)
+                            exec(s.body, inner, ret)
                         }
                     }))
                     break
                 }
-                case "return":
-                    returnedAt = s.pos
-                    return lowerExpr(s.value, scope)
+                default:
+                    break
             }
-        }
-        return undefined
     }
 
     function constantBound(e: Expr, what: string, scope: Scope): number {
@@ -609,7 +657,7 @@ export function lower(checked: Checked): Program {
             }
             scope.declare(p.name, { width: TYPE_WIDTH[p.type], value: v })
         })
-        const out = exec(fn.body, scope)
+        const out = exec(fn.body, scope, TYPE_WIDTH[fn.ret])
         if (out === undefined) fail(`${fn.name} never returns a value`, e.pos)
         const got = typeof out === "number" ? 1 : out.width
         if (got !== TYPE_WIDTH[fn.ret]) {

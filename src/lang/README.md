@@ -186,6 +186,19 @@ and `%` truncates, and neither does `int`, since float would change what
 dividing it does. That is Decision 1 kept as `Specs/SL_NEXT.md` 5 A has it:
 one spelling, and every hint a fix.
 
+## Several errors at once
+
+`parse` throws the first error; `diagnose(source)` returns all of them, in
+source order, and never throws one, for an editor checking as the file is
+typed. Each stage carries on past a mistake: the parser skips to the next
+statement or declaration, the checker and the lowering move to the next one,
+and a local whose line was refused is still declared, as a zero of its type, so
+its uses are not reported again. A later stage runs only when the earlier ones
+found nothing: names are not checked in a file that cannot be read, since those
+errors would be about the hole. `diagnose.test.ts` holds it to the property that
+matters, that whatever `parse` refuses a file with, `diagnose` reports at the
+same place, over every program one token short of a real one.
+
 ## For an editor
 
 `classify(source)` is every token with its class (keyword, type, builtin,
