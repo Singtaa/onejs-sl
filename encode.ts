@@ -28,6 +28,7 @@ import {
 } from "./ir"
 import { INPUT_ID, SLOP } from "./ops"
 import { emitShader } from "./hlsl"
+import { emitGLSL, emitWGSL } from "./web"
 import { uniformDefaults } from "./sl"
 
 // Lives in ops.ts with the other wire constants; re-exported so nothing that
@@ -118,6 +119,15 @@ export interface Encoded {
      * writing a manifest.
      */
     readonly hlsl: string
+    /**
+     * The program as WGSL and as GLSL ES 3.00, for a browser to compile on
+     * Unity's own device (WebGPU and WebGL2 respectively). Lazy and absent
+     * from enumeration like `hlsl`: a `.sl` import carries them as plain
+     * strings from the build instead, and a host reads only the one its
+     * backend needs.
+     */
+    readonly wgsl: string
+    readonly glsl: string
 }
 
 interface Instr {
@@ -284,9 +294,19 @@ export function encode(program: Program): Encoded {
         hash: program.hash,
     } as Encoded
     let hlsl: string | undefined
+    let wgsl: string | undefined
+    let glsl: string | undefined
     Object.defineProperty(encoded, "hlsl", {
         enumerable: false,
         get: () => (hlsl ??= emitShader(program)),
+    })
+    Object.defineProperty(encoded, "wgsl", {
+        enumerable: false,
+        get: () => (wgsl ??= emitWGSL(program)),
+    })
+    Object.defineProperty(encoded, "glsl", {
+        enumerable: false,
+        get: () => (glsl ??= emitGLSL(program)),
     })
     return encoded
 }

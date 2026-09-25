@@ -32,6 +32,26 @@ second: an editor that interprets a program asks the encoded program for its
 moves the live material onto it. `manifest()` is still there for an app that
 would rather write its programs out at build time.
 
+**A third and fourth backend, for the browser.** A player cannot compile a
+shader, but the page it runs in can. `web.ts` prints every program as WGSL and
+as GLSL ES 3.00 (`weblib.ts` holds the noise, colour and 42 distance functions
+ported from `SLCommon.cginc`, `Noise2D.cginc` and `SDF2D.cginc`), and OneJS's
+`Plugins/WebGL/OneJSSLWeb.jslib` compiles whichever one Unity's device speaks
+and draws it into the element's target in place of the VM. A `.sl` import
+carries both strings, printed at build time; an `encode()` result has them as
+lazy getters, like `hlsl`. The VM draws until the compiled program is ready,
+and for good if it fails to compile. The host contract (the frame block, the
+16 uniform slots, one binding pair per sampled texture) is written out at the
+top of `web.ts`.
+
+The emitters match the HLSL emitter's semantics rather than each language's
+own: `%` truncates like `fmod`, `pow` takes `abs` of its base, `asin` and
+`acos` clamp, `log` and `sqrt` guard their argument, a select is the VM's
+branchless `lerp`. `web.test.ts` checks the structure (every shape, every
+opcode, the library order); whether the output matches the VM within 1/255 is
+measured in a browser, through the real element, by `Tools/sl-web-parity` in
+the container.
+
 ## Two ways to write one
 
 A `.sl` file is HLSL text and `sl.program` is a TypeScript EDSL, and they record
@@ -114,6 +134,13 @@ Because it unrolls, the count multiplies the body's operation count toward the
 VM's 256-instruction ceiling. The ceiling error names any `repeat` that fills a
 quarter of the budget or more, so the fix reads as "lower this count" rather
 than "fewer instructions".
+
+Every loop that reaches a GPU is therefore bounded by a constant: `repeat` is
+unrolled, fbm's octaves are a constant 1 to 4, the helper loops in the noise
+and Voronoi functions have fixed trip counts. No program can hang a GPU today,
+so the compiled backends carry no loop cap. A data dependent loop (the
+raymarching tier) would need one emitted into every loop it prints, since a GPU
+reset takes the whole page's device, Unity's included.
 
 ## See also
 
