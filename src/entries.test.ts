@@ -6,6 +6,7 @@ import * as limits from "./limits"
 import * as vm from "./vm"
 import * as unity from "./emit/unity"
 import * as web from "./emit/web"
+import * as body from "./emit/hlsl-body"
 
 /**
  * The public surface, entry by entry. Another host pins a version of this
@@ -18,8 +19,8 @@ describe("entry points", () => {
     it("core is a program without the parser", () => {
         expect(names(core)).toEqual([
             "INPUTS", "INPUT_ID", "MAX_NODES", "MAX_TEXTURES", "SLError", "SLOP", "SL_ARITY", "SL_IR_VERSION",
-            "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_SHAPES", "TYPE", "fromJSON", "hashProgram", "isSampling",
-            "parseColor", "sl", "toJSON", "widthName",
+            "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_SHAPES", "TYPE", "fromJSON", "hashProgram", "inputsUsed",
+            "isSampling", "parseColor", "sl", "toJSON", "widthName",
         ])
     })
 
@@ -39,13 +40,14 @@ describe("entry points", () => {
             "VM_UNIFORMS", "encode", "forVm", "liveRanges", "reachable",
         ])
         expect(names(unity)).toEqual(["emitFragmentBody", "emitShader", "uniformProperty"])
+        expect(names(body)).toEqual(["emitBody"])
         expect(names(web)).toEqual(["WEB_UNIFORM_SLOTS", "emitGLSL", "emitWGSL"])
     })
 
     it("every entry in package.json exists and is one of these", async () => {
         const pkg = (await import("../package.json")).default as { exports: Record<string, string> }
         expect(Object.keys(pkg.exports).sort()).toEqual(
-            [".", "./core", "./emit/unity", "./emit/web", "./limits", "./tables", "./vm"],
+            [".", "./core", "./emit/hlsl-body", "./emit/unity", "./emit/web", "./limits", "./tables", "./vm"],
         )
     })
 })

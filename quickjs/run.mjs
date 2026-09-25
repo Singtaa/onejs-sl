@@ -9,11 +9,11 @@
  * byte. Node's side runs in a bare context, with no Node globals either.
  */
 import esbuild from "esbuild"
-import fs from "node:fs"
 import path from "node:path"
 import vm from "node:vm"
 import { newQuickJSWASMModuleFromVariant } from "quickjs-emscripten-core"
 import variant from "@jitl/quickjs-ng-wasmfile-release-sync"
+import { fixtureSources } from "../corpus/fixtures.mjs"
 
 const HERE = import.meta.dirname
 const bundle = esbuild.buildSync({
@@ -22,15 +22,10 @@ const bundle = esbuild.buildSync({
     write: false, logLevel: "silent",
 }).outputFiles[0].text
 
-const corpusDir = path.join(HERE, "corpus")
-const sources = {}
-for (const f of fs.readdirSync(corpusDir).filter((f) => f.endsWith(".sl")).sort()) {
-    sources[f] = fs.readFileSync(path.join(corpusDir, f), "utf8").replace(/\r\n/g, "\n")
-}
-const call = `JSON.stringify(__corpus.run(${JSON.stringify(sources)}))`
-
 const context = vm.createContext({})
 vm.runInContext(bundle, context)
+const sources = fixtureSources(vm.runInContext("__corpus.SL_SDF_PARAMS", context))
+const call = `JSON.stringify(__corpus.run(${JSON.stringify(sources)}))`
 const expected = vm.runInContext(call, context)
 
 const QuickJS = await newQuickJSWASMModuleFromVariant(variant)

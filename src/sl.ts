@@ -664,6 +664,24 @@ export const uniform = {
         const b = ctx()
         return mk(b, b.uniform(name, TYPE.VEC4, value), TYPE.VEC4)
     },
+    /**
+     * A colour, defaulting to `hex` as written (sRGB, the way CSS reads it).
+     * Returns it converted to linear, as a hex literal is, and marks the
+     * declaration `colour` so a host can offer a colour picker for it. Three
+     * components when `width` is 3, dropping the alpha.
+     */
+    colour: ((name: string, hex: string, width: 3 | 4 = 4): Vec3 | Vec4 => {
+        const b = ctx()
+        const c = parseHex(hex)
+        const type = width === 3 ? TYPE.VEC3 : TYPE.VEC4
+        const raw = mk(b, b.uniform(name, type, c.slice(0, width), true), type)
+        return toLinear(raw) as Vec3 | Vec4
+    }) as {
+        (name: string, hex: string): Vec4
+        (name: string, hex: string, width: 3): Vec3
+        (name: string, hex: string, width: 4): Vec4
+        (name: string, hex: string, width: 3 | 4): Vec3 | Vec4
+    },
 }
 
 export interface Texture {

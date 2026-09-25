@@ -6,12 +6,26 @@
  * to be byte-identical, so a host API the package reaches for fails here, and
  * so does any arithmetic or number formatting QuickJS does differently.
  */
-import { SLError, SLParseError, fromJSON, parse, sl, toJSON, SL_SDF_PARAMS, SL_SDF_SHAPES, type Program } from "../src/index"
+import { SLError, SLParseError, fromJSON, parse, sl, toJSON, type Program } from "../src/index"
 import { BUILTINS } from "../src/tables"
 import { vmFit } from "../src/limits"
 import { encode } from "../src/vm"
 import { emitShader } from "../src/emit/unity"
 import { emitGLSL, emitWGSL } from "../src/emit/web"
+import { emitBody, type BodyTarget } from "../src/emit/hlsl-body"
+import { inputsUsed } from "../src/core"
+
+/** A host frame's names, as Magerie's kernel spells them. */
+const TARGET: BodyTarget = {
+    inputs: { uv: "SL_UV", fragCoord: "SL_FRAGCOORD", resolution: "SL_RES", time: "SL_TIME", aspect: "SL_ASPECT" },
+    uniform: (slot) => `SL_U(${slot})`,
+    sample: (slot, uv) => `SL_SAMPLE(${slot}, ${uv})`,
+    colour: "linear",
+    result: "c",
+}
+
+/** The shapes' parameter counts, so run.mjs can build the corpus from the same table. */
+export { SL_SDF_PARAMS } from "../src/core"
 
 type Result = Record<string, unknown>
 
@@ -32,6 +46,9 @@ function describe(p: Program): Result {
     out.hlsl = emitShader(p)
     out.wgsl = emitWGSL(p)
     out.glsl = emitGLSL(p)
+    out.body = emitBody(p, TARGET)
+    out.inputs = inputsUsed(p)
+    out.uniforms = p.uniforms
     return out
 }
 
@@ -45,24 +62,11 @@ function attempt(make: () => Program): Result {
     }
 }
 
-/** A band pattern over one shape, given every parameter it takes. */
-function shapeSource(kind: string, count: number): string {
-    const values = [0.3, 0.2, 0.1, 0.05, 0.12, 0.02].slice(0, count)
-    return `float4 main() {
-    float2 p = (uv - 0.5) * 1.2;
-    float d = sdf.${kind}(${["p", ...values.map(String)].join(", ")});
-    return float4(0.5 + 0.5 * cos(d * 40.0), saturate(0.5 - d * 2.0), 0, 1);
-}`
-}
-
+/** `sources` is `corpus/fixtures.mjs`'s map: the files and one program per shape. */
 export function run(sources: Record<string, string>): Result {
     const out: Result = {}
     for (const [name, source] of Object.entries(sources)) {
         out[name] = attempt(() => parse(source, { file: name }))
-    }
-    for (const kind of Object.keys(SL_SDF_SHAPES)) {
-        const count = SL_SDF_PARAMS[kind as keyof typeof SL_SDF_PARAMS]
-        out[`sdf-${kind}`] = attempt(() => parse(shapeSource(kind, count), { file: `${kind}.sl` }))
     }
     out["edsl-fbm-simplex"] = attempt(() => sl.program(({ uv, time }) => {
         const v = sl.fbm(uv.mul(4).add(time.mul(0.1)), 3, "simplex")

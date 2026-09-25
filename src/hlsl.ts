@@ -22,23 +22,8 @@
  * next time it is generated.
  */
 
-import { SLError, TYPE, type Program, type SLNode, type SLType } from "./ir"
-import { INPUT_ID, SLOP } from "./ops"
-
-const HLSL_TYPE: Record<SLType, string> = { 1: "float", 2: "float2", 3: "float3", 4: "float4" }
-
-/** A literal that survives a float32 round trip and never reads as an int. */
-function lit(n: number): string {
-    if (!Number.isFinite(n)) throw new SLError(`cannot emit ${n} as a shader literal`)
-    const s = Number.isInteger(n) ? n.toFixed(1) : String(n)
-    return s
-}
-
-function ctor(type: SLType, parts: string[]): string {
-    return type === TYPE.FLOAT ? parts[0] : `${HLSL_TYPE[type]}(${parts.join(", ")})`
-}
-
-const SWZ = "xyzw"
+import { SLError, type Program } from "./ir"
+import { emitBody, lit, type BodyTarget } from "./body"
 
 /** The property name a uniform gets. Prefixed so it cannot collide with ours. */
 export function uniformProperty(name: string): string {
@@ -143,133 +128,39 @@ ${body}
 `
 }
 
+/**
+ * The frame's side of the body: OneJS's names for the inputs, a uniform's
+ * material property, and `tex2D` on the slot's sampler. `sl_toLinear` stays a
+ * call because `SLCommon.cginc` decides Gamma or Linear per project, at the
+ * shader compile, so this target always emits it.
+ */
+function unityTarget(p: Program): BodyTarget {
+    return {
+        // `_Res` is the TARGET's size, set by the host, not `_ScreenParams`.
+        //
+        // A program is drawn with Graphics.Blit into the element's own render
+        // texture, and Unity leaves _ScreenParams at whatever the last camera
+        // set: blitting into a 64x256 target reads it as the game view's
+        // 1737x1226. So `resolution` and `fragCoord` were the window's and
+        // `aspect` was the window's ratio, identically wrong on both backends,
+        // which is why nothing caught it. Aspect correction, the thing `aspect`
+        // exists for, stretched every circle by the shape of the window it
+        // happened to be in.
+        inputs: {
+            uv: "i.uv",
+            fragCoord: "i.uv * _Res.xy",
+            resolution: "_Res.xy",
+            time: "_Secs",
+            aspect: "(_Res.x / max(_Res.y, 1.0))",
+        },
+        uniform: (slot) => uniformProperty(p.uniforms[slot]!.name),
+        sample: (slot, uv) => `tex2D(_Tex${slot}, ${uv})`,
+        colour: "linear",
+        indent: "                ",
+    }
+}
+
 /** The straight line body: one local per reachable node, in order. */
 export function emitFragmentBody(p: Program): string {
-    const lines: string[] = []
-    const name = (ref: number) => `n${ref}`
-    const emitted = new Set<number>()
-
-    const walk = (ref: number): void => {
-        if (emitted.has(ref)) return
-        const n = p.nodes[ref]
-        const deps = n.k === "swizzle" ? [n.src] : n.k === "call" ? n.args : []
-        for (const d of deps) walk(d)
-        emitted.add(ref)
-        lines.push(`                ${HLSL_TYPE[n.type]} ${name(ref)} = ${expr(n, name, p)};`)
-    }
-    walk(p.result)
-    lines.push(`                return ${name(p.result)};`)
-    return lines.join("\n")
-}
-
-function expr(n: SLNode, name: (r: number) => string, p: Program): string {
-    switch (n.k) {
-        case "const":
-            return ctor(n.type, n.v.map(lit))
-        case "input": {
-            // `_Res` is the TARGET's size, set by the host, not `_ScreenParams`.
-            //
-            // A program is drawn with Graphics.Blit into the element's own
-            // render texture, and Unity leaves _ScreenParams at whatever the
-            // last camera set: blitting into a 64x256 target reads it as the
-            // game view's 1737x1226. So `resolution` and `fragCoord` were the
-            // window's and `aspect` was the window's ratio, identically wrong
-            // on both backends, which is why nothing caught it. Aspect
-            // correction, the thing `aspect` exists for, stretched every
-            // circle by the shape of the window it happened to be in.
-            switch (INPUT_ID[n.name]) {
-                case 0: return "i.uv"
-                case 1: return "i.uv * _Res.xy"
-                case 2: return "_Res.xy"
-                case 3: return "_Secs"
-                default: return "(_Res.x / max(_Res.y, 1.0))"
-            }
-        }
-        case "uniform": {
-            const u = p.uniforms[n.slot]
-            const prop = uniformProperty(u.name)
-            return n.type === TYPE.VEC4 ? prop : `${prop}.${SWZ.slice(0, n.type)}`
-        }
-        case "swizzle":
-            return `${name(n.src)}.${n.chans.map((c) => SWZ[c]).join("")}`
-        case "call":
-            return call(n, name)
-    }
-}
-
-function call(n: Extract<SLNode, { k: "call" }>, name: (r: number) => string): string {
-    const a = n.args.map(name)
-    const imm = n.imm ?? []
-    switch (n.op) {
-        case SLOP.COMPOSE: return ctor(n.type, a)
-
-        case SLOP.ADD: return `(${a[0]} + ${a[1]})`
-        case SLOP.SUB: return `(${a[0]} - ${a[1]})`
-        case SLOP.MUL: return `(${a[0]} * ${a[1]})`
-        case SLOP.DIV: return `(${a[0]} / ${a[1]})`
-        case SLOP.MOD: return `fmod(${a[0]}, ${a[1]})`
-        // abs on the base, matching the VM. pow of a negative base is undefined
-        // in HLSL and the two backends must be undefined in the same direction.
-        case SLOP.POW: return `pow(abs(${a[0]}), ${a[1]})`
-        case SLOP.NEG: return `(-${a[0]})`
-        case SLOP.RECIP: return `(1.0 / ${a[0]})`
-
-        case SLOP.SIN: return `sin(${a[0]})`
-        case SLOP.COS: return `cos(${a[0]})`
-        case SLOP.TAN: return `tan(${a[0]})`
-        case SLOP.ASIN: return `asin(clamp(${a[0]}, -1, 1))`
-        case SLOP.ACOS: return `acos(clamp(${a[0]}, -1, 1))`
-        case SLOP.ATAN2: return `atan2(${a[0]}, ${a[1]})`
-        case SLOP.EXP: return `exp(${a[0]})`
-        case SLOP.LOG: return `log(max(${a[0]}, 1e-8))`
-        case SLOP.SQRT: return `sqrt(max(${a[0]}, 0))`
-        case SLOP.ABS: return `abs(${a[0]})`
-        case SLOP.SIGN: return `sign(${a[0]})`
-        case SLOP.FLOOR: return `floor(${a[0]})`
-        case SLOP.CEIL: return `ceil(${a[0]})`
-        case SLOP.ROUND: return `round(${a[0]})`
-        case SLOP.FRACT: return `frac(${a[0]})`
-        case SLOP.MIN: return `min(${a[0]}, ${a[1]})`
-        case SLOP.MAX: return `max(${a[0]}, ${a[1]})`
-        case SLOP.CLAMP: return `clamp(${a[0]}, ${a[1]}, ${a[2]})`
-        case SLOP.SATURATE: return `saturate(${a[0]})`
-
-        case SLOP.LENGTH: return `length(${a[0]})`
-        case SLOP.DISTANCE: return `distance(${a[0]}, ${a[1]})`
-        case SLOP.DOT: return `dot(${a[0]}, ${a[1]})`
-        case SLOP.CROSS: return `cross(${a[0]}, ${a[1]})`
-        case SLOP.NORMALIZE: return `normalize(${a[0]})`
-        case SLOP.REFLECT: return `reflect(${a[0]}, ${a[1]})`
-        case SLOP.LUMINANCE: return `sl_luminance(${a[0]}.rgb)`
-        case SLOP.TO_LINEAR: return `sl_toLinear(${a[0]})`
-
-        case SLOP.MIX: return `lerp(${a[0]}, ${a[1]}, ${a[2]})`
-        case SLOP.STEP: return `step(${a[0]}, ${a[1]})`
-        case SLOP.SMOOTHSTEP: return `smoothstep(${a[0]}, ${a[1]}, ${a[2]})`
-        // Matches the VM exactly, branchlessly, rather than using an if. Two
-        // backends that pick differently here disagree on every edge value.
-        case SLOP.SELECT: return `lerp(${a[2]}, ${a[1]}, step(0.5, ${a[0]}))`
-
-        case SLOP.HSV2RGB: return `sl_hsv2rgb(${a[0]})`
-        case SLOP.NOISE: return `sl_valueNoise(${a[0]})`
-        case SLOP.SIMPLEX: return `sl_simplex(${a[0]})`
-        case SLOP.FBM: return `sl_fbm(${a[0]}, ${Math.round(imm[0] ?? 3)}, ${Math.round(imm[1] ?? 0)})`
-        case SLOP.TURBULENCE: return `sl_fbm(${a[0]}, ${Math.round(imm[0] ?? 3)}, 2)`
-        case SLOP.RIDGED: return `sl_fbm(${a[0]}, ${Math.round(imm[0] ?? 3)}, 3)`
-        case SLOP.SDF: {
-            const id = Math.round(imm[0] ?? 0)
-            const q = [imm[1] ?? 0, imm[2] ?? 0, imm[3] ?? 0, imm[4] ?? 0].map(lit)
-            const r = [imm[5] ?? 0, imm[6] ?? 0].map(lit)
-            return `sl_sdfDistance(${id}, ${a[0]}, float4(${q.join(", ")}), float2(${r.join(", ")}))`
-        }
-        case SLOP.VORONOI: return `sl_voronoi(${a[0]})`
-        case SLOP.SAMPLE: return `tex2D(_Tex${Math.round(imm[0] ?? 0)}, ${a[0]})`
-
-        default:
-            throw new SLError(
-                `the HLSL emitter has no case for opcode ${n.op}. A program using it would silently ` +
-                `differ between the VM and a compiled build, which is the one failure this design ` +
-                `cannot tolerate.`,
-            )
-    }
+    return emitBody(p, unityTarget(p)).body
 }

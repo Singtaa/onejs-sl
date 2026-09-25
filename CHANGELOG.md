@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1
+
+A host can now supply its own frame for a program's body and get goldens for the pictures it should draw. Nothing an existing program draws changes, and OneJS's generated Unity shader is byte for byte what 0.1.0 printed.
+
+- `onejs-sl/emit/hlsl-body`: `emitBody` and `BodyTarget`, the body in the HLSL and Metal shared subset
+- The Unity shader is printed through `emitBody`
+- `UniformDecl.colour` marks a uniform with a hex default, and `sl.uniform.colour` declares one
+- `inputsUsed` lists the inputs a program reads
+- `goldens/goldens.json`: every corpus fixture as a Linear game stores it, drawn by `npm run goldens`
+
 ## 0.1.0
 
 The shader language compiler as its own package, moved out of `onejs-unity` with its history and its tests. It behaves exactly as `onejs-unity` 0.5.15's `sl` did, at IR version 2 and VM wire version 2.
