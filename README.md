@@ -119,6 +119,25 @@ program computed. Constants go through a fixed precision, so `0.1 + 0.2` and
 from FNV-1a, chosen so a C# implementation can produce the same string rather
 than for any cryptographic reason.
 
+## Versions
+
+Two numbers, with one rule: a reader accepts every version up to its own and
+refuses a newer one with a message naming both.
+
+- **`SL_IR_VERSION`** (`ir.ts`) is on every `Program` and in the hash, and is
+  bumped whenever an opcode, a shape or what one computes changes. Because it
+  is in the hash, a bump recompiles every cached shader. `toJSON` and
+  `fromJSON` (`serial.ts`) are the IR as JSON for a host that stores programs;
+  `fromJSON` checks everything an emitter relies on, refuses a newer version,
+  and migrates an older one.
+- **`SL_WIRE_VERSION`** (`ops.ts`) is the newest VM encoding, and
+  `SLProgramBridge.WireVersion` in OneJS must match it (a container test
+  compares the two). `Encoded.wire`, and the `wire` in a `.sl` import, is the
+  LOWEST version that can run that program, so a program using nothing new
+  stays 1 and still runs on an older Play container. The VM refuses a newer
+  one, only where the VM runs; a WebGL player draws compiled and never reads
+  the buffer.
+
 ## Control flow
 
 There is none in the IR, deliberately. `sl.select`, `sl.step`, `sl.smoothstep` and

@@ -24,7 +24,7 @@
 
 import { parseColor as parseHex } from "../color"
 import {
-    Builder, INPUTS, SLError, TYPE, hashProgram, widthName,
+    Builder, INPUTS, SLError, SL_IR_VERSION, TYPE, hashProgram, widthName,
     type InputName, type NodeRef, type Program, type SLNode, type SLType,
 } from "./ir"
 import { SLOP, type SLOpCode } from "./ops"
@@ -278,6 +278,7 @@ export function program(fn: (inputs: ProgramInputs) => Vec4): Program {
         }
         const nodes: SLNode[] = b.nodes.slice()
         return {
+            version: SL_IR_VERSION,
             nodes,
             result: out.ref,
             uniforms: b.uniforms.slice(),

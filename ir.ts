@@ -78,6 +78,8 @@ export interface LoopSpan {
 }
 
 export interface Program {
+    /** The `SL_IR_VERSION` this program's nodes mean what they mean under. */
+    version: number
     nodes: SLNode[]
     /** Must be VEC4: a program produces a colour. */
     result: NodeRef
@@ -259,7 +261,10 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
         return d
     }
 
-    const parts: string[] = [`v${SL_HASH_VERSION}`, of(result)]
+    // The IR version is in the hash, so a change to what an opcode computes
+    // changes every hash and every cache keyed by one (an editor's generated
+    // shaders, Magerie's pipelines) recompiles rather than serving the old maths.
+    const parts: string[] = [`v${SL_HASH_VERSION}:${SL_IR_VERSION}`, of(result)]
     for (const u of uniforms) parts.push(`U:${u.name}:${u.type}:${u.value.map(fixed).join(",")}`)
     for (const t of textures) parts.push(`T:${t.name}:${t.slot}`)
     return fnv1a(parts.join("|"))
@@ -267,6 +272,17 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
 
 /** Bumped when the hashing scheme changes, which invalidates generated shaders. */
 export const SL_HASH_VERSION = 1
+
+/**
+ * Bumped whenever the IR changes in a way a reader has to know about: a new
+ * opcode, a new shape, a change to what an existing opcode computes, or a
+ * change to the JSON shape (which also gets a migration in `fromJSON`).
+ *
+ * A reader accepts every version up to its own and refuses a newer one with a
+ * message naming both, the rule the particle wire and fx follow. Part of the
+ * hash, so a bump recompiles every cached shader.
+ */
+export const SL_IR_VERSION = 1
 
 function fnv1a(s: string): string {
     let h = 0x811c9dc5

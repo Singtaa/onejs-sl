@@ -22,7 +22,16 @@
  * a dense table.
  */
 
-/** Bumped when the encoding changes. The VM accepts 1..CURRENT and refuses newer. */
+/**
+ * The newest VM encoding this encoder writes. The VM accepts 1..its own and
+ * refuses newer, where there is a VM: a WebGL player draws compiled and never
+ * reads the buffer.
+ *
+ * A payload records the LOWEST version that can run it (`Encoded.wire`), not
+ * this: a program that uses nothing new stays 1, so a new bundle still runs on
+ * an older Play container, and only a program that needs a newer instruction
+ * is refused by an older one rather than drawn wrong.
+ */
 export const SL_WIRE_VERSION = 1
 
 /**

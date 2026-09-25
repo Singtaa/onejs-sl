@@ -110,6 +110,11 @@ export interface Encoded {
     textures: string[]
     hash: string
     /**
+     * The lowest VM encoding that can run this buffer. A VM older than this
+     * refuses the program; see `SL_WIRE_VERSION`.
+     */
+    wire: number
+    /**
      * The program as HLSL, for a host that can compile it.
      *
      * Lazy, and absent from enumeration: in Play nothing ever reads it, so the
@@ -292,6 +297,7 @@ export function encode(program: Program): Encoded {
         defaults: uniformDefaults(program),
         textures: program.textures.map((t) => t.name),
         hash: program.hash,
+        wire: 1,
     } as Encoded
     let hlsl: string | undefined
     let wgsl: string | undefined
