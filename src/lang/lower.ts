@@ -106,7 +106,7 @@ export function lower(checked: Checked): Program {
     const located = (e: unknown, pos: Pos): unknown => {
         if (e instanceof SLParseError) return e
         const raw = e instanceof Error ? e.message : String(e)
-        return new SLParseError(raw.replace(/^\[onejs sl] /, ""), file, pos)
+        return new SLParseError(inFileWords(raw.replace(/^\[onejs sl] /, "")), file, pos)
     }
 
     const fail: (message: string, pos: Pos, length?: number) => never =
@@ -676,3 +676,17 @@ function widthType(w: SLType): TypeName {
     return (["float", "float2", "float3", "float4"] as const)[w - 1]!
 }
 
+/**
+ * An EDSL message in the words of a `.sl` file.
+ *
+ * The EDSL names its types after its constructors, `sl.vec3`, so "cannot
+ * combine a vec3 with a vec2" is right for a TypeScript author and wrong for
+ * one who wrote float3 (`Specs/SL_NEXT.md` 5). One rewrite here, rather than a
+ * second set of messages, keeps both surfaces saying the same thing. A quoted
+ * name is the author's own and left as written.
+ */
+function inFileWords(message: string): string {
+    return message.split(/("[^"]*")/).map((part, i) =>
+        i % 2 === 1 ? part : part.replace(/\bsl\.vec([234])\(/g, "float$1(").replace(/\bvec([234])\b/g, "float$1"),
+    ).join("")
+}

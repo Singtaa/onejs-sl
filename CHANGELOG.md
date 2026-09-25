@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.5
+
+What an editor needs, and errors that fix themselves (`Specs/SL_NEXT.md` 5 and 9). Every program that compiled before compiles to exactly what it did, unless it names something after a keyword or a type.
+
+- `classify` returns every token with its class, comments included, and never throws
+- `SL_KEYWORDS`, `SL_TYPES` and `TYPE_WIDTH` are exported from `onejs-sl/tables`
+- `BUILTIN_DOCS`, `INPUT_DOCS` and `PRELUDE_DOCS` describe every builtin, input and prelude function in a line
+- `SLParseError` carries `text`, its message alone, and `offset`
+- An error carries a one click `fix` where the fix is certain: a GLSL rename or a "did you mean"
+- A GLSL name used as a value, such as `gl_FragCoord`, gets the HLSL name
+- `break`, `continue` and `switch` say why they are not there
+- A keyword or a type cannot name a value, a function or a parameter
+- Something missing at the end of a line or the file is marked on the last token before it
+- Errors from inside the EDSL say `float3`, not `vec3`
+- `BodyTarget.sample` documents what the body expects of a sample
+
 ## 0.1.4
 
 Four things that were errors now compile, the most common mistakes in cold runs of authors writing from the docs alone (`Specs/SL_NEXT.md` 2). Every program that compiled before compiles to exactly what it did.

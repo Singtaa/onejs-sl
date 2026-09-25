@@ -31,12 +31,30 @@ export interface BodyTarget {
     inputs: Record<InputName, string>
     /** The float4 holding a uniform slot. The body swizzles it down to the uniform's width. */
     uniform: (slot: number, name: string) => string
-    /** A float4 sample of the texture in `slot` at the float2 expression `uv`, straight alpha. */
+    /**
+     * A float4 sample of the texture in `slot` at the float2 expression `uv`.
+     *
+     * The contract the body is written against, which is what OneJS's own hosts
+     * do with the GPU's sampler:
+     *
+     * - **Straight alpha**, not premultiplied, in and out: the body never
+     *   multiplies or divides by alpha, and its result is straight too.
+     * - **In the space `colour` names.** With `linear`, rgb is linear light, so
+     *   an sRGB texture is decoded before it is filtered, as an sRGB sampler
+     *   does; with `gamma`, rgb is as stored.
+     * - **Filtered and wrapped by the host.** The body does neither. OneJS's
+     *   hosts, the generated shader, the VM and the web backends alike, use the
+     *   bound texture's own filter and wrap modes, so a host that filters by
+     *   hand draws the same picture by following the texture's settings.
+     *
+     * What becomes of the result is the host's: OneJS writes it to the target
+     * as it is, and a host that composites premultiplied multiplies on write.
+     */
     sample: (slot: number, uv: string) => string
     /**
      * `linear`: `toLinear` calls `sl_toLinear`, for a host whose target holds
      * linear light. `gamma`: `toLinear` is the identity, decided here, so hex
-     * colours and ramps stay as written.
+     * colours and ramps stay as written. `sample` reads in the same space.
      */
     colour: "gamma" | "linear"
     /** Assign the result to this local instead of returning it. */

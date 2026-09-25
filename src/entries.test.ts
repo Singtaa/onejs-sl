@@ -25,14 +25,18 @@ describe("entry points", () => {
     })
 
     it("the main entry is core plus the parser", () => {
-        const parser = ["PRELUDE_SOURCE", "SLParseError", "analyze", "parse", "parseUnit", "preludeFunctions", "tokenize"]
+        const parser = [
+            "PRELUDE_SOURCE", "SLParseError", "analyze", "classify", "parse", "parseUnit", "preludeFunctions", "tokenize",
+        ]
         expect(names(main)).toEqual([...names(core), ...parser].sort())
     })
 
     it("the others", () => {
         expect(names(tables)).toEqual([
-            "BUILTINS", "BUILTIN_PARAMS", "INPUTS", "LIB_SIGNATURES", "NOT_YET", "SLOP", "SL_ARITY", "SL_CALL_NAMES",
-            "SL_GLSL_HINT", "SL_HLSL", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_PARAM_NAMES", "SL_SDF_SHAPES", "SL_UNIMPLEMENTED",
+            "BUILTINS", "BUILTIN_DOCS", "BUILTIN_PARAMS", "INPUTS", "INPUT_DOCS", "LIB_SIGNATURES", "NOT_YET",
+            "PRELUDE_DOCS", "PRELUDE_NAMES", "SLOP", "SL_ARITY", "SL_CALL_NAMES", "SL_GLSL_HINT", "SL_HLSL",
+            "SL_KEYWORDS", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_PARAM_NAMES", "SL_SDF_SHAPES", "SL_TYPES",
+            "SL_UNIMPLEMENTED", "TYPE_WIDTH",
         ])
         expect(names(limits)).toEqual(["MAX_INSTRUCTIONS", "REGISTERS", "VM_TEXTURES", "VM_UNIFORMS", "vmFit"])
         expect(names(vm)).toEqual([

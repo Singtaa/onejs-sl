@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { emitBody, type BodyTarget } from "./emit/hlsl-body"
 import { parse } from "./index"
+import { INPUTS } from "./ir"
 import { BUILTINS } from "./lang/builtins"
+import { preludeFunctions } from "./lang/prelude"
+import { PRELUDE_DOCS, PRELUDE_NAMES } from "./lang/prelude-source"
 import { LIB_FUNCTIONS } from "./lib/table"
-import { BUILTIN_PARAMS, LIB_SIGNATURES, LIBRARY, SL_SDF_PARAM_NAMES } from "./params"
+import { BUILTIN_DOCS, BUILTIN_PARAMS, INPUT_DOCS, LIB_SIGNATURES, LIBRARY, SL_SDF_PARAM_NAMES } from "./params"
 import { SL_SDF_PARAMS } from "./shapes"
 
 /**
@@ -68,5 +71,32 @@ describe("parameter names", () => {
             const helpers = emitBody(parse(source, { file: `${name}.sl` }), target).uses.helpers
             expect(helpers, name).toContain(helper)
         }
+    })
+})
+
+describe("descriptions", () => {
+    /** One sentence or two, ending in a full stop, with no dash as punctuation. */
+    const line = (what: string, text: string | undefined) => {
+        expect(text, `${what} has no description`).toBeDefined()
+        expect(text!.length, what).toBeLessThan(100)
+        expect(text!, what).toMatch(/\.$/)
+        expect(text!, what).not.toMatch(/ [-\u2013\u2014] /)
+    }
+
+    it("describes every builtin and nothing else", () => {
+        for (const name of Object.keys(BUILTINS)) line(name, BUILTIN_DOCS[name])
+        expect(Object.keys(BUILTIN_DOCS).sort()).toEqual(Object.keys(BUILTINS).sort())
+    })
+
+    it("describes every input", () => {
+        for (const name of Object.keys(INPUTS) as (keyof typeof INPUTS)[]) line(name, INPUT_DOCS[name])
+        expect(Object.keys(INPUT_DOCS).sort()).toEqual(Object.keys(INPUTS).sort())
+    })
+
+    it("describes every prelude function, from the comment above it", () => {
+        const declared = preludeFunctions().map((f) => f.name).sort()
+        expect([...PRELUDE_NAMES].sort()).toEqual(declared)
+        for (const name of declared) line(name, PRELUDE_DOCS[name])
+        expect(PRELUDE_DOCS.rotate).toBe("Rotate a point about the origin. Translate first if you want another centre.")
     })
 })

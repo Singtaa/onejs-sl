@@ -168,11 +168,36 @@ lowering it changes recorded behaviour rather than parser behaviour.
 
 ## Errors
 
-Every one carries file, line and column, and an error that starts inside the
-EDSL keeps the EDSL's wording. `"z" is component 3 of a vec2, which has 2` is
-already the right sentence; what it lacked was a place. `errors.test.ts` checks
-the positions as strictly as the words, because a marker under the wrong
-character sends the reader to look at something that is fine.
+Every one carries file, line, column, offset and length, and `text`, the
+message without its tag and its `file:line:col: `, for an editor that puts the
+words in a marker of its own. An error that starts inside the EDSL keeps the
+EDSL's wording, with its type names put in the file's: `"z" is component 3 of
+a float2, which has 2` was already the right sentence; what it lacked was a
+place. `errors.test.ts` checks the positions as strictly as the words, because
+a marker under the wrong character sends the reader to look at something that
+is fine. Something missing at the end of a line or the file marks the last
+token before it, where there is a character to underline.
+
+Where the fix is certain, the error carries it as `fix`: a title and the text
+for the marked range, one click in an editor. A GLSL spelling that means the
+same in HLSL (`mix`, `fract`, `vec3`, `gl_FragCoord`, `iTime`, two argument
+`atan`) and a "did you mean" both have one. `mod` does not, since GLSL's floors
+and `%` truncates, and neither does `int`, since float would change what
+dividing it does. That is Decision 1 kept as `Specs/SL_NEXT.md` 5 A has it:
+one spelling, and every hint a fix.
+
+## For an editor
+
+`classify(source)` is every token with its class (keyword, type, builtin,
+input, prelude, number, hex, comment, punct, member, ident, or invalid), built
+on the parser's own scanner and word lists, so the highlighting is the parser's.
+It never throws, since it runs on every keystroke. It classifies by spelling,
+not scope: a local named `circle` still reads as a builtin where it is used.
+
+`SL_KEYWORDS` and `SL_TYPES` (`words.ts`) are the lists the parser reads, and a
+name may be neither. `onejs-sl/tables` carries them with a one line description
+of every builtin, input and prelude function; a prelude function's is the
+comment above it in `prelude-source.ts`.
 
 ## See also
 

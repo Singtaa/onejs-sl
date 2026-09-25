@@ -34,9 +34,21 @@ import { SL_GLSL_HINT } from "../ops"
 import { BUILTINS, NOT_YET } from "./builtins"
 import { SL_SDF_SHAPES } from "../shapes"
 import type { Expr, FuncDecl, Stmt, Unit } from "./ast"
-import { SLParseError, type Pos } from "./lexer"
+import { SLParseError, type Pos, type SLFix } from "./lexer"
 
 const INPUT_NAMES = new Set(Object.keys(INPUTS))
+
+/**
+ * The GLSL spellings whose HLSL name means the same wherever it is written, so
+ * the hint can be a one click fix (`Specs/SL_NEXT.md` 5, Decision 1 A). The
+ * rest of `SL_GLSL_HINT` gets the hint alone: `mod` floors where `%` truncates,
+ * `ivec2` truncates where `float2` does not, `atan` is `atan2` only with two
+ * arguments (handled at the call), and `textureLod` names a builtin that is not
+ * implemented yet.
+ */
+const GLSL_RENAMES = new Set(["mix", "fract", "texture", "vec2", "vec3", "vec4", "gl_FragCoord", "iTime", "iResolution"])
+
+const rename = (from: string, to: string): SLFix => ({ title: `Replace ${from} with ${to}`, replacement: to })
 
 export interface Checked {
     unit: Unit
@@ -65,9 +77,9 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     // terminating control flow when the callee's `never` comes from an explicit
     // type, so without this every `if (x.k !== "ident") fail(...)` below would
     // fail to narrow.
-    const fail: (message: string, pos: Pos, length?: number) => never =
-        (message, pos, length = 1) => {
-            throw new SLParseError(message, file, pos, length)
+    const fail: (message: string, pos: Pos, length?: number, fix?: SLFix) => never =
+        (message, pos, length = 1, fix) => {
+            throw new SLParseError(message, file, pos, length, fix)
         }
 
     const funcs = new Map<string, FuncDecl>()
@@ -316,9 +328,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                             target.pos, n.length,
                         )
                     }
-                    if (!scope.has(n)) {
-                        fail(unknown(n, scope), target.pos, n.length)
-                    }
+                    if (!scope.has(n)) unknown(n, scope, target.pos)
                     checkExpr(fn, s.value, scope)
                     break
                 }
@@ -382,7 +392,8 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                 if (funcs.has(e.name) || BUILTINS[e.name] !== undefined) {
                     fail(`${e.name} is a function; call it, as in \`${e.name}(...)\``, e.pos, e.name.length)
                 }
-                fail(unknown(e.name, scope), e.pos, e.name.length)
+                glsl(e.name, e.pos)
+                unknown(e.name, scope, e.pos)
                 break
             }
             case "member":
@@ -493,10 +504,16 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                 callee.pos, n.length,
             )
         }
-        if (SL_GLSL_HINT[n] !== undefined) {
-            fail(`${n} is GLSL; this is HLSL, so write ${SL_GLSL_HINT[n]}`, callee.pos, n.length)
-        }
-        fail(unknown(n, scope), callee.pos, n.length)
+        glsl(n, callee.pos, e.args.length)
+        unknown(n, scope, callee.pos)
+    }
+
+    /** Refuses a GLSL spelling by its HLSL name, with the fix where the rename is certain. */
+    function glsl(n: string, pos: Pos, args?: number): void {
+        const hint = SL_GLSL_HINT[n]
+        if (hint === undefined) return
+        const certain = GLSL_RENAMES.has(n) || (n === "atan" && args === 2)
+        fail(`${n} is GLSL; this is HLSL, so write ${hint}`, pos, n.length, certain ? rename(n, hint) : undefined)
     }
 
     function arity(e: Extract<Expr, { k: "call" }>, n: string, min: number, max: number): void {
@@ -505,13 +522,14 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         fail(`${n} takes ${want} argument${max === 1 ? "" : "s"}, got ${e.args.length}`, e.pos)
     }
 
-    /** "unknown x" plus the nearest thing that is spelled almost like it. */
-    function unknown(n: string, scope: Set<string>): string {
+    /** Refuses a name nothing declares, offering the nearest one spelled almost like it. */
+    function unknown(n: string, scope: Set<string>, pos: Pos): never {
         const near = nearest(n, [
             ...scope, ...INPUT_NAMES, ...uniforms.keys(), ...textures.keys(), ...consts.keys(),
             ...funcs.keys(), ...Object.keys(BUILTINS),
         ])
-        return near === null ? `"${n}" is not declared` : `"${n}" is not declared; did you mean ${near}?`
+        if (near === null) fail(`"${n}" is not declared`, pos, n.length)
+        fail(`"${n}" is not declared; did you mean ${near}?`, pos, n.length, rename(n, near))
     }
 
     return { unit, funcs, uniforms, textures, consts }

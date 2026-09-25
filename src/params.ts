@@ -20,6 +20,7 @@ import { BUILTINS } from "./lang/builtins"
 import { LIB_FUNCTIONS, SDF_CALLS } from "./lib/table"
 import { LIB_PARAM_NAMES } from "./lib/names"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
+import type { InputName } from "./ir"
 
 /** One function of the helper library, as its source declares it. */
 export interface LibSignature {
@@ -110,4 +111,64 @@ function shapeNames(): Record<SlSdfKind, readonly string[]> {
         out[shape] = slots
     }
     return out
+}
+
+/**
+ * One line on what each builtin does, for a completion's tooltip and the docs
+ * page: the other half of `BUILTIN_PARAMS`, and named in its words, so a line
+ * can say `s` and mean the third argument.
+ */
+export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
+    sin: "The sine of x, in radians.",
+    cos: "The cosine of x, in radians.",
+    tan: "The tangent of x, in radians.",
+    asin: "The angle whose sine is x, with x clamped to -1 to 1.",
+    acos: "The angle whose cosine is x, with x clamped to -1 to 1.",
+    exp: "e raised to the power x.",
+    log: "The natural logarithm of x.",
+    sqrt: "The square root of x.",
+    sign: "-1, 0 or 1, by the sign of x.",
+    ceil: "x rounded up to a whole number.",
+    round: "x rounded to the nearest whole number.",
+    toLinear: "A colour as written, in sRGB, converted to the space the target holds; alpha is left alone.",
+    abs: "x without its sign.",
+    floor: "x rounded down to a whole number.",
+    frac: "The part of x after the decimal point, 0 up to 1.",
+    saturate: "x clamped to 0 to 1.",
+    rcp: "1 / x.",
+    normalize: "x scaled to length 1.",
+    pow: "x raised to the power y.",
+    min: "The smaller of x and y, per component.",
+    max: "The larger of x and y, per component.",
+    clamp: "x held between min and max.",
+    atan2: "The angle of the point (x, y) from the positive x axis, in radians.",
+    length: "The length of the vector x.",
+    distance: "The distance between the points x and y.",
+    dot: "The dot product of x and y.",
+    cross: "The cross product of two float3s.",
+    reflect: "The direction i reflected off a surface with normal n.",
+    lerp: "Mixes x into y by s: x at 0, y at 1.",
+    step: "0 where x is below y, else 1.",
+    smoothstep: "0 below min, 1 above max, and a smooth curve between.",
+    remap: "v moved from the range fromMin to fromMax into the range toMin to toMax.",
+    hsv2rgb: "A colour from hue, saturation and value, each 0 to 1.",
+    luminance: "How bright a colour looks, as one number.",
+    noise: "Smooth value noise at p, about 0 to 1. Offset p for a different field.",
+    simplex: "Simplex noise at p, about 0 to 1, with no grid pattern.",
+    voronoi: "The distance from p to the nearest point of a jittered grid: cells.",
+    fbm: "Value noise layered in octaves, 1 to 4 (3 when left out): clouds and terrain.",
+    turbulence: "Simplex creases layered in octaves, 1 to 4: fire, smoke, marble.",
+    ridged: "Turbulence made bright at its creases: ridges, lightning, cracks.",
+    tex2D: "The colour of texture s at the uv t, with straight alpha.",
+    sdf: "The signed distance from p to a shape, negative inside: `sdf.circle(p, r)`.",
+    ramp: "t mapped through evenly spaced colour stops, from the first at 0 to the last at 1.",
+}
+
+/** One line on each input, for the same tooltips. */
+export const INPUT_DOCS: Readonly<Record<InputName, string>> = {
+    uv: "Where this pixel is in the element, 0 to 1 on each axis, with y up.",
+    fragCoord: "Where this pixel is in the element, in pixels, with y up.",
+    resolution: "The element's size in pixels.",
+    time: "Seconds since the effect started.",
+    aspect: "The element's width divided by its height.",
 }

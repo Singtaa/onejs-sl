@@ -35,9 +35,9 @@ only what it calls.
 
 | Entry | Contents |
 |---|---|
-| `onejs-sl` | `parse` and `analyze`, the TypeScript form `sl`, the IR types, `SL_IR_VERSION`, `toJSON`/`fromJSON`, `SLParseError` (file, line, column, length) |
+| `onejs-sl` | `parse` and `analyze`, `classify` (every token with its class, comments kept, never throws), the TypeScript form `sl`, the IR types, `SL_IR_VERSION`, `toJSON`/`fromJSON`, `SLParseError` (file, line, column, offset, length, the bare `text`, and a `fix` where one is certain) |
 | `onejs-sl/core` | the same without the parser: what a game needs at run time |
-| `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`: what completion and highlighting read. `BUILTIN_PARAMS`, `SL_SDF_PARAM_NAMES` and `LIB_SIGNATURES` name every parameter, so an editor can show `lerp(x, y, s)` |
+| `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`, `SL_KEYWORDS`, `SL_TYPES`, `TYPE_WIDTH`, `PRELUDE_NAMES`: what completion and highlighting read. `BUILTIN_PARAMS`, `SL_SDF_PARAM_NAMES` and `LIB_SIGNATURES` name every parameter, so an editor can show `lerp(x, y, s)`, and `BUILTIN_DOCS`, `INPUT_DOCS` and `PRELUDE_DOCS` give each a line for its tooltip |
 | `onejs-sl/limits` | `vmFit(program)`: whether the VM runs it, and why not, without encoding |
 | `onejs-sl/vm` | `encode`, `SL_WIRE_VERSION` |
 | `onejs-sl/emit/hlsl-body` | `emitBody`: a program as a function body for a host's own frame; `emitLibrary`: the library functions it calls |
@@ -56,7 +56,11 @@ intrinsic at its exact type, since Metal overloads where HLSL converts). The `Bo
 for each input, the float4 holding a uniform slot, a texture sample, whether
 `toLinear` is real (`colour: "linear"`) or the identity (`"gamma"`), and
 optionally a local to assign the result to. It returns the uniform and texture
-slots the body uses and the library functions it calls. OneJS's Unity shader is
+slots the body uses and the library functions it calls. The sample's contract
+is on `BodyTarget.sample`: straight alpha in and out, rgb in the space `colour`
+names (an sRGB texture decoded before filtering when it is `linear`), and
+filtering and wrapping left to the host, which OneJS's hosts take from the
+bound texture's own settings. OneJS's Unity shader is
 one frame over it (`hlsl.ts`); Magerie's compute kernel is another, and its
 target is in `src/body.test.ts` so an opcode cannot change without the text
 Magerie compiles changing in front of a test.

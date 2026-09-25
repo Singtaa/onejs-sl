@@ -6,7 +6,7 @@
  * HLSL, WGSL or GLSL ES) is a separate entry, so a host bundles only what it
  * calls:
  *
- *   onejs-sl             this: parse, the TypeScript form, the IR, its JSON
+ *   onejs-sl             this: parse, classify, the TypeScript form, the IR, its JSON
  *   onejs-sl/core        the same without the parser, for a game at run time
  *   onejs-sl/tables      builtins, opcodes, inputs, shapes: what an editor reads
  *   onejs-sl/limits      whether a program fits the VM, without encoding it
@@ -19,6 +19,8 @@
  */
 export * from "./core"
 export {
-    analyze, parse, parseUnit, preludeFunctions, tokenize, PRELUDE_SOURCE, SLParseError,
+    analyze, classify, parse, parseUnit, preludeFunctions, tokenize, PRELUDE_SOURCE, SLParseError,
 } from "./lang"
-export type { Checked, Expr, FuncDecl, ParseOptions, Pos, Stmt, Token, Unit } from "./lang"
+export type {
+    Checked, Expr, FuncDecl, ParseOptions, Pos, SLClassifiedToken, SLFix, SLTokenClass, Stmt, Token, Unit,
+} from "./lang"

@@ -12,13 +12,11 @@
  */
 
 import {
-    TYPE_WIDTH,
     type AssignOp, type BinaryOp, type Expr, type FuncDecl, type Param, type Stmt,
     type TextureDecl, type TypeName, type UniformDecl, type Unit,
 } from "./ast"
-import { SLParseError, tokenize, type Pos, type Token } from "./lexer"
-
-const TYPE_NAMES = new Set(Object.keys(TYPE_WIDTH))
+import { SLParseError, tokenize, type Pos, type SLFix, type Token } from "./lexer"
+import { KEYWORD_SET, TYPE_SET } from "./words"
 
 /**
  * Type spellings that exist in HLSL or GLSL and not here, each with the reason.
@@ -43,6 +41,11 @@ const NOT_A_TYPE: Record<string, string> = {
     sampler2D: "use texture2D to declare a texture slot",
     void: "every function returns a value",
     struct: "there are no structs",
+}
+
+/** The spellings above whose replacement is certain, so the error can offer it as a fix. */
+const TYPE_FIX: Record<string, TypeName> = {
+    vec2: "float2", vec3: "float3", vec4: "float4", half: "float", double: "float", fixed: "float",
 }
 
 /** Binding power per binary operator, HLSL's. Higher binds tighter. */
@@ -73,14 +76,21 @@ class Parser {
     private at(text: string): boolean { const t = this.peek(); return t.kind !== "eof" && t.text === text }
     private eat(text: string): boolean { if (this.at(text)) { this.i++; return true } return false }
 
-    private fail(message: string, at: Token = this.peek()): never {
-        throw new SLParseError(message, this.file, at as Pos, Math.max(1, at.text.length))
+    private fail(message: string, at: Token = this.peek(), fix?: SLFix): never {
+        // The end of the file is no character, so an error there marks the last
+        // token instead of one past it, where an editor has nothing to underline.
+        if (at.kind === "eof" && this.tokens.length > 1) at = this.tokens[this.tokens.length - 2]!
+        throw new SLParseError(message, this.file, at as Pos, Math.max(1, at.text.length), fix)
     }
 
     private expect(text: string, what: string): Token {
         if (!this.at(text)) {
             const got = this.peek()
-            this.fail(`expected "${text}" ${what}, got ${describe(got)}`, got)
+            // Something missing at the end of a line is missing after the last
+            // token on it, which is where the author will look, not at the next line.
+            const prev = this.tokens[this.i - 1]
+            const at = prev !== undefined && got.line > prev.line ? prev : got
+            this.fail(`expected "${text}" ${what}, got ${describe(got)}`, at)
         }
         return this.next()
     }
@@ -91,11 +101,21 @@ class Parser {
         return this.next()
     }
 
+    /** A name being declared, which may not be a word the parser reads as syntax. */
+    private expectName(what: string): Token {
+        const t = this.expectIdent(what)
+        if (KEYWORD_SET.has(t.text)) this.fail(`"${t.text}" is a keyword, so it cannot be ${what}`, t)
+        if (TYPE_SET.has(t.text)) this.fail(`"${t.text}" is a type, so it cannot be ${what}`, t)
+        return t
+    }
+
     private expectType(what: string): TypeName {
         const t = this.expectIdent(what)
-        if (TYPE_NAMES.has(t.text)) return t.text as TypeName
+        if (TYPE_SET.has(t.text)) return t.text as TypeName
         const why = NOT_A_TYPE[t.text]
-        if (why !== undefined) this.fail(`"${t.text}" is not a type here: ${why}`, t)
+        const to = TYPE_FIX[t.text]
+        const fix = to === undefined ? undefined : { title: `Replace ${t.text} with ${to}`, replacement: to }
+        if (why !== undefined) this.fail(`"${t.text}" is not a type here: ${why}`, t, fix)
         this.fail(`"${t.text}" is not a type; the types are float, float2, float3 and float4`, t)
     }
 
@@ -146,7 +166,7 @@ class Parser {
     private parseUniform(): UniformDecl {
         const kw = this.next()
         const type = this.expectType("a type after uniform")
-        const name = this.expectIdent("a uniform name")
+        const name = this.expectName("a uniform name")
         let init: Expr | null = null
         if (this.eat("=")) init = this.parseExpr()
         this.expect(";", "after a uniform declaration")
@@ -155,7 +175,7 @@ class Parser {
 
     private parseTexture(): TextureDecl {
         const kw = this.next()
-        const name = this.expectIdent("a texture name")
+        const name = this.expectName("a texture name")
         if (this.at("=")) {
             this.fail(
                 "a texture has no default; the host binds it by name through the textures prop",
@@ -169,7 +189,7 @@ class Parser {
     private parseConst(): Extract<Stmt, { k: "const" }> {
         const kw = this.next()
         const type = this.expectType("a type after const")
-        const name = this.expectIdent("a name")
+        const name = this.expectName("a const's name")
         this.expect("=", "after a const's name; a const has to have a value")
         const init = this.parseExpr()
         this.expect(";", "after a const")
@@ -179,7 +199,7 @@ class Parser {
     private parseFunction(): FuncDecl {
         const start = this.peek()
         const ret = this.expectType("a return type")
-        const name = this.expectIdent("a function name")
+        const name = this.expectName("a function name")
         if (!this.at("(")) {
             this.fail(
                 `expected "(" after ${name.text}. Only uniforms, textures, consts and functions live ` +
@@ -193,7 +213,7 @@ class Parser {
             for (;;) {
                 const p = this.peek()
                 const ptype = this.expectType("a parameter type")
-                const pname = this.expectIdent("a parameter name")
+                const pname = this.expectName("a parameter name")
                 params.push({ type: ptype, name: pname.text, pos: p })
                 if (!this.eat(",")) break
             }
@@ -238,6 +258,16 @@ class Parser {
         if (t.text === "discard") {
             this.fail("there is no discard; return a colour with alpha 0 instead", t)
         }
+        if (t.text === "break" || t.text === "continue") {
+            this.fail(
+                `there is no ${t.text}: a for loop unrolls, so every iteration runs. Put the rest of ` +
+                `the body under an if instead`,
+                t,
+            )
+        }
+        if (t.text === "switch") {
+            this.fail("there is no switch; write it as an if and else if", t)
+        }
         if (t.text === "return") {
             this.next()
             const value = this.parseExpr()
@@ -253,7 +283,7 @@ class Parser {
         // statement may be is the left of an assignment.
         if (t.kind === "ident" && this.peek(1).kind === "ident") {
             const type = this.expectType("a type")
-            const name = this.expectIdent("a name")
+            const name = this.expectName("a local's name")
             if (this.at("(")) {
                 this.fail(
                     "a function is declared at the top level of the file, not inside another function",
@@ -318,7 +348,7 @@ class Parser {
             )
         }
         this.next()
-        const counter = this.expectIdent("a counter name")
+        const counter = this.expectName("a counter name")
         this.expect("=", "after the counter")
         const from = this.parseExpr()
         this.expect(";", "after the counter's start")

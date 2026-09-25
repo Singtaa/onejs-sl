@@ -90,10 +90,13 @@ describe("types", () => {
             .toThrow(/Take the components you want with a swizzle, as in \.xy/)
     })
 
-    it("carries the EDSL's own wording, with a line", () => {
+    it("carries the EDSL's own wording, with a line, in the file's type names", () => {
         const e = refuse("float4 main() {\n    float z = uv.z;\n    return float4(z, 0, 0, 1);\n}")
-        expect(e.message).toContain("\"z\" is component 3 of a vec2, which has 2")
+        expect(e.text).toBe("\"z\" is component 3 of a float2, which has 2")
         expect(e.line).toBe(2)
+        // A quoted name is the author's, and keeps its spelling.
+        const combine = refuse("float4 main() {\n    float3 a = float3(uv, 1);\n    return float4(a + uv, 1);\n}")
+        expect(combine.text).toBe("cannot combine a float3 with a float2")
     })
 })
 
