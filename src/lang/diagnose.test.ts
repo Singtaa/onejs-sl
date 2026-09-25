@@ -104,6 +104,16 @@ describe("diagnose", () => {
         expect(refused).toBeGreaterThan(100)
     })
 
+    it("does not add that main is missing to a body that was never closed", () => {
+        // The unclosed body read to the end of the file, main with it: one mistake, one error.
+        expect(texts("float4 main() {\n    return #fff;")).toEqual(["2:16 this body is never closed"])
+        expect(texts("float f(float x) {\n    return x;\nfloat4 main() { return #fff; }").map((t) => t.replace(/^\S+ /, "")))
+            .not.toContain("this file declares no main. A .sl file is one fragment function: add `float4 main() { ... }`")
+        expect(texts("float f(float x) { return x; }")).toEqual([
+            "1:30 this file declares no main. A .sl file is one fragment function: add `float4 main() { ... }`",
+        ])
+    })
+
     it("carries on past a character it cannot read only as far as the lexer does", () => {
         expect(texts(main("float a = 1 @ 2;", "return #fff;"))).toEqual([`2:17 "@" means nothing here`])
     })

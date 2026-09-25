@@ -184,7 +184,9 @@ class Parser {
             this.recover(() => this.parseDeclaration(unit), "declaration")
         }
 
-        if (unit.main === null && this.requireMain) {
+        // Collecting, a syntax error may have swallowed main (an unclosed body
+        // reads to the end of the file), so "no main" only when nothing else went wrong.
+        if (unit.main === null && this.requireMain && (this.errors?.length ?? 0) === 0) {
             this.report(
                 "this file declares no main. A .sl file is one fragment function: add " +
                 "`float4 main() { ... }`",
