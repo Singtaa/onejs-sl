@@ -24,6 +24,18 @@ describe("diagnose", () => {
         ])
     })
 
+    it("finds a mistake inside the arguments of a call it refuses, and on both sides of an operator", () => {
+        expect(texts(main("float t = fract(uv.x * wrap);", "return float4(mix(0, 1, t), 0, 0, 1);"))).toEqual([
+            "2:15 fract is GLSL; this is HLSL, so write frac",
+            `2:28 "wrap" is not declared`,
+            "3:19 mix is GLSL; this is HLSL, so write lerp",
+        ])
+        expect(texts(main("float t = wrap * sine;", "return #fff;"))).toEqual([
+            `2:15 "wrap" is not declared`,
+            `2:22 "sine" is not declared; did you mean sin?`,
+        ])
+    })
+
     it("does not follow a refused declaration with the uses of its name", () => {
         expect(texts(main("float a = wrap;", "return float4(a, a, a, 1);"))).toEqual([`2:15 "wrap" is not declared`])
         expect(texts(main("float3 c = uv;", "return float4(c, 1);"))).toEqual(["2:5 c is declared float3 and this is a float2."])

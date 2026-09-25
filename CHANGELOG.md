@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7
+
+`diagnose` finds a mistake inside a refused call's arguments and on both sides of an operator, found by the Play editor's first run in a real browser. Nothing a program compiles to changes.
+
+- `fract(uv * wrap)` reports both `fract` and `wrap`
+
 ## 0.1.6
 
 `diagnose(source)` returns every error in a file, for an editor checking as it is typed (`Specs/SL_NEXT.md` 5). Nothing a program compiles to changes.

@@ -453,20 +453,31 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                 }
                 checkExpr(fn, e.obj, scope)
                 return
-            case "call":
-                checkCall(fn, e, scope)
+            case "call": {
+                if (attempt(() => checkCall(fn, e, scope))) return
+                // Only reached while collecting: the call was refused, and its
+                // arguments are separate questions, so a mistake inside one is
+                // not hidden by the call's own. `fract(uv * wrap)` is two
+                // mistakes. tex2D's first argument is the texture, which is a
+                // value only there.
+                const tex = e.callee.k === "ident" && e.callee.name === "tex2D"
+                for (const a of tex ? e.args.slice(1) : e.args) attempt(() => checkExpr(fn, a, scope))
                 return
+            }
+            // Each operand on its own, so that while collecting a mistake on one
+            // side does not hide one on the other. Without a collector, `attempt`
+            // is the plain call, and the first error throws as it always did.
             case "unary":
                 checkExpr(fn, e.arg, scope)
                 return
             case "binary":
-                checkExpr(fn, e.a, scope)
-                checkExpr(fn, e.b, scope)
+                attempt(() => checkExpr(fn, e.a, scope))
+                attempt(() => checkExpr(fn, e.b, scope))
                 return
             case "cond":
-                checkExpr(fn, e.cond, scope)
-                checkExpr(fn, e.then, scope)
-                checkExpr(fn, e.else, scope)
+                attempt(() => checkExpr(fn, e.cond, scope))
+                attempt(() => checkExpr(fn, e.then, scope))
+                attempt(() => checkExpr(fn, e.else, scope))
                 return
         }
     }
