@@ -17,7 +17,7 @@ float4 main() {
 ```
 
 ```ts
-import { parse } from "onejs-unity/sl"
+import { parse } from "onejs-sl"
 const plasma = parse(source, { file: "plasma.sl" })
 ```
 
@@ -44,12 +44,12 @@ is told. So parity is the test to keep green, not the parser's unit tests.
 | `lower.ts` | AST to IR through the EDSL: SSA, unrolling, `select`, inlining |
 | `builtins.ts` | What each name does, keyed by the spelling `ops.ts` gives it |
 | `prelude.ts` | The standard library, written in the language |
-| `../../esbuild/sl.mjs` | The loader: `import plasma from "./plasma.sl"` |
-| `../compiler.ts` | The build time barrel. See below for why it is not `../index.ts` |
+| `onejs-unity`'s `src/esbuild/sl.mjs` | The loader: `import plasma from "./plasma.sl"` |
+| `../index.ts` and `../core.ts` | The package with the parser, and without it. See below |
 
 ## The loader
 
-`slPlugin()` parses and encodes at BUILD TIME, so an import resolves to a small
+`slPlugin()`, in onejs-unity's `onejs-unity/esbuild`, parses and encodes at BUILD TIME, so an import resolves to a small
 object of numbers and the bundle carries neither the parser nor the source. A
 parse error becomes an esbuild error with the file, line and column, which the
 Play editor surfaces and every terminal editor links.
@@ -86,13 +86,14 @@ statically and hands it in as `compiler`, and that path never runs there.
 
 ### Why there are two barrels
 
-`onejs-unity/sl` is what a **game** imports, and the eject scaffold vendors it
-file for file into the downloaded project. `onejs-unity/sl/compiler` is what a
-**build** imports. Re-exporting the parser from the first put two thousand
+`onejs-sl/core` is what a **game** imports (through `onejs-unity/sl`), and the
+Play eject scaffold vendors every file it reaches into the downloaded project.
+`onejs-sl`, which adds this folder, is what a **build** imports (through
+`onejs-unity/sl/compiler`). Re-exporting the parser from the first put two thousand
 lines a played game never executes into every ejected project's source tree,
-where they could only read as clutter. The scaffold now vendors what a module's
-`index.ts` actually reaches rather than every file beside it, so the split is
-enforced by the eject's own test.
+where they could only read as clutter. The scaffold vendors what an entry actually
+reaches rather than every file beside it, so the split is enforced by the
+eject's own test.
 
 ## Where the types are checked
 

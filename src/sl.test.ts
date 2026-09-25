@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest"
 import { sl } from "./index"
 import { MAX_TEXTURES, SLError, TYPE, hashProgram } from "./ir"
 import { SLOP } from "./ops"
-import { SDF_SHAPES } from "../fx/sdf"
 import { SL_SDF_SHAPES } from "./shapes"
 import { encode, forVm } from "./encode"
 
@@ -381,7 +380,7 @@ describe("sdf and voronoi", () => {
         })
         const n = p.nodes.find((x) => x.k === "call" && x.op === SLOP.SDF)
         expect(n?.type).toBe(TYPE.FLOAT)
-        expect((n as any).imm[0]).toBe(SDF_SHAPES.hexagon)
+        expect((n as any).imm[0]).toBe(SL_SDF_SHAPES.hexagon)
     })
 
     it("refuses a name that is not a shape", () => {
@@ -454,17 +453,5 @@ describe("sdf and voronoi", () => {
         })
         const n = p.nodes.find((x) => x.k === "call" && x.op === SLOP.VORONOI)
         expect(n?.type).toBe(TYPE.FLOAT)
-    })
-})
-
-describe("the sl shape table is pinned to fx's", () => {
-    it("has identical names and ids", () => {
-        // sl keeps its own copy so the eject scaffold can vendor it as a self
-        // contained module; the scaffold does not rewrite relative imports
-        // across modules and refuses rather than shipping something that cannot
-        // build. This is the guard that makes the copy safe: both tables index
-        // the same switch in SDF2D.cginc, so a divergence would draw the wrong
-        // shape rather than fail.
-        expect(SL_SDF_SHAPES).toEqual(SDF_SHAPES)
     })
 })

@@ -22,7 +22,7 @@
  * `p` is written once and used twice, so it is one node with two references.
  */
 
-import { parseColor as parseHex } from "../color"
+import { parseColor as parseHex } from "./color"
 import {
     Builder, INPUTS, SLError, SL_IR_VERSION, TYPE, hashProgram, widthName,
     type InputName, type NodeRef, type Program, type SLNode, type SLType,

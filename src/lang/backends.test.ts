@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { encode } from "../encode"
 import { emitShader } from "../hlsl"
-import { manifest } from "../manifest"
 import { parse } from "./index"
 
 /**
@@ -50,10 +49,5 @@ describe("both backends take a parsed program", () => {
         expect(hlsl).toContain(`_u_warp ("warp", Vector)`)
         expect(hlsl).toContain(`_Tex0 ("grain", 2D)`)
         expect(hlsl).toContain("sl_toLinear")
-    })
-
-    it("goes into a manifest like any other program", () => {
-        const m = manifest([program])
-        expect(m.programs[0]!.hash).toBe(program.hash)
     })
 })

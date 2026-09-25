@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same ref makes an in-flight run redundant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Report both platforms rather than stopping at the first red one: a
+      # failure on one OS is usually the interesting result, not a reason to
+      # hide the other.
+      fail-fast: false
+      matrix:
+        # Windows is deliberate, not symmetry: onejs-unity, where this code
+        # lived, has had a failure that reproduced only there.
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint --if-present
+
+      # vitest, then the corpus bundled as one ES2020 IIFE and run in
+      # QuickJS-ng against Node (quickjs/run.mjs): the package promises it runs
+      # in QuickJS, and this is the only check that can see it does not.
+      - name: Test, in Node and in QuickJS
+        run: npm test

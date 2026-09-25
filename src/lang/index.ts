@@ -5,7 +5,7 @@
  * records out. Pure TypeScript, no GPU and no filesystem, like everything else
  * in `sl/`, so it runs in the Play editor's worker as happily as in a build.
  *
- *     import { parse } from "onejs-unity/sl"
+ *     import { parse } from "onejs-sl"
  *
  *     const plasma = parse(source, { file: "plasma.sl" })
  *     //    ^ a Program: encode() it, emit HLSL from it, hash it

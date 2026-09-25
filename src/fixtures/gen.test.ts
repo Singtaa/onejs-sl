@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { writeFileSync, mkdirSync } from "node:fs"
+import { existsSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { sl } from "../index"
 import { encode } from "../encode"
@@ -21,7 +21,9 @@ import { parse } from "../lang"
  * against the encoding.
  */
 
-const OUT = resolve(__dirname, "../../../../../Assets/OneJSContainer/Tests/Editor/sl-fixtures.json")
+// The container's editor tests read these. Outside the container (this
+// package's own CI) there is nowhere to write them, so the test only checks.
+const OUT = resolve(__dirname, "../../../../Assets/OneJSContainer/Tests/Editor/sl-fixtures.json")
 
 interface Fixture {
     name: string
@@ -184,8 +186,9 @@ describe("sl GPU fixtures", () => {
                 }
             `, { file: "branch.sl" }), [0.75, 0, 0, 1])
 
-        mkdirSync(dirname(OUT), { recursive: true })
-        writeFileSync(OUT, JSON.stringify({ generatedBy: "onejs-unity/src/sl/fixtures/gen.test.ts", fixtures: fx }, null, 1))
+        if (existsSync(dirname(OUT))) {
+            writeFileSync(OUT, JSON.stringify({ generatedBy: "onejs-sl/src/fixtures/gen.test.ts", fixtures: fx }, null, 1))
+        }
         expect(fx.length).toBeGreaterThan(10)
         // Every fixture must be inside the register file, or the GPU side will
         // reject it for a reason that has nothing to do with what it tests.

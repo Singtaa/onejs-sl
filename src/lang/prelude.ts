@@ -10,8 +10,8 @@
  * library entry is source, so it lands in the VM, in generated HLSL and in the
  * hash by being ordinary code, and neither backend learns anything new.
  *
- * WHY THE SOURCE IS A STRING AND NOT A FILE. `onejs-unity` ships raw TypeScript
- * and its `sl` module runs inside a browser worker on play.onejs.com, where
+ * WHY THE SOURCE IS A STRING AND NOT A FILE. `onejs-sl` ships raw TypeScript
+ * and runs inside a browser worker on play.onejs.com, where
  * there is no filesystem to read a `.sl` from, and the esbuild loader that
  * would inline one does not exist until Phase B. A template literal parses to
  * exactly the same unit, highlights the same in an editor, and needs nothing

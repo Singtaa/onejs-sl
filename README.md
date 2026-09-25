@@ -1,11 +1,25 @@
-# sl: write a per pixel program in TypeScript
+# onejs-sl
 
-Phase 1 of `Specs/SHADER_LANG.md`. The IR, the types, the EDSL and the hash.
-Pure TypeScript, no GPU anywhere in it, which is why it lands before either
-backend and why every promise below is covered by a unit test.
+The OneJS shader language: a small typed language for per pixel programs. A
+program is written as a `.sl` file (HLSL text) or with the TypeScript form, and
+recorded as one portable IR, a flat typed graph with a hash. The package emits
+that IR as the buffer OneJS's VM evaluates, a Unity ShaderLab shader, WGSL and
+GLSL ES.
+
+It is the compiler [OneJS](https://onejs.com) uses, taken out of `onejs-unity`
+so a host without Unity can run it too. `onejs-unity/sl` and
+`onejs-unity/sl/compiler` re-export it, so nothing in a OneJS project imports
+this package directly. User documentation is the
+[shader language guide](https://onejs.com/docs/guides/shader-language); this
+file is the design.
 
 ```ts
-import { sl } from "onejs-unity/sl"
+import { parse, sl } from "onejs-sl"
+
+const ripple = parse(`float4 main() {
+    float v = sin(length(uv - 0.5) * 40 - time * 4);
+    return float4(v * 0.5 + 0.5, 0, 0, 1);
+}`, { file: "ripple.sl" })
 
 const plasma = sl.program(({ uv, time }) => {
     const p = uv.mul(8).add(time.mul(0.4))
@@ -13,6 +27,48 @@ const plasma = sl.program(({ uv, time }) => {
     return sl.vec4(v.mul(0.5).add(0.5), 0, 0, 1)
 })
 ```
+
+## Entry points
+
+`"sideEffects": false`, and each backend is its own entry, so a host bundles
+only what it calls.
+
+| Entry | Contents |
+|---|---|
+| `onejs-sl` | `parse` and `analyze`, the TypeScript form `sl`, the IR types, `SL_IR_VERSION`, `toJSON`/`fromJSON`, `SLParseError` (file, line, column, length) |
+| `onejs-sl/core` | the same without the parser: what a game needs at run time |
+| `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`: what completion and highlighting read |
+| `onejs-sl/limits` | `vmFit(program)`: whether the VM runs it, and why not, without encoding |
+| `onejs-sl/vm` | `encode`, `SL_WIRE_VERSION` |
+| `onejs-sl/emit/unity` | `emitShader`: the `.shader` a Unity editor generates |
+| `onejs-sl/emit/web` | `emitWGSL`, `emitGLSL`: OneJS's web frame |
+
+`src/entries.test.ts` pins every name, since removing one breaks a host.
+
+## Runs anywhere ES2020 runs
+
+The source reaches for no host API: no `fs`, `process`, `Buffer`,
+`TextEncoder`, `performance`, `structuredClone` or `Intl`. It runs in a
+browser (the Play editor's diagnostics), a Cloudflare worker (the Play build)
+and QuickJS (Magerie). Two checks hold it to that:
+
+- lint refuses those globals and any Node module in `src/`;
+- `npm run test:quickjs` bundles `quickjs/corpus.ts` as one ES2020 IIFE, the
+  way Magerie bundles a script, runs it in QuickJS-ng and in a bare Node
+  context, and fails unless the two results agree byte for byte. The corpus
+  parses, encodes, fits and emits every program in `quickjs/corpus/`, every
+  shape at its full parameter count, and the error paths. `npm test` runs it
+  after vitest.
+
+## Releasing
+
+Push a tag `v<version>` matching `package.json`; `.github/workflows/publish.yml`
+publishes through npm trusted publishing (OIDC), so no token exists anywhere.
+Note the release in `CHANGELOG.md` first. The one exception is the first version: npm
+attaches a trusted publisher to a package that already exists, so 0.1.0 was
+published by hand, and the workflow checks its tag and publishes nothing. In the OneJS container this package
+is checked out at `JSModules/onejs-sl`, and `onejs-unity` links it with
+`file:../onejs-sl` as a dev dependency beside its `^` peer range.
 
 ## The one idea
 
@@ -24,8 +80,8 @@ editor compiles shaders at build time.
 
 So the same source is interpreted by a VM on play.onejs.com and compiled from
 generated HLSL after an eject, with no edit in between. Both backends exist:
-`encode.ts` feeds `Runtime/SL/SLProgramBridge.cs` and `FxProgram.shader`, and
-`hlsl.ts` feeds `Editor/SLShaderGenerator.cs`. Nobody writes a manifest for the
+`encode.ts` feeds OneJS's `Runtime/SL/SLProgramBridge.cs` and `FxProgram.shader`,
+and `hlsl.ts` feeds its `Editor/SLShaderGenerator.cs`. Nobody writes a manifest for the
 second: an editor that interprets a program asks the encoded program for its
 `hlsl` (a lazy getter, never read in Play), records it into
 `Assets/OneJS.Generated/Shaders/Recorded.sl.json`, generates the shader and
@@ -170,10 +226,10 @@ reset takes the whole page's device, Unity's included.
 
 ## See also
 
-- `Specs/SHADER_LANG.md`, sections 3 and 4, and section 5.4 for the Phase 0
+- `Specs/SHADER_LANG.md` in the OneJS container, sections 3 and 4, and section 5.4 for the Phase 0
   measurements that decided the VM's shape
 - `Tools/shader-vm-spike/`, the harness behind those numbers
-- `../fx/`, the image pipeline this becomes a source and an operand for
+- `onejs-unity`'s `fx`, the image pipeline this becomes a source and an operand for
 
 ## What a program is given
 

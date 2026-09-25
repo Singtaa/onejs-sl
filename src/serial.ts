@@ -35,7 +35,7 @@ export function fromJSON(json: unknown): Program {
     if (!Number.isInteger(v) || v < 1) fail(`its version must be a whole number from 1, got ${String(j.v)}`)
     if (v > SL_IR_VERSION) {
         fail(`it is IR version ${v}, and this compiler reads up to ${SL_IR_VERSION}. ` +
-            `Update onejs-unity to read it, or rebuild it from its .sl source.`)
+            `Update onejs-sl to read it, or rebuild it from its .sl source.`)
     }
     if (!Array.isArray(j.nodes) || j.nodes.length === 0) fail("it has no nodes")
     const nodes = j.nodes.map((n, i) => node(n, i))

@@ -1,0 +1,60 @@
+{
+  "name": "onejs-sl",
+  "version": "0.1.0",
+  "description": "The OneJS shader language: a small typed language for per pixel programs, compiled to a portable IR and emitted as HLSL, WGSL, GLSL ES or a VM buffer",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core.ts",
+    "./tables": "./src/tables.ts",
+    "./limits": "./src/limits.ts",
+    "./vm": "./src/vm.ts",
+    "./emit/unity": "./src/emit/unity.ts",
+    "./emit/web": "./src/emit/web.ts"
+  },
+  "sideEffects": false,
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "!src/fixtures",
+    "CHANGELOG.md"
+  ],
+  "keywords": [
+    "onejs",
+    "shader",
+    "shading-language",
+    "hlsl",
+    "wgsl",
+    "glsl",
+    "compiler",
+    "sdf",
+    "noise",
+    "procedural"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Singtaa/onejs-sl.git"
+  },
+  "homepage": "https://onejs.com/docs/guides/shader-language",
+  "author": "Singtaa",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run && node quickjs/run.mjs",
+    "test:quickjs": "node quickjs/run.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@jitl/quickjs-ng-wasmfile-release-sync": "^0.32.0",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^10.9.1",
+    "globals": "^17.11.0",
+    "quickjs-emscripten-core": "^0.32.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^2.1.0"
+  }
+}

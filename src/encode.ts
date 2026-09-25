@@ -242,9 +242,12 @@ export function forVm(program: Program): Program {
     return { ...program, nodes, result: map[program.result]!, loops: program.loops.map((l) => ({ ...l, start: at(l.start), end: at(l.end) })) }
 }
 
-export function encode(source: Program): Encoded {
-    const program = forVm(source)
-    const order = reachable(program.nodes, program.result)
+/**
+ * The limits `encode` refuses a program for that are not about registers: its
+ * length and its sampler slots. Shared with `vmFit`, so the two cannot
+ * disagree about what fits.
+ */
+export function checkBudget(program: Program, order: NodeRef[]): void {
     if (order.length > MAX_INSTRUCTIONS) {
         throw new SLError(
             `this program is ${order.length} operations and the VM runs at most ${MAX_INSTRUCTIONS}. ` +
@@ -254,15 +257,19 @@ export function encode(source: Program): Encoded {
     for (const t of program.textures) {
         if (t.slot >= MAX_TEXTURES) throw new SLError(`texture "${t.name}" is past the sampler budget`)
     }
+}
 
+/**
+ * A register for every node in `order`, by linear scan, and the most in use
+ * at once. Throws when the file runs out. Shared with `vmFit`.
+ */
+export function allocate(program: Program, order: NodeRef[]): { reg: Map<NodeRef, number>, peak: number } {
     const last = liveRanges(program.nodes, order, program.result)
     const reg = new Map<NodeRef, number>()
     const free: number[] = []
     for (let r = REGISTERS - 1; r >= 0; r--) free.push(r)
     /** Which node currently owns each register, for freeing. */
     const owner = new Array<NodeRef | null>(REGISTERS).fill(null)
-
-    const out: Instr[] = []
     let peak = 0
 
     order.forEach((ref, i) => {
@@ -275,9 +282,7 @@ export function encode(source: Program): Encoded {
             if (o !== null && last.get(o)! < i) { owner[r] = null; free.push(r) }
         }
 
-        const n = program.nodes[ref]
-        const reads: NodeRef[] = n.k === "swizzle" ? [n.src] : n.k === "call" ? n.args : []
-        const args = reads.map((r) => {
+        const args = readsOf(program.nodes[ref]).map((r) => {
             const rr = reg.get(r)
             if (rr === undefined) throw new SLError(`internal: node ${r} has no register when ${ref} needs it`)
             return rr
@@ -306,9 +311,34 @@ export function encode(source: Program): Encoded {
         owner[dst] = ref
         reg.set(ref, dst)
         peak = Math.max(peak, REGISTERS - free.length)
+    })
+    return { reg, peak }
+}
+
+function readsOf(n: SLNode): NodeRef[] {
+    return n.k === "swizzle" ? [n.src] : n.k === "call" ? n.args : []
+}
+
+/**
+ * The lowest VM that can run `vm`, the result of `forVm(source)`: 2 only where
+ * a wide shape made SDF_WIDE, so everything else still runs on a wire 1 VM.
+ */
+export function wireOf(source: Program, vm: Program): number {
+    return vm === source ? 1 : 2
+}
+
+export function encode(source: Program): Encoded {
+    const program = forVm(source)
+    const order = reachable(program.nodes, program.result)
+    checkBudget(program, order)
+    const { reg, peak } = allocate(program, order)
+
+    const out = order.map((ref) => {
+        const n = program.nodes[ref]
+        const reads = readsOf(n)
         // The width of the first operand, for the ops whose result narrows.
         const srcWidth = reads.length > 0 ? program.nodes[reads[0]].type : undefined
-        out.push(emit(n, dst, args, srcWidth))
+        return emit(n, reg.get(ref)!, reads.map((r) => reg.get(r)!), srcWidth)
     })
 
     const data = new Float32Array(out.length * TEXELS_PER_INSTRUCTION * 4)
@@ -330,9 +360,7 @@ export function encode(source: Program): Encoded {
         defaults: uniformDefaults(program),
         textures: program.textures.map((t) => t.name),
         hash: program.hash,
-        // The lowest VM that can run it: 2 only where a wide shape made
-        // SDF_WIDE, so everything else still runs on a wire 1 container.
-        wire: program === source ? 1 : 2,
+        wire: wireOf(source, program),
     } as Encoded
     let hlsl: string | undefined
     let wgsl: string | undefined

@@ -4,12 +4,11 @@
  * A SECOND COPY of `fx/sdf.ts`'s table, deliberately, and guarded by a test
  * that compares the two.
  *
- * The eject scaffold vendors each onejs-unity module a game uses into a
- * self-contained folder, rewriting `"onejs-unity/<mod>"` specifiers as it goes.
- * It does not rewrite relative paths across modules, and it refuses outright
- * rather than shipping a scaffold that cannot build. So `sl` importing
- * `../fx/sdf` would have produced an ejected project that fails to compile, for
- * a table of forty-two integers.
+ * `fx` lives in onejs-unity and this package has no Unity in it, so the table
+ * cannot be imported from there. It was a copy before the move too: OneJS's
+ * Play eject scaffold vendors each module into its own folder and does not
+ * rewrite relative paths across modules. onejs-unity's `sl/shapes.test.ts`
+ * compares the two.
  *
  * Duplicating and pinning is the trade this repository already makes for the
  * painter and particle opcode tables, and for the SDF dispatcher that exists in
