@@ -93,22 +93,6 @@ const e = (name: string, deps: string[], glsl: string, wgsl: string): LibEntry =
 
 export const WEB_LIB: LibEntry[] = [
     // ---------------------------------------------------------------- colour
-    e("sl_toLinear1", [], `
-float sl_toLinear1(float c) {
-    if (sl_Opt.x < 0.5) return c;
-    if (c <= 0.04045) return c / 12.92;
-    if (c < 1.0) return pow((c + 0.055) / 1.055, 2.4);
-    return pow(c, 2.2);
-}`, `
-fn sl_toLinear1(c: f32) -> f32 {
-    if (sl.opt.x < 0.5) { return c; }
-    if (c <= 0.04045) { return c / 12.92; }
-    if (c < 1.0) { return pow((c + 0.055) / 1.055, 2.4); }
-    return pow(c, 2.2);
-}`),
-    e("sl_toLinear2", ["sl_toLinear1"], `
-vec2 sl_toLinear2(vec2 c) { return vec2(sl_toLinear1(c.x), sl_toLinear1(c.y)); }`, `
-fn sl_toLinear2(c: vec2f) -> vec2f { return vec2f(sl_toLinear1(c.x), sl_toLinear1(c.y)); }`),
     e("sl_toLinear3", [], `
 vec3 sl_toLinear3(vec3 c) {
     if (sl_Opt.x < 0.5) return c;
@@ -118,6 +102,15 @@ fn sl_toLinear3(c: vec3f) -> vec3f {
     if (sl.opt.x < 0.5) { return c; }
     return c * (c * (c * 0.305306011 + 0.682171111) + 0.012522878);
 }`),
+    // Unity's cubic approximation at every width, as SLCommon.cginc has it:
+    // the VM converts every width that way, so an exact curve for a scalar
+    // drew up to 5/255 apart from it in the dark range.
+    e("sl_toLinear1", ["sl_toLinear3"], `
+float sl_toLinear1(float c) { return sl_toLinear3(vec3(c, 0.0, 0.0)).x; }`, `
+fn sl_toLinear1(c: f32) -> f32 { return sl_toLinear3(vec3f(c, 0.0, 0.0)).x; }`),
+    e("sl_toLinear2", ["sl_toLinear3"], `
+vec2 sl_toLinear2(vec2 c) { return sl_toLinear3(vec3(c, 0.0)).xy; }`, `
+fn sl_toLinear2(c: vec2f) -> vec2f { return sl_toLinear3(vec3f(c, 0.0)).xy; }`),
     e("sl_toLinear4", ["sl_toLinear3"], `
 vec4 sl_toLinear4(vec4 c) { return vec4(sl_toLinear3(c.rgb), c.a); }`, `
 fn sl_toLinear4(c: vec4f) -> vec4f { return vec4f(sl_toLinear3(c.rgb), c.a); }`),
