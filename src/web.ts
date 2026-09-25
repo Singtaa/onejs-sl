@@ -26,8 +26,10 @@
  */
 
 import { SLError, TYPE, type Program, type SLNode, type SLType } from "./ir"
+import { libClosure, libIndex, LIB_FUNCTIONS, SDF_CALLS } from "./lib"
+import { LIB_GLSL } from "./lib/glsl"
+import { LIB_WGSL } from "./lib/wgsl"
 import { INPUT_ID, SLOP, VM_UNIFORMS } from "./ops"
-import { SDF_CALLS, WEB_LIB } from "./weblib"
 
 export type WebLanguage = "glsl" | "wgsl"
 
@@ -44,7 +46,8 @@ export function emitWGSL(p: Program): string {
 
 function emitWeb(p: Program, lang: WebLanguage): string {
     const W = lang === "wgsl"
-    const need = new Set<string>()
+    const need = new Set<number>()
+    const smoothsteps = new Set<SLType>()
     const sampled = new Set<number>()
     const lines: string[] = []
     const emitted = new Set<number>()
@@ -100,7 +103,13 @@ function emitWeb(p: Program, lang: WebLanguage): string {
         const s = n.args.map((r) => splat(r, t))
         const w0 = n.args.length > 0 ? typeOf(n.args[0]) : 1
         const imm = n.imm ?? []
-        const lib = (name: string) => { need.add(name); return name }
+        /** A library function by name, and by HLSL parameter types where it is overloaded. */
+        const lib = (name: string, params?: string[]) => {
+            const i = libIndex(name, params)
+            need.add(i)
+            return W ? LIB_FUNCTIONS[i]!.wgsl : name
+        }
+        const hlslType = (w: SLType) => (w === 1 ? "float" : `float${w}`)
         switch (n.op) {
             case SLOP.COMPOSE: return t === 1 ? a[0] : `${T(t)}(${a.join(", ")})`
 
@@ -145,11 +154,11 @@ function emitWeb(p: Program, lang: WebLanguage): string {
                 ? `(${a[0]} - 2.0 * ${a[1]} * ${a[0]} * ${a[1]})`
                 : `reflect(${a[0]}, ${a[1]})`
             case SLOP.LUMINANCE: return `dot(${a[0]}.rgb, ${T(3)}(0.2126, 0.7152, 0.0722))`
-            case SLOP.TO_LINEAR: return `${lib(`sl_toLinear${t}`)}(${a[0]})`
+            case SLOP.TO_LINEAR: return `${lib("sl_toLinear", [hlslType(t)])}(${a[0]})`
 
             case SLOP.MIX: return `mix(${s[0]}, ${s[1]}, ${s[2]})`
             case SLOP.STEP: return `step(${s[0]}, ${s[1]})`
-            case SLOP.SMOOTHSTEP: return `${lib(`sl_smoothstep${t}`)}(${s[0]}, ${s[1]}, ${s[2]})`
+            case SLOP.SMOOTHSTEP: smoothsteps.add(t); return `sl_smoothstep${t}(${s[0]}, ${s[1]}, ${s[2]})`
             // As the VM and the HLSL emitter do it: branchless, so every
             // backend agrees on the edge value.
             case SLOP.SELECT: {
@@ -158,8 +167,8 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             }
 
             case SLOP.HSV2RGB: return `${lib("sl_hsv2rgb")}(${a[0]})`
-            case SLOP.NOISE: return `${lib("oj_vnoise")}(${a[0]}, 0.0)`
-            case SLOP.SIMPLEX: return `${lib("oj_simplex")}(${a[0]}, 0.0)`
+            case SLOP.NOISE: return `${lib("sl_valueNoise")}(${a[0]})`
+            case SLOP.SIMPLEX: return `${lib("sl_simplex")}(${a[0]})`
             case SLOP.FBM: return octaveCall(Math.round(imm[1] ?? 0), a[0], imm[0])
             case SLOP.TURBULENCE: return octaveCall(2, a[0], imm[0])
             case SLOP.RIDGED: return octaveCall(3, a[0], imm[0])
@@ -177,32 +186,36 @@ function emitWeb(p: Program, lang: WebLanguage): string {
                 )
         }
 
-        /** Noise2D.cginc's onejsFbmKind, resolved here since the kind is a constant. */
+        /**
+         * The library's onejsFbmKind, resolved here since the kind is a
+         * constant: calling the dispatcher would print a WGSL `select` that
+         * runs two of the four fields to keep one.
+         */
         function octaveCall(kind: number, pt: string, octaves: number | undefined): string {
             const o = Math.min(4, Math.max(1, Math.round(octaves ?? 3)))
-            const fn = kind === 2 ? "oj_turbulence" : kind === 3 ? "oj_ridged" : kind === 1 ? "oj_fbmSimplex" : "oj_fbm"
-            return `${lib(fn)}(${pt}, 0.0, ${o})`
+            const fn = kind === 2 ? "onejsTurbulence" : kind === 3 ? "onejsRidged" : kind === 1 ? "onejsFbmSimplex" : "onejsFbm"
+            return `${lib(fn, ["float2", "float", "int", "float", "float"])}(${pt}, 0.0, ${o}, 2.0, 0.5)`
         }
 
-        /** The shape is a constant, so this calls it directly instead of SLCommon's switch. */
+        /** The shape is a constant, so this calls it directly instead of sl_sdfDistance's switch. */
         function sdfCall(id: number, pt: string, im: number[]): string {
             const shape = SDF_CALLS[id]
-            // SLCommon's dispatcher returns 1e6 for an id it does not know.
+            // sl_sdfDistance returns 1e6 for an id it does not know.
             if (shape === undefined) return lit(1e6)
-            lib(shape.fn)
+            const fn = lib(shape.fn)
             const v = [im[1] ?? 0, im[2] ?? 0, im[3] ?? 0, im[4] ?? 0, im[5] ?? 0, im[6] ?? 0]
             const args = shape.args.map((arg) => {
-                if (!Array.isArray(arg)) return String(Math.trunc(v[arg.int]))
+                if ("int" in arg) return String(Math.trunc(v[arg.int]))
                 const parts = arg.map((i) => lit(v[i]))
                 return parts.length === 1 ? parts[0] : `${T(parts.length as SLType)}(${parts.join(", ")})`
             })
-            return `${shape.fn}(${[pt, ...args].join(", ")})`
+            return `${fn}(${[pt, ...args].join(", ")})`
         }
     }
 
     walk(p.result)
     const body = lines.join("\n")
-    const library = librarySource(need, lang)
+    const library = [...[...smoothsteps].sort().map((w) => smoothstep(w, lang)), ...librarySource(need, lang)].join("\n")
     const header = `// GENERATED from a shader language program (${p.hash}). Do not edit.`
     // Only the textures the program samples. WebGPU's automatic layout leaves
     // out a binding the shader never reads, and a bind group that supplies one
@@ -251,19 +264,31 @@ ${body}
 `
 }
 
-/** The needed entries and everything they depend on, in library order. */
-function librarySource(need: Set<string>, lang: WebLanguage): string {
-    const want = new Set<string>()
-    const byName = new Map(WEB_LIB.map((e) => [e.name, e]))
-    const add = (name: string) => {
-        if (want.has(name)) return
-        const entry = byName.get(name)
-        if (entry === undefined) throw new SLError(`internal: the web library has no entry "${name}"`)
-        want.add(name)
-        for (const d of entry.deps) add(d)
+/** The needed library functions and everything they call, in library order. */
+function librarySource(need: Set<number>, lang: WebLanguage): string[] {
+    const texts = lang === "wgsl" ? LIB_WGSL : LIB_GLSL
+    return libClosure(need).map((i) => texts[i]!.trim())
+}
+
+/**
+ * HLSL's smoothstep is the formula whatever the edge order; GLSL leaves
+ * edge0 >= edge1 undefined, so the web writes the formula out. This belongs
+ * to the web frame rather than the library: the HLSL backends call the
+ * intrinsic, which already means this.
+ */
+function smoothstep(w: SLType, lang: WebLanguage): string {
+    if (lang === "glsl") {
+        const g = w === 1 ? "float" : `vec${w}`
+        return `${g} sl_smoothstep${w}(${g} a, ${g} b, ${g} x) {
+    ${g} t = clamp((x - a) / (b - a), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}`
     }
-    for (const n of need) add(n)
-    return WEB_LIB.filter((e) => want.has(e.name)).map((e) => (lang === "wgsl" ? e.wgsl : e.glsl).trim()).join("\n")
+    const t = w === 1 ? "f32" : `vec${w}f`
+    return `fn sl_smoothstep${w}(a: ${t}, b: ${t}, x: ${t}) -> ${t} {
+    let t = saturate((x - a) / (b - a));
+    return t * t * (3.0 - 2.0 * t);
+}`
 }
 
 /** A literal that survives a float32 round trip and never reads as an int. */

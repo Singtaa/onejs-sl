@@ -3,7 +3,9 @@ import { emitFragmentBody } from "./hlsl"
 import { SLOP } from "./ops"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES } from "./shapes"
 import { emitGLSL, emitWGSL, WEB_UNIFORM_SLOTS } from "./web"
-import { SDF_CALLS, WEB_LIB } from "./weblib"
+import { LIB_FUNCTIONS, SDF_CALLS } from "./lib"
+import { LIB_GLSL } from "./lib/glsl"
+import { LIB_WGSL } from "./lib/wgsl"
 import { TYPE, type Program, type SLNode } from "./ir"
 import { sl } from "./index"
 import { parse } from "./lang"
@@ -33,7 +35,7 @@ describe("the web emitters", () => {
     it("have a shape for every sdf id, in id order", () => {
         const ids = Object.values(SL_SDF_SHAPES)
         expect(SDF_CALLS.length).toBe(ids.length)
-        const names = new Set(WEB_LIB.map((e) => e.name))
+        const names = new Set(LIB_FUNCTIONS.map((e) => e.name))
         for (const [shape, id] of Object.entries(SL_SDF_SHAPES)) {
             const call = SDF_CALLS[id]!
             // sdCircle for circle, sdStar5 for star5: the table is by id, so a
@@ -50,20 +52,19 @@ describe("the web emitters", () => {
         // [a.x, a.y, a.z, a.w, b.x, b.y]: the highest index a shape reads is
         // its count. Two tables written by hand, held level by this.
         for (const [shape, id] of Object.entries(SL_SDF_SHAPES)) {
-            const read = Math.max(0, ...SDF_CALLS[id]!.args.map((a) => Array.isArray(a) ? Math.max(...a) + 1 : a.int + 1))
+            const read = Math.max(0, ...SDF_CALLS[id]!.args.map((a) => "int" in a ? a.int + 1 : Math.max(...a) + 1))
             expect(SL_SDF_PARAMS[shape as keyof typeof SL_SDF_PARAMS], shape).toBe(read)
         }
     })
 
     it("keep the library in dependency order, with every entry in both languages", () => {
-        const seen = new Set<string>()
-        for (const e of WEB_LIB) {
-            expect(seen.has(e.name), `${e.name} appears twice`).toBe(false)
-            for (const d of e.deps) expect(seen.has(d), `${e.name} needs ${d} before it`).toBe(true)
-            expect(e.glsl.trim().length).toBeGreaterThan(0)
-            expect(e.wgsl.trim().length).toBeGreaterThan(0)
-            seen.add(e.name)
-        }
+        expect(LIB_GLSL.length).toBe(LIB_FUNCTIONS.length)
+        expect(LIB_WGSL.length).toBe(LIB_FUNCTIONS.length)
+        LIB_FUNCTIONS.forEach((f, i) => {
+            for (const d of f.deps) expect(d, `${f.name} needs ${LIB_FUNCTIONS[d]!.name} before it`).toBeLessThan(i)
+            expect(LIB_GLSL[i]!).toContain(` ${f.name}(`)
+            expect(LIB_WGSL[i]!).toContain(`fn ${f.wgsl}(`)
+        })
     })
 
     it("handle every opcode the HLSL emitter handles", () => {

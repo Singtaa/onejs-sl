@@ -12,7 +12,7 @@ import { vmFit } from "../src/limits"
 import { encode } from "../src/vm"
 import { emitShader } from "../src/emit/unity"
 import { emitGLSL, emitWGSL } from "../src/emit/web"
-import { emitBody, type BodyTarget } from "../src/emit/hlsl-body"
+import { emitBody, emitLibrary, type BodyTarget } from "../src/emit/hlsl-body"
 import { inputsUsed } from "../src/core"
 
 /** A host frame's names, as Magerie's kernel spells them. */
@@ -46,7 +46,9 @@ function describe(p: Program): Result {
     out.hlsl = emitShader(p)
     out.wgsl = emitWGSL(p)
     out.glsl = emitGLSL(p)
-    out.body = emitBody(p, TARGET)
+    const body = emitBody(p, TARGET)
+    out.body = body
+    out.library = emitLibrary(body.uses.helpers, TARGET.colour)
     out.inputs = inputsUsed(p)
     out.uniforms = p.uniforms
     return out

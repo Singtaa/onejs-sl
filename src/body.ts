@@ -11,7 +11,9 @@
  * The subset is HLSL's spelling (`float2`, `lerp`, `frac`, `fmod`, `atan2`,
  * `saturate`), which Metal takes through a host's compatibility defines. `fmod`
  * is the same truncating remainder in both. Nothing here uses `mul`, `static`,
- * derivatives, or an overload the library does not resolve by width.
+ * derivatives, or an overload the library does not resolve by width. The
+ * library text `emitLibrary` prints is the same subset, translated from
+ * `lib/*.hlsl` by `lib/translate.ts`.
  *
  * One local per reachable node, in order, named `n<index>` and unreadable on
  * purpose: generated code that looks hand written invites hand editing, and a
@@ -20,6 +22,8 @@
  */
 
 import { SLError, TYPE, type InputName, type Program, type SLNode, type SLType } from "./ir"
+import { libClosure, LIB_FUNCTIONS } from "./lib"
+import { LIB_HLSL } from "./lib/hlsl"
 import { SLOP } from "./ops"
 
 export interface BodyTarget {
@@ -48,7 +52,7 @@ export interface Body {
         uniforms: number[]
         /** Texture slots the body samples, ascending. */
         textures: number[]
-        /** Library functions the body calls, sorted: `sl_fbm`, `sl_sdfDistance`, ... */
+        /** Library functions the body calls, sorted: `sl_fbm`, `sl_sdfDistance`, ... `emitLibrary` prints them. */
         helpers: string[]
     }
 }
@@ -77,6 +81,8 @@ export function emitBody(p: Program, target: BodyTarget): Body {
     const textures = new Set<number>()
     const helpers = new Set<string>()
     const helper = (fn: string) => { helpers.add(fn); return fn }
+    /** A node at width `w`: a scalar repeated into a constructor, since HLSL refuses float3(x) and Metal x.xxx. */
+    const splat = (ref: number, w: SLType) => (p.nodes[ref]!.type === TYPE.FLOAT && w > 1 ? ctor(w, Array(w).fill(name(ref))) : name(ref))
 
     const expr = (n: SLNode): string => {
         switch (n.k) {
@@ -92,6 +98,8 @@ export function emitBody(p: Program, target: BodyTarget): Body {
                 return n.type === TYPE.VEC4 ? v : `${v}.${SWZ.slice(0, n.type)}`
             }
             case "swizzle":
+                // Metal has no swizzle of a scalar, so a scalar widens by constructor.
+                if (p.nodes[n.src]!.type === TYPE.FLOAT) return ctor(n.type, n.chans.map(() => name(n.src)))
                 return `${name(n.src)}.${n.chans.map((c) => SWZ[c]).join("")}`
             case "call":
                 return call(n)
@@ -100,6 +108,14 @@ export function emitBody(p: Program, target: BodyTarget): Body {
 
     const call = (n: Extract<SLNode, { k: "call" }>): string => {
         const a = n.args.map(name)
+        const t = n.type
+        // Every argument of an element wise intrinsic at the result's width,
+        // and every literal at its exact type. HLSL broadcasts a scalar and
+        // converts an int; Metal finds max(float2, float) has no overload and
+        // max(float, 0) is ambiguous, so the shared subset spells both out.
+        const s = n.args.map((r) => splat(r, t))
+        const k = (v: number, w: SLType) => ctor(w, Array(w).fill(lit(v)))
+        const w0 = n.args.length > 0 ? p.nodes[n.args[0]!]!.type : TYPE.FLOAT
         const imm = n.imm ?? []
         switch (n.op) {
             case SLOP.COMPOSE: return ctor(n.type, a)
@@ -108,50 +124,52 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.SUB: return `(${a[0]} - ${a[1]})`
             case SLOP.MUL: return `(${a[0]} * ${a[1]})`
             case SLOP.DIV: return `(${a[0]} / ${a[1]})`
-            case SLOP.MOD: return `fmod(${a[0]}, ${a[1]})`
+            case SLOP.MOD: return `fmod(${s[0]}, ${s[1]})`
             // abs on the base, matching the VM. pow of a negative base is
             // undefined in HLSL and the backends must be undefined in the same
             // direction.
-            case SLOP.POW: return `pow(abs(${a[0]}), ${a[1]})`
+            case SLOP.POW: return `pow(abs(${s[0]}), ${s[1]})`
             case SLOP.NEG: return `(-${a[0]})`
             case SLOP.RECIP: return `(1.0 / ${a[0]})`
 
             case SLOP.SIN: return `sin(${a[0]})`
             case SLOP.COS: return `cos(${a[0]})`
             case SLOP.TAN: return `tan(${a[0]})`
-            case SLOP.ASIN: return `asin(clamp(${a[0]}, -1, 1))`
-            case SLOP.ACOS: return `acos(clamp(${a[0]}, -1, 1))`
-            case SLOP.ATAN2: return `atan2(${a[0]}, ${a[1]})`
+            case SLOP.ASIN: return `asin(clamp(${a[0]}, ${k(-1, t)}, ${k(1, t)}))`
+            case SLOP.ACOS: return `acos(clamp(${a[0]}, ${k(-1, t)}, ${k(1, t)}))`
+            case SLOP.ATAN2: return `atan2(${s[0]}, ${s[1]})`
             case SLOP.EXP: return `exp(${a[0]})`
-            case SLOP.LOG: return `log(max(${a[0]}, 1e-8))`
-            case SLOP.SQRT: return `sqrt(max(${a[0]}, 0))`
+            case SLOP.LOG: return `log(max(${a[0]}, ${k(1e-8, t)}))`
+            case SLOP.SQRT: return `sqrt(max(${a[0]}, ${k(0, t)}))`
             case SLOP.ABS: return `abs(${a[0]})`
             case SLOP.SIGN: return `sign(${a[0]})`
             case SLOP.FLOOR: return `floor(${a[0]})`
             case SLOP.CEIL: return `ceil(${a[0]})`
             case SLOP.ROUND: return `round(${a[0]})`
             case SLOP.FRACT: return `frac(${a[0]})`
-            case SLOP.MIN: return `min(${a[0]}, ${a[1]})`
-            case SLOP.MAX: return `max(${a[0]}, ${a[1]})`
-            case SLOP.CLAMP: return `clamp(${a[0]}, ${a[1]}, ${a[2]})`
+            case SLOP.MIN: return `min(${s[0]}, ${s[1]})`
+            case SLOP.MAX: return `max(${s[0]}, ${s[1]})`
+            case SLOP.CLAMP: return `clamp(${s[0]}, ${s[1]}, ${s[2]})`
             case SLOP.SATURATE: return `saturate(${a[0]})`
 
-            case SLOP.LENGTH: return `length(${a[0]})`
-            case SLOP.DISTANCE: return `distance(${a[0]}, ${a[1]})`
-            case SLOP.DOT: return `dot(${a[0]}, ${a[1]})`
+            // Of a scalar, Metal's are ambiguous, so what the VM computes for one
+            // (its lanes past the width hold 0) is written out.
+            case SLOP.LENGTH: return w0 === 1 ? `abs(${a[0]})` : `length(${a[0]})`
+            case SLOP.DISTANCE: return w0 === 1 ? `abs(${a[0]} - ${a[1]})` : `distance(${a[0]}, ${a[1]})`
+            case SLOP.DOT: return w0 === 1 ? `(${a[0]} * ${a[1]})` : `dot(${a[0]}, ${a[1]})`
             case SLOP.CROSS: return `cross(${a[0]}, ${a[1]})`
-            case SLOP.NORMALIZE: return `normalize(${a[0]})`
-            case SLOP.REFLECT: return `reflect(${a[0]}, ${a[1]})`
+            case SLOP.NORMALIZE: return w0 === 1 ? `(${a[0]} / abs(${a[0]}))` : `normalize(${a[0]})`
+            case SLOP.REFLECT: return w0 === 1 ? `(${a[0]} - 2.0 * ${a[1]} * ${a[0]} * ${a[1]})` : `reflect(${a[0]}, ${a[1]})`
             case SLOP.LUMINANCE: return `${helper("sl_luminance")}(${a[0]}.rgb)`
             case SLOP.TO_LINEAR: return target.colour === "linear" ? `${helper("sl_toLinear")}(${a[0]})` : a[0]!
 
-            case SLOP.MIX: return `lerp(${a[0]}, ${a[1]}, ${a[2]})`
-            case SLOP.STEP: return `step(${a[0]}, ${a[1]})`
-            case SLOP.SMOOTHSTEP: return `smoothstep(${a[0]}, ${a[1]}, ${a[2]})`
+            case SLOP.MIX: return `lerp(${s[0]}, ${s[1]}, ${s[2]})`
+            case SLOP.STEP: return `step(${s[0]}, ${s[1]})`
+            case SLOP.SMOOTHSTEP: return `smoothstep(${s[0]}, ${s[1]}, ${s[2]})`
             // Matches the VM exactly, branchlessly, rather than using an if.
             // Two backends that pick differently here disagree on every edge
             // value.
-            case SLOP.SELECT: return `lerp(${a[2]}, ${a[1]}, step(0.5, ${a[0]}))`
+            case SLOP.SELECT: return `lerp(${s[2]}, ${s[1]}, step(${k(0.5, t)}, ${s[0]}))`
 
             case SLOP.HSV2RGB: return `${helper("sl_hsv2rgb")}(${a[0]})`
             case SLOP.NOISE: return `${helper("sl_valueNoise")}(${a[0]})`
@@ -199,4 +217,27 @@ export function emitBody(p: Program, target: BodyTarget): Body {
         body: lines.join("\n"),
         uses: { uniforms: sorted(uniforms), textures: sorted(textures), helpers: [...helpers].sort() },
     }
+}
+
+/**
+ * The library functions a body calls (`Body.uses.helpers`) and everything they
+ * call, in the same subset and in dependency order, with the colour branch the
+ * target asked for: the text a host puts ahead of the function it wraps the
+ * body in.
+ *
+ * Separate from `emitBody` because OneJS's own frame never needs it: the Unity
+ * shader includes `SLCommon.cginc`, the library's source, and a bundle that
+ * prints only Unity shaders should not carry the library's text as well.
+ */
+export function emitLibrary(helpers: readonly string[], colour: "gamma" | "linear"): string {
+    const wanted = new Set(helpers)
+    const named = LIB_FUNCTIONS.flatMap((f, i) => (wanted.has(f.name) ? [i] : []))
+    if (named.length < wanted.size) {
+        const known = new Set(LIB_FUNCTIONS.map((f) => f.name))
+        throw new SLError(`the library has no ${[...wanted].filter((h) => !known.has(h)).join(", ")}`)
+    }
+    return libClosure(named).map((i) => {
+        const text = LIB_HLSL[i]!
+        return (typeof text === "string" ? text : text[colour]).trim()
+    }).join("\n")
 }

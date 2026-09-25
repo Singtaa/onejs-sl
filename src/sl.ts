@@ -461,6 +461,14 @@ function difference(a: Num, b: Num): Num {
 
 export function atan2(y: Num, x: Num): Float {
     const b = ctx()
+    // An angle is one number. Given vectors, the node would still be a float
+    // and every backend would disagree about which lane it kept: HLSL takes
+    // .x silently, GLSL and WGSL refuse to compile.
+    for (const v of [y, x]) {
+        if (typeof v !== "number" && v.width !== 1) {
+            throw new SLError(`atan2 takes two floats, and this is a ${v.width === 2 ? "float2" : v.width === 3 ? "float3" : "float4"}: call it per component`)
+        }
+    }
     const yy = typeof y === "number" ? float(y) : y
     const [a, c] = align2(yy as Val, x)
     return mk(b, b.call(SLOP.ATAN2, TYPE.FLOAT, [a, c]), TYPE.FLOAT)
@@ -622,7 +630,7 @@ export function ramp(t: Num, stops: Array<string | [number, number, number, numb
  * fifth and sixth.
  *
  * Which parameters a shape takes is the shape's own business; `circle` wants a
- * radius, `roundedBox` wants half extents and a corner. See SDF2D.cginc.
+ * radius, `roundedBox` wants half extents and a corner. See `lib/sdf2d.hlsl`.
  */
 export function sdf(kind: SlSdfKind, p: Vec2, params: number[] = []): Float {
     const id = SL_SDF_SHAPES[kind]
