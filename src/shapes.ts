@@ -12,8 +12,8 @@
  *
  * Duplicating and pinning is the trade this repository already makes for the
  * painter and particle opcode tables, and for the SDF dispatcher that exists in
- * both FxSources and SLCommon. The ids are a contract with SDF2D.cginc either
- * way; what matters is that a test fails when they drift, not that there is
+ * both FxSources and SLCommon. The ids are a contract with `lib/sdf2d.hlsl`
+ * (SDF2D.cginc in OneJS) either way; what matters is that a test fails when they drift, not that there is
  * only one copy.
  */
 export const SL_SDF_SHAPES = {
@@ -30,8 +30,8 @@ export const SL_SDF_SHAPES = {
 export type SlSdfKind = keyof typeof SL_SDF_SHAPES
 
 /**
- * How many parameters each shape reads, in the order SDF2D.cginc takes them
- * (its `a` then `b`). Six shapes take more than four: roundedBox's last two
+ * How many parameters each shape reads, in the order `sl_sdfDistance` in
+ * `lib/common.hlsl` takes them (its `a` then `b`). Six shapes take more than four: roundedBox's last two
  * corner radii, orientedBox's thickness, triangle's third vertex, horseshoe's
  * second width, orientedVesica's width and bezier's end point. `sl.sdf` takes
  * up to this many, and a test derives the same counts from the web emitters'

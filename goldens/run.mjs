@@ -39,6 +39,7 @@ vm.runInContext(bundle, context)
 const sources = fixtureSources(vm.runInContext("__goldens.SL_SDF_PARAMS", context))
 const fixtures = JSON.parse(vm.runInContext(`JSON.stringify(__goldens.compile(${JSON.stringify(sources)}))`, context))
 const irVersion = vm.runInContext("__goldens.SL_IR_VERSION", context)
+const library = JSON.parse(vm.runInContext("JSON.stringify(__goldens.wholeLibrary())", context))
 
 const page = fs.readFileSync(path.join(HERE, "page.html"))
 const server = http.createServer((req, res) => {
@@ -101,6 +102,12 @@ for (const backend of ["webgpu", "webgl2"]) {
     draw[backend] = await evaluate(`goldens.render(${JSON.stringify(backend)}, ${JSON.stringify(fixtures)}, ${JSON.stringify(TIMES)})`)
     console.log(`[goldens] ${backend}: ${draw[backend].device}`)
 }
+// Every translated function, including the ones no fixture reaches, has to
+// compile on both backends. Checked, not recorded: goldens.json is pixels.
+const libraryErrors = {}
+for (const [backend, source] of [["webgpu", library.wgsl], ["webgl2", library.glsl]]) {
+    libraryErrors[backend] = await evaluate(`goldens.compiles(${JSON.stringify(backend)}, ${JSON.stringify(source)})`)
+}
 const textureBytes = await evaluate("goldens.textureBytes()")
 const SIZE = await evaluate("goldens.size")
 ws.close()
@@ -119,6 +126,9 @@ const samples = (image) => {
 }
 
 const failures = []
+for (const [backend, error] of Object.entries(libraryErrors)) {
+    if (error !== "") failures.push(`the whole library does not compile on ${backend}: ${error}`)
+}
 // The backends against each other, over every pixel, not only the samples.
 let agreement = 0
 for (const name of Object.keys(fixtures)) {
@@ -169,6 +179,8 @@ for (const [name, { tolerance, expect }] of Object.entries(anchors)) {
 }
 
 for (const f of failures) console.log(`[goldens] FAIL ${f}`)
+console.log(`[goldens] the whole library (${library.wgsl.split("\n").length} WGSL lines, ${library.glsl.split("\n").length} GLSL) ` +
+    `compiles on ${Object.entries(libraryErrors).filter(([, e]) => e === "").map(([b]) => b).join(" and ") || "neither backend"}`)
 console.log(`[goldens] ${Object.keys(fixtures).length} fixtures x ${TIMES.length} times, backends agree within ${agreement}/255, ` +
     `anchors off arithmetic by ${Object.entries(anchorWorst).map(([k, v]) => `${k} ${v}`).join(", ")}`)
 if (failures.length > 0) process.exit(1)

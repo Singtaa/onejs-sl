@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { parse, sl, inputsUsed, toJSON, fromJSON } from "./index"
-import { emitBody, type BodyTarget } from "./emit/hlsl-body"
+import { emitBody, emitLibrary, type BodyTarget } from "./emit/hlsl-body"
 import { emitFragmentBody } from "./emit/unity"
 import fs from "node:fs"
 import path from "node:path"
@@ -67,6 +67,29 @@ describe("emitBody for Magerie's target", () => {
         expect(out.uses.uniforms).toEqual([0, 1])
         expect(out.uses.textures).toEqual([0])
         expect(out.uses.helpers).toEqual(["sl_fbm", "sl_sdfDistance", "sl_simplex", "sl_toLinear", "sl_voronoi"])
+    })
+
+    it("comes with the library it calls, in the same subset and in dependency order", () => {
+        const library = emitLibrary(out.uses.helpers, MAGERIE.colour)
+        const defined = [...library.matchAll(/^float[234]? (\w+)\(/gm)].map((m) => m[1])
+        for (const h of out.uses.helpers) expect(defined, h).toContain(h)
+        // What the helpers call comes first, and nothing is defined twice.
+        expect(defined.indexOf("onejsSimplexRaw")).toBeLessThan(defined.indexOf("sl_simplex"))
+        expect(defined.indexOf("sdOrientedVesica")).toBeLessThan(defined.indexOf("sl_sdfDistance"))
+        expect(new Set(library.split("\n}\n")).size).toBe(library.split("\n}\n").length)
+        // The shared subset: nothing Metal lacks a word for, nothing of Unity's.
+        expect(library).not.toMatch(/\bmul\(|\[unroll|\bin float|\bGammaToLinearSpace\b|#|\bvec[234]\b/)
+        // Linear, so toLinear is the real curve and only that branch is here.
+        expect(library).toContain("return sl_gammaToLinear(c);")
+        expect(library).not.toMatch(/float3 sl_toLinear\(float3 c\) \{\n {4}return c;/)
+        // Nothing uncalled: no helper here reaches the hsv conversion.
+        expect(library).not.toContain("sl_hsv2rgb")
+    })
+
+    it("prints no colour curve for a gamma target, nothing for no helpers, and refuses a name it lacks", () => {
+        expect(emitLibrary(emitBody(everything, GAMMA).uses.helpers, "gamma")).not.toContain("sl_toLinear")
+        expect(emitLibrary(emitBody(parse("float4 main() { return float4(uv, 0, 1); }", { file: "plain.sl" }), MAGERIE).uses.helpers, "linear")).toBe("")
+        expect(() => emitLibrary(["sl_nothing"], "linear")).toThrow(/no sl_nothing/)
     })
 
     it("passes a wide shape's fifth and sixth parameters as literals (#129)", () => {

@@ -179,8 +179,26 @@ void main() {
     return { device: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), images: out }
 }
 
+/** The first compile error in `source` on `backend`, or "" when it compiles. */
+async function compiles(backend, source) {
+    if (backend === "webgpu") {
+        const adapter = await navigator.gpu.requestAdapter()
+        const device = await adapter.requestDevice()
+        const info = await device.createShaderModule({ code: source }).getCompilationInfo()
+        const bad = info.messages.filter((m) => m.type === "error")
+        device.destroy()
+        return bad.length > 0 ? `line ${bad[0].lineNum}: ${bad[0].message}` : ""
+    }
+    const gl = document.createElement("canvas").getContext("webgl2")
+    const s = gl.createShader(gl.FRAGMENT_SHADER)
+    gl.shaderSource(s, source)
+    gl.compileShader(s)
+    return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? "" : gl.getShaderInfoLog(s)
+}
+
 window.goldens = {
     size: SIZE,
+    compiles,
     textureBytes: () => Array.from(textureBytes()),
     async render(backend, fixtures, times) {
         document.getElementById("status").textContent = `rendering on ${backend}`

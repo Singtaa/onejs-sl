@@ -14,6 +14,6 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*", "quickjs/**/*.ts", "goldens/**/*.ts"],
+  "include": ["src/**/*", "lib/**/*.ts", "quickjs/**/*.ts", "goldens/**/*.ts"],
   "exclude": ["node_modules"]
 }

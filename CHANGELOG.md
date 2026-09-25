@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.2
+
+The helper library has one source, `lib/*.hlsl`, translated at build time into GLSL ES, WGSL and the shared subset and copied into OneJS as its `.cginc` files. The web draws exactly what it drew; the Unity shader's text changes where Metal needed it to, and draws the same.
+
+- `emitLibrary` prints the library functions a body calls, in the shared subset
+- `emitBody` prints no scalar swizzles, and types every literal and scalar it passes to an intrinsic
+- `atan2` of vectors is refused; no web backend compiled it
+- `onejs-sl/goldens.json` exports the goldens
+- The tests compile the shared subset as Metal on a Mac with Xcode
+
 ## 0.1.1
 
 A host can now supply its own frame for a program's body and get goldens for the pictures it should draw. Nothing an existing program draws changes, and OneJS's generated Unity shader is byte for byte what 0.1.0 printed.

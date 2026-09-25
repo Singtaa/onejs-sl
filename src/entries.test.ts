@@ -40,14 +40,16 @@ describe("entry points", () => {
             "VM_UNIFORMS", "encode", "forVm", "liveRanges", "reachable",
         ])
         expect(names(unity)).toEqual(["emitFragmentBody", "emitShader", "uniformProperty"])
-        expect(names(body)).toEqual(["emitBody"])
+        expect(names(body)).toEqual(["emitBody", "emitLibrary"])
         expect(names(web)).toEqual(["WEB_UNIFORM_SLOTS", "emitGLSL", "emitWGSL"])
     })
 
     it("every entry in package.json exists and is one of these", async () => {
         const pkg = (await import("../package.json")).default as { exports: Record<string, string> }
         expect(Object.keys(pkg.exports).sort()).toEqual(
-            [".", "./core", "./emit/hlsl-body", "./emit/unity", "./emit/web", "./limits", "./tables", "./vm"],
+            [".", "./core", "./emit/hlsl-body", "./emit/unity", "./emit/web", "./goldens.json", "./limits", "./tables", "./vm"],
         )
+        // The one entry that is data: what a host's own renderer is held to.
+        expect(pkg.exports["./goldens.json"]).toBe("./goldens/goldens.json")
     })
 })

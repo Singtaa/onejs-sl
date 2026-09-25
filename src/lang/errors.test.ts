@@ -302,4 +302,10 @@ describe("calls", () => {
             float4 main() { return float4(k, 0, 0, 1); }
         `)).toThrow(/baked into the program before anything runs/)
     })
+    it("refuses atan2 of vectors, whose one result every backend read differently", () => {
+        const e = refuse("float4 main() {\n    return float4(atan2(uv, uv), 0, 1);\n}")
+        expect(e.message).toContain("atan2 takes two floats, and this is a float2")
+        expect(e.line).toBe(2)
+        expect(() => parse("float4 main() { return float4(atan2(uv.y, uv.x), 0, 0, 1); }")).not.toThrow()
+    })
 })
