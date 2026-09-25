@@ -166,7 +166,9 @@ Before the tag:
    unless the release says otherwise.
 3. Run PlaySite's checks in the container, where the Play editor bundles this
    package: `node scripts/gen-sl-parser.mjs`, then `npx vitest run`, in
-   `PlaySite/`. It is a private repo, so no workflow here can.
+   `PlaySite/`. It is a private repo, so no workflow here can. When `diagnose`
+   or an error's fix changed, also run `node Tools/editor-sl-smoke/editor-sl-smoke.mjs`
+   from the container root, which drives the Play editor in real Monaco.
 4. Push `main` and wait for CI, whose `consumers` job runs onejs-unity's
    typecheck and tests against the commit (`consumers.yml`). `publish.yml`
    runs the same job and publishes nothing if it fails. When a consumer has to
