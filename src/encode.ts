@@ -24,7 +24,7 @@
  */
 
 import {
-    MAX_TEXTURES, SLError, TYPE, type NodeRef, type Program, type SLNode, type SLType,
+    MAX_TEXTURES, SLError, TYPE, reachable, type NodeRef, type Program, type SLNode, type SLType,
 } from "./ir"
 import { INPUT_ID, SLOP } from "./ops"
 import { emitShader } from "./hlsl"
@@ -34,6 +34,8 @@ import { uniformDefaults } from "./sl"
 // Lives in ops.ts with the other wire constants; re-exported so nothing that
 // reached it through the encoder has to move.
 export { INPUT_ID }
+// Lives in ir.ts, since a host reads a graph with it too (`inputsUsed`).
+export { reachable }
 
 /**
  * Registers in the VM's file. Phase 0's answer, not a preference.
@@ -141,29 +143,6 @@ interface Instr {
     a: number
     b: number
     imm: [number, number, number, number]
-}
-
-/**
- * Nodes the result actually depends on, in order.
- *
- * Dead nodes are dropped rather than encoded. An author can produce them easily
- * by computing something and not using it, and the hash already ignores them, so
- * encoding them would make the buffer disagree with its own hash about what the
- * program is.
- */
-export function reachable(nodes: SLNode[], result: NodeRef): NodeRef[] {
-    const keep = new Set<NodeRef>()
-    const stack = [result]
-    while (stack.length > 0) {
-        const ref = stack.pop()!
-        if (keep.has(ref)) continue
-        keep.add(ref)
-        const n = nodes[ref]
-        if (n.k === "swizzle") stack.push(n.src)
-        else if (n.k === "call") for (const a of n.args) stack.push(a)
-    }
-    // Ascending, which is still topological because a node only refers backwards.
-    return [...keep].sort((x, y) => x - y)
 }
 
 /**

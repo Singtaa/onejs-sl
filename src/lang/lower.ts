@@ -144,12 +144,15 @@ export function lower(checked: Checked): Program {
             for (const u of unit.uniforms) {
                 const width = TYPE_WIDTH[u.type]
                 const { components, colour } = uniformDefault(u.type, u.init)
-                const raw = at(u.pos, () => declareUniform(u.name, u.type, components))
                 // A hex default says the uniform IS a colour, so every read of it
                 // converts, exactly as a hex literal in an expression does. Without
                 // that, `#ff8040` and a uniform defaulting to `#ff8040` would be two
-                // different colours in one file.
-                global.declare(u.name, { width, value: colour ? at(u.pos, () => sl.toLinear(raw)) : raw })
+                // different colours in one file. `sl.uniform.colour` also marks
+                // the declaration, for a host's colour picker.
+                const value = colour && u.init?.k === "hex"
+                    ? at(u.pos, () => sl.uniform.colour(u.name, (u.init as { hex: string }).hex, width as 3 | 4) as unknown as Val)
+                    : at(u.pos, () => declareUniform(u.name, u.type, components))
+                global.declare(u.name, { width, value })
             }
 
             for (const t of unit.textures) samplers.set(t.name, at(t.pos, () => sl.texture(t.name)))

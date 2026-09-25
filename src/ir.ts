@@ -57,6 +57,13 @@ export interface UniformDecl {
     type: SLType
     /** Default, used when a caller does not supply the uniform. */
     value: number[]
+    /**
+     * A colour: `value` is sRGB as written, what a host sets and a colour
+     * picker shows, and every read converts it to linear. Set by a hex default
+     * in a `.sl` file or `sl.uniform.colour`. Metadata for a host: the reads'
+     * conversion is already in the graph, so it is not part of the hash.
+     */
+    colour?: true
 }
 
 export interface TextureDecl {
@@ -154,17 +161,20 @@ export class Builder {
         return this.add({ k: "const", type: v.length as SLType, v: v.slice() })
     }
 
-    uniform(name: string, type: SLType, value: number[]): NodeRef {
+    uniform(name: string, type: SLType, value: number[], colour = false): NodeRef {
         const existing = this.uniforms.findIndex((u) => u.name === name)
         if (existing >= 0) {
             const u = this.uniforms[existing]
             if (u.type !== type) {
                 throw new SLError(`uniform "${name}" is declared as both a ${widthName(u.type)} and a ${widthName(type)}`)
             }
+            if ((u.colour === true) !== colour) {
+                throw new SLError(`uniform "${name}" is declared both as a colour and as plain numbers`)
+            }
             return this.add({ k: "uniform", type, slot: existing })
         }
         const slot = this.uniforms.length
-        this.uniforms.push({ name, type, value: value.slice() })
+        this.uniforms.push(colour ? { name, type, value: value.slice(), colour: true } : { name, type, value: value.slice() })
         return this.add({ k: "uniform", type, slot })
     }
 
@@ -182,6 +192,43 @@ export class Builder {
         this.textures.push({ name, slot })
         return slot
     }
+}
+
+/**
+ * Nodes the result actually depends on, in order.
+ *
+ * Dead nodes are dropped rather than encoded. An author can produce them easily
+ * by computing something and not using it, and the hash already ignores them, so
+ * encoding them would make the buffer disagree with its own hash about what the
+ * program is.
+ */
+export function reachable(nodes: SLNode[], result: NodeRef): NodeRef[] {
+    const keep = new Set<NodeRef>()
+    const stack = [result]
+    while (stack.length > 0) {
+        const ref = stack.pop()!
+        if (keep.has(ref)) continue
+        keep.add(ref)
+        const n = nodes[ref]
+        if (n.k === "swizzle") stack.push(n.src)
+        else if (n.k === "call") for (const a of n.args) stack.push(a)
+    }
+    // Ascending, which is still topological because a node only refers backwards.
+    return [...keep].sort((x, y) => x - y)
+}
+
+/**
+ * The inputs a program reads, in `INPUTS` order. Dead nodes do not count: a
+ * value computed and never used is not in the picture, so a program that does
+ * that with `time` is still not animated.
+ */
+export function inputsUsed(p: Program): InputName[] {
+    const read = new Set<InputName>()
+    for (const ref of reachable(p.nodes, p.result)) {
+        const n = p.nodes[ref]
+        if (n.k === "input") read.add(n.name)
+    }
+    return (Object.keys(INPUTS) as InputName[]).filter((name) => read.has(name))
 }
 
 /** Structural key for hash consing. Order matters and is fixed by the node shape. */

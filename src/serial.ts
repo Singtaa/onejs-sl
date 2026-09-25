@@ -123,7 +123,9 @@ function uniform(u: unknown, i: number): UniformDecl {
     if (typeof x.name !== "string" || ![1, 2, 3, 4].includes(x.type as number) || !Array.isArray(x.value)) {
         fail(`uniform ${i} needs a name, a width and a value`)
     }
-    return { name: x.name!, type: x.type as SLType, value: x.value!.slice() }
+    const out: UniformDecl = { name: x.name!, type: x.type as SLType, value: x.value!.slice() }
+    if (x.colour === true) out.colour = true
+    return out
 }
 
 function texture(t: unknown, i: number): TextureDecl {

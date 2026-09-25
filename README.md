@@ -40,10 +40,51 @@ only what it calls.
 | `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`: what completion and highlighting read |
 | `onejs-sl/limits` | `vmFit(program)`: whether the VM runs it, and why not, without encoding |
 | `onejs-sl/vm` | `encode`, `SL_WIRE_VERSION` |
-| `onejs-sl/emit/unity` | `emitShader`: the `.shader` a Unity editor generates |
+| `onejs-sl/emit/hlsl-body` | `emitBody`: a program as a function body for a host's own frame |
+| `onejs-sl/emit/unity` | `emitShader`: the `.shader` a Unity editor generates, a frame over `emitBody` |
 | `onejs-sl/emit/web` | `emitWGSL`, `emitGLSL`: OneJS's web frame |
 
 `src/entries.test.ts` pins every name, since removing one breaks a host.
+
+## A host's own frame: `emitBody`
+
+`emitBody(program, target)` prints the body only: one local per node, in the
+HLSL and Metal shared subset (HLSL spelling, `fmod`, no `mul`, no `static`, no
+derivatives). The `BodyTarget` says what differs between hosts: an expression
+for each input, the float4 holding a uniform slot, a texture sample, whether
+`toLinear` is real (`colour: "linear"`) or the identity (`"gamma"`), and
+optionally a local to assign the result to. It returns the uniform and texture
+slots the body uses and the library functions it calls. OneJS's Unity shader is
+one frame over it (`hlsl.ts`); Magerie's compute kernel is another, and its
+target is in `src/body.test.ts` so an opcode cannot change without the text
+Magerie compiles changing in front of a test. The library functions' own text
+arrives with the translator (`Specs/SL_PACKAGE.md` section 5); until then a host
+takes them from OneJS's `SLCommon.cginc`, `Noise2D.cginc` and `SDF2D.cginc`.
+
+A uniform declared with a hex default (`uniform float4 tint = #ff8040;`), or
+with `sl.uniform.colour`, is marked `colour: true`: its value is sRGB as
+written, which is what a colour picker shows, and its reads convert. `inputsUsed`
+says which inputs the result depends on, dead nodes aside, so a host knows
+whether a program animates.
+
+## Goldens
+
+`goldens/goldens.json` is every corpus fixture drawn as a Linear OneJS game
+stores it: the package's WGSL and GLSL ES in OneJS's web frame, into an
+`rgba8unorm-srgb` target (the format the element's render texture has), read
+back raw, with no Unity, no UI Toolkit and no browser colour management. A
+second host's own backend is checked against it; OneJS's parity harness is what
+proves the web emitters equal the VM in the first place.
+
+`npm run goldens` draws it on WebGPU and WebGL2 in a Chrome with its own
+profile (set `CHROME` to choose one). The two backends must agree within 1/255
+over every pixel, and three anchors must match arithmetic, not each other:
+`orient.sl` (orientation, and the linear to sRGB store), `hex.sl` (a hex colour
+stores as written) and `texture.sl` (a texture's orientation and sRGB decode).
+The file describes the sampling grid, the times and the texture every sampled
+slot gets. No CI runner here has a GPU, so `src/goldens.test.ts` checks instead
+that the file still covers the corpus at today's hashes; a change that moves a
+hash fails there until the goldens are drawn again.
 
 ## Runs anywhere ES2020 runs
 
@@ -56,7 +97,7 @@ and QuickJS (Magerie). Two checks hold it to that:
 - `npm run test:quickjs` bundles `quickjs/corpus.ts` as one ES2020 IIFE, the
   way Magerie bundles a script, runs it in QuickJS-ng and in a bare Node
   context, and fails unless the two results agree byte for byte. The corpus
-  parses, encodes, fits and emits every program in `quickjs/corpus/`, every
+  parses, encodes, fits and emits every program in `corpus/`, every
   shape at its full parameter count, and the error paths. `npm test` runs it
   after vitest.
 
