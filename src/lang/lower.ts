@@ -158,7 +158,7 @@ export function lower(checked: Checked): Program {
             for (const t of unit.textures) samplers.set(t.name, at(t.pos, () => sl.texture(t.name)))
 
             for (const c of unit.consts) {
-                const v = lowerExpr(c.init, global)
+                const v = fit(lowerExpr(c.init, global), TYPE_WIDTH[c.type], c.pos)
                 assertWidth(v, TYPE_WIDTH[c.type], c.name, c.type, c.pos)
                 global.declare(c.name, { width: TYPE_WIDTH[c.type], value: v })
             }
@@ -227,6 +227,8 @@ export function lower(checked: Checked): Program {
                 init.pos,
             )
         }
+        if (c.length === 1 && width > 1) return { components: new Array<number>(width).fill(c[0]!), colour: false }
+        if (c.length === 4 && width === 3) return { components: c.slice(0, 3), colour: false }
         if (c.length !== width) {
             fail(
                 `this default has ${c.length} component${c.length === 1 ? "" : "s"} and the uniform is ` +
@@ -284,19 +286,25 @@ export function lower(checked: Checked): Program {
             switch (s.k) {
                 case "var":
                 case "const": {
-                    const v = lowerExpr(s.init, scope)
+                    const v = fit(lowerExpr(s.init, scope), TYPE_WIDTH[s.type], s.pos)
                     assertWidth(v, TYPE_WIDTH[s.type], s.name, s.type, s.pos)
                     scope.declare(s.name, { width: TYPE_WIDTH[s.type], value: v })
                     break
                 }
                 case "assign": {
-                    const name = (s.target as Extract<Expr, { k: "ident" }>).name
+                    // The checker allowed exactly two shapes: a local, or a
+                    // swizzle of one with no component named twice.
+                    const member = s.target.k === "member" ? s.target : null
+                    const name = ((member?.obj ?? s.target) as Extract<Expr, { k: "ident" }>).name
                     const b = scope.lookup(name)!
                     let v = lowerExpr(s.value, scope)
                     if (s.op !== "=") {
                         const op = s.op[0] as ArithOp
-                        v = at(s.pos, () => arithmetic(op, b.value, v, s.pos))
+                        const old = member === null ? b.value : lowerExpr(member, scope)
+                        v = at(s.pos, () => arithmetic(op, old, v, s.pos))
                     }
+                    if (member !== null) v = writeComponents(b, member, v, s.pos)
+                    else v = fit(v, b.width, s.pos)
                     assertWidth(v, b.width, name, widthType(b.width), s.pos)
                     b.value = v
                     break
@@ -381,13 +389,52 @@ export function lower(checked: Checked): Program {
         return typeof a !== "number" && typeof b !== "number" && a.ref === b.ref && a.width === b.width
     }
 
+    /**
+     * The two conversions a declaration or an assignment makes for the author
+     * (`Specs/SL_NEXT.md` 2b and 2c): a single number fills every component, as
+     * `float3(0.5)` would, and a float4 goes into a float3 by dropping its
+     * fourth, which is how a colour (a hex, a ramp, a texture sample) becomes
+     * an rgb. Every other width change is left for `assertWidth` to refuse.
+     */
+    function fit(v: LV, want: SLType, pos: Pos): LV {
+        const got = typeof v === "number" ? 1 : v.width
+        if (got === 1 && want > 1) return at(pos, () => compose(want, new Array<LV>(want).fill(v)))
+        if (got === 4 && want === 3) return at(pos, () => asVal(v).swz("xyz") as unknown as Val)
+        return v
+    }
+
+    /**
+     * `p.x = v`, `c.rgb *= k`: the local rebuilt from the components the
+     * swizzle names, taken from `v`, and the rest kept from what it held. A
+     * single number fills every named component.
+     */
+    function writeComponents(b: Binding, member: Extract<Expr, { k: "member" }>, v: LV, pos: Pos): LV {
+        const letters = member.name.replace(/[rgba]/g, (c) => "xyzw"["rgba".indexOf(c)]!)
+        const names = "xyzw".slice(0, b.width)
+        for (const c of letters) {
+            if (!names.includes(c)) {
+                fail(`${member.name} writes a component a ${widthType(b.width)} does not have`, member.pos)
+            }
+        }
+        const got = typeof v === "number" ? 1 : v.width
+        if (got !== 1 && got !== letters.length) {
+            fail(`${member.name} is ${letters.length} components and this is a ${widthType(got as SLType)}`, pos)
+        }
+        const parts: LV[] = [...names].map((c) => {
+            const j = letters.indexOf(c)
+            if (j < 0) return b.width === 1 ? b.value : at(pos, () => asVal(b.value).swz(c) as unknown as Val)
+            return got === 1 ? v : at(pos, () => asVal(v).swz("xyzw"[j]!) as unknown as Val)
+        })
+        return b.width === 1 ? parts[0]! : at(pos, () => compose(b.width, parts))
+    }
+
     function assertWidth(v: LV, want: SLType, name: string, type: TypeName, pos: Pos): void {
         const got = typeof v === "number" ? 1 : v.width
         if (got === want) return
         // A declaration is an assertion, not an input to inference
         // (`Specs/SL_TEXT.md` 3.2), so this says which half is wrong rather
         // than quietly promoting one to the other.
-        const hint = got === 1 ? ` Wrap it in ${type}(...) to broadcast the value across ${want} components.` : ""
+        const hint = got > want ? ` Take the components you want with a swizzle, as in .${"xyzw".slice(0, want)}.` : ""
         fail(`${name} is declared ${type} and this is a ${widthType(got as SLType)}.${hint}`, pos)
     }
 

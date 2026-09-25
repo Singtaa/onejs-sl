@@ -239,6 +239,47 @@ describe("control flow", () => {
     })
 })
 
+describe("values that just work (Specs/SL_NEXT.md 2)", () => {
+    /** Each form, and what it means written out: the two must be one program. */
+    const same = (form: string, meaning: string, head = "", headMeaning = head) => {
+        const a = parse(`${head}float4 main() {\n${form}\n}`)
+        const b = parse(`${headMeaning}float4 main() {\n${meaning}\n}`)
+        expect(a.hash, form).toBe(b.hash)
+    }
+
+    it("a swizzle can be assigned to, keeping the components it does not name", () => {
+        same("float2 p = uv; p.x = 1; return float4(p, 0, 1);", "float2 p = uv; p = float2(1, p.y); return float4(p, 0, 1);")
+        same("float3 c = float3(uv, 1); c.bg = uv; return float4(c, 1);", "float3 c = float3(uv, 1); c = float3(c.x, uv.y, uv.x); return float4(c, 1);")
+        same("float4 c = 0; c.rgb = 0.5; return c;", "float4 c = float4(0); c = float4(0.5, 0.5, 0.5, c.w); return c;")
+    })
+
+    it("a compound assignment through a swizzle reads the components it writes", () => {
+        same("float3 c = float3(uv, 1); c.gb *= 0.5; return float4(c, 1);",
+            "float3 c = float3(uv, 1); float2 t = c.gb * 0.5; c = float3(c.x, t.x, t.y); return float4(c, 1);")
+    })
+
+    it("a single number fills a vector in a declaration, an assignment and a uniform default", () => {
+        same("float3 c = 0.5; return float4(c, 1);", "float3 c = float3(0.5); return float4(c, 1);")
+        same("float3 c = uv.x; return float4(c, 1);", "float3 c = float3(uv.x); return float4(c, 1);")
+        same("float3 c = float3(uv, 0); c = 0.25; return float4(c, 1);", "float3 c = float3(uv, 0); c = float3(0.25); return float4(c, 1);")
+        same("return float4(offset, 0, 1);", "return float4(offset, 0, 1);", "uniform float2 offset = 0;\n", "uniform float2 offset = float2(0, 0);\n")
+    })
+
+    it("a float4 goes into a float3 by dropping its fourth component", () => {
+        same("float3 c = #ff8000; return float4(c, 1);", "float3 c = #ff8000.xyz; return float4(c, 1);")
+        same("float3 c = ramp(uv.x, #000000, #ffffff); return float4(c, 1);", "float3 c = ramp(uv.x, #000000, #ffffff).xyz; return float4(c, 1);")
+        same("return float4(tint, 1);", "return float4(tint, 1);", "uniform float3 tint = float4(1, 0.5, 0, 1);\n", "uniform float3 tint = float3(1, 0.5, 0);\n")
+    })
+
+    it("a value may take a builtin's or a prelude function's name", () => {
+        same("float circle = 0.3; return float4(circle, 0, 0, 1);", "float r = 0.3; return float4(r, 0, 0, 1);")
+        // A uniform's name is part of its program, so this one is checked by what it declares.
+        const p = parse("uniform float turbulence = 1;\nfloat4 main() {\n    return float4(turbulence, 0, 0, 1);\n}")
+        expect(p.uniforms.map((u) => u.name)).toEqual(["turbulence"])
+        expect(ops(p)).not.toContain(SLOP.TURBULENCE)
+    })
+})
+
 describe("functions", () => {
     it("a file function shadows a prelude function of the same name", () => {
         const p = parse(`

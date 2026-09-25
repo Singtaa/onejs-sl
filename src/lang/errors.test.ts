@@ -85,9 +85,9 @@ describe("types", () => {
         expect(e.message).toContain("c is declared float3 and this is a float2")
     })
 
-    it("offers the constructor when a scalar meets a wider declaration", () => {
-        expect(() => parse("float4 main() { float2 p = 0.5; return float4(p, 0, 1); }"))
-            .toThrow(/Wrap it in float2\(\.\.\.\)/)
+    it("offers a swizzle when a wider value meets a narrower declaration", () => {
+        expect(() => parse("float4 main() { float2 p = float3(uv, 1); return float4(p, 0, 1); }"))
+            .toThrow(/Take the components you want with a swizzle, as in \.xy/)
     })
 
     it("carries the EDSL's own wording, with a line", () => {
@@ -137,9 +137,17 @@ describe("names", () => {
             float4 main() { return #fff; }
         `)).toThrow(/"time" already names an input/)
         expect(() => parse(`
-            uniform float rotate = 1;
-            float4 main() { return #fff; }
-        `)).toThrow(/"rotate" already names a prelude function/)
+            float wobble(float x) { return x; }
+            float4 main() { float wobble = 1; return float4(wobble, 0, 0, 1); }
+        `)).toThrow(/"wobble" already names a function/)
+    })
+
+    it("refuses calling a name that a value has taken, where the value is visible", () => {
+        const e = refuse("float4 main() {\n    float circle = 0.2;\n    return float4(circle(uv, 0.1), 0, 0, 1);\n}")
+        expect(e.message).toContain("\"circle\" is a local here, so it cannot be called")
+        expect(where(e)).toBe("3:19")
+        expect(() => parse("uniform float noise = 1;\nfloat4 main() { return float4(noise(uv), 0, 0, 1); }"))
+            .toThrow(/"noise" is a uniform here/)
     })
 
     it("refuses assigning to something that is not a local", () => {
@@ -149,14 +157,19 @@ describe("names", () => {
         `)).toThrow(/"k" is a uniform and cannot be assigned to/)
     })
 
-    it("refuses writing through a swizzle", () => {
-        expect(() => parse(`
-            float4 main() {
-                float2 p = uv;
-                p.x = 0;
-                return float4(p, 0, 1);
-            }
-        `)).toThrow(/a swizzle is read only/)
+    it("refuses a swizzle that writes a component twice, or one the local does not have", () => {
+        const body = (w: string) => `float4 main() {\n    float2 p = uv;\n    ${w}\n    return float4(p, 0, 1);\n}`
+        expect(refuse(body("p.xx = 0;")).message).toContain("xx names a component twice")
+        const e = refuse(body("p.z = 0;"))
+        expect(e.message).toContain("z writes a component a float2 does not have")
+        expect(e.line).toBe(3)
+        expect(refuse(body("p.xg = 0;")).message).toContain("xg is not a swizzle that can be assigned to")
+        expect(refuse(body("p.xy = float3(uv, 1);")).message).toContain("xy is 2 components and this is a float3")
+    })
+
+    it("refuses writing through a swizzle of something that is not a local", () => {
+        expect(() => parse("float4 main() { uv.x = 0; return float4(uv, 0, 1); }"))
+            .toThrow(/"uv" is an input and cannot be assigned to/)
     })
 })
 

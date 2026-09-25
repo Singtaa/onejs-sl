@@ -127,11 +127,25 @@ is read unconverted.
 and colours, and nothing else. It is baked into the program before anything
 runs, so it cannot name a const, which could itself name a uniform.
 
-**Shadowing is refused.** A local may not take the name of an input, a uniform,
-a texture, a const or a builtin. Allowing it would make "is this a texture?"
-depend on where the question is asked, for no gain in a language whose
-functions are six lines long. A file function may shadow a *prelude* function,
-which is the sanctioned way to replace one.
+**Shadowing is refused between values.** A local may not take the name of an
+input, a uniform, a texture or a const. Allowing it would make "is this a
+texture?" depend on where the question is asked, for no gain in a language whose
+functions are six lines long. A value *may* take a builtin's or a prelude
+function's name (`float circle`, `uniform float turbulence`), which hides that
+function wherever the value is visible, and a call there says so. A file
+function may shadow a *prelude* function, which is the sanctioned way to replace
+one.
+
+**Declarations and assignments convert two ways, and only two.** A single
+number fills every component (`float3 c = 0.5;`, and a uniform default such as
+`uniform float2 offset = 0;`), and a float4 goes into a float3 by dropping its
+fourth component, which is how a colour becomes an rgb. Every other width change
+is refused with the swizzle that fixes it.
+
+**A swizzle can be assigned to.** `p.x *= aspect;` rebuilds `p` from the
+components it names and keeps the rest, so it is the same program as
+`p = float2(p.x * aspect, p.y);`. A swizzle that names a component twice, or
+one the local does not have, is refused.
 
 ## Not yet spellable
 

@@ -14,11 +14,18 @@
  * whether a name exists, whether a body is shaped like a body, and whether the
  * program fits the budgets before anything is built.
  *
- * SHADOWING IS REFUSED. HLSL would let a local called `time` hide the input, or
- * a parameter called `tint` hide a uniform. Allowing it would mean every later
- * question about a name ("is this a texture?") depends on where it is asked
- * from, for no expressive gain in a language whose functions are half a dozen
- * lines long.
+ * SHADOWING IS REFUSED, between values. HLSL would let a local called `time`
+ * hide the input, or a parameter called `tint` hide a uniform. Allowing it would
+ * mean every later question about a name ("is this a texture?") depends on where
+ * it is asked from, for no expressive gain in a language whose functions are
+ * half a dozen lines long.
+ *
+ * A value MAY take the name of a builtin or a prelude function: `float circle`,
+ * `uniform float turbulence`. Those are the names an author reaches for first,
+ * and refusing them was the most common error left once the others were fixed
+ * (`Specs/SL_NEXT.md` 2d). Calls and values never meet in one position, so the
+ * only question left is a call to the name where the value is visible, and that
+ * is refused with the reason.
  */
 
 import { INPUTS } from "../ir"
@@ -84,8 +91,8 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
      *
      * Functions are NOT in here, because a file function shadowing a prelude
      * function of the same name is the sanctioned way to replace one
-     * (`Specs/SL_TEXT.md` 3.8). Every other kind of declaration checks `asFunc`
-     * as well, so only a function may take a function's name.
+     * (`Specs/SL_TEXT.md` 3.8). Every other kind of declaration checks
+     * `valueClash`, which adds the file's own functions.
      */
     const taken = (n: string): string | null => {
         if (INPUT_NAMES.has(n)) return "an input"
@@ -98,14 +105,16 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         return null
     }
 
-    const asFunc = (n: string): string | null => {
+    /** What a value may not be called: anything spoken for, except a builtin's or a prelude function's name. */
+    const valueClash = (n: string): string | null => {
+        const why = taken(n)
+        if (why !== null && why !== "a builtin") return why
         const fn = funcs.get(n)
-        if (fn === undefined) return null
-        return fn.prelude ? "a prelude function" : "a function"
+        return fn !== undefined && !fn.prelude ? "a function" : null
     }
 
     for (const u of unit.uniforms) {
-        const clash = taken(u.name) ?? asFunc(u.name)
+        const clash = valueClash(u.name)
         if (clash !== null) fail(`"${u.name}" already names ${clash}`, u.pos, u.name.length)
         uniforms.set(u.name, u)
     }
@@ -121,7 +130,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     }
 
     for (const t of unit.textures) {
-        const clash = taken(t.name) ?? asFunc(t.name)
+        const clash = valueClash(t.name)
         if (clash !== null) fail(`"${t.name}" already names ${clash}`, t.pos, t.name.length)
         textures.set(t.name, t)
     }
@@ -136,7 +145,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     }
 
     for (const c of unit.consts) {
-        const clash = taken(c.name) ?? asFunc(c.name)
+        const clash = valueClash(c.name)
         if (clash !== null) fail(`"${c.name}" already names ${clash}`, c.pos, c.name.length)
         consts.set(c.name, c)
     }
@@ -251,7 +260,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     function checkFunction(fn: FuncDecl): void {
         const params = new Set<string>()
         for (const p of fn.params) {
-            const clash = taken(p.name) ?? asFunc(p.name)
+            const clash = valueClash(p.name)
             if (clash !== null) fail(`"${p.name}" already names ${clash}`, p.pos, p.name.length)
             if (params.has(p.name)) fail(`${fn.name} already has a parameter called "${p.name}"`, p.pos)
             params.add(p.name)
@@ -275,7 +284,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
             switch (s.k) {
                 case "var":
                 case "const": {
-                    const clash = taken(s.name) ?? asFunc(s.name)
+                    const clash = valueClash(s.name)
                     if (clash !== null) fail(`"${s.name}" already names ${clash}`, s.pos, s.name.length)
                     if (scope.has(s.name)) fail(`"${s.name}" is already declared in this body`, s.pos)
                     checkExpr(fn, s.init, scope)
@@ -283,26 +292,32 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                     break
                 }
                 case "assign": {
-                    if (s.target.k === "member") {
-                        fail(
-                            "a swizzle is read only; build the value you want instead, as in " +
-                            "`p = float2(1, p.y);`",
-                            s.target.pos,
-                        )
+                    // `p.x = 1` and `c.rgb *= 0.5` write the components they name
+                    // and keep the rest; lowering rebuilds the local from both.
+                    let target = s.target
+                    if (target.k === "member") {
+                        const sw = target.name
+                        if (!/^([xyzw]{1,4}|[rgba]{1,4})$/.test(sw)) {
+                            fail(`${sw} is not a swizzle that can be assigned to; name components with xyzw or rgba`, target.pos, sw.length)
+                        }
+                        if (new Set(sw).size !== sw.length) {
+                            fail(`${sw} names a component twice, so assigning to it would write one component two ways`, target.pos, sw.length)
+                        }
+                        target = target.obj
                     }
-                    if (s.target.k !== "ident") fail("only a local can be assigned to", s.target.pos)
-                    const n = s.target.name
+                    if (target.k !== "ident") fail("only a local can be assigned to", target.pos)
+                    const n = target.name
                     const why = taken(n)
-                    if (why !== null) fail(`"${n}" is ${why} and cannot be assigned to`, s.target.pos, n.length)
+                    if (why !== null) fail(`"${n}" is ${why} and cannot be assigned to`, target.pos, n.length)
                     if (counters.has(n)) {
                         fail(
                             `"${n}" is a loop counter. The loop unrolls and substitutes it as a ` +
                             `number, so assigning to it would change nothing. Use another local`,
-                            s.target.pos, n.length,
+                            target.pos, n.length,
                         )
                     }
                     if (!scope.has(n)) {
-                        fail(unknown(n, scope), s.target.pos, n.length)
+                        fail(unknown(n, scope), target.pos, n.length)
                     }
                     checkExpr(fn, s.value, scope)
                     break
@@ -313,7 +328,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                     checkBody(fn, s.else, new Set(scope), false)
                     break
                 case "for": {
-                    const clash = taken(s.counter) ?? asFunc(s.counter)
+                    const clash = valueClash(s.counter)
                     if (clash !== null) fail(`"${s.counter}" already names ${clash}`, s.pos, s.counter.length)
                     if (scope.has(s.counter)) fail(`"${s.counter}" is already declared in this body`, s.pos)
                     checkExpr(fn, s.from, scope)
@@ -435,6 +450,16 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
             )
         }
 
+        // A value that took a builtin's or a prelude function's name hides it
+        // wherever the value is visible.
+        const value = scope.has(n) ? "a local" : uniforms.has(n) ? "a uniform" : consts.has(n) ? "a const" : null
+        if (value !== null) {
+            fail(`"${n}" is ${value} here, so it cannot be called. Rename it to call ${n}(...)`, callee.pos, n.length)
+        }
+        if (textures.has(n)) {
+            fail(`"${n}" is a texture; sample it with \`tex2D(${n}, uv)\``, callee.pos, n.length)
+        }
+
         const builtin = BUILTINS[n]
         if (builtin !== undefined) {
             if (n === "tex2D") {
@@ -470,9 +495,6 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         }
         if (SL_GLSL_HINT[n] !== undefined) {
             fail(`${n} is GLSL; this is HLSL, so write ${SL_GLSL_HINT[n]}`, callee.pos, n.length)
-        }
-        if (textures.has(n)) {
-            fail(`"${n}" is a texture; sample it with \`tex2D(${n}, uv)\``, callee.pos, n.length)
         }
         fail(unknown(n, scope), callee.pos, n.length)
     }

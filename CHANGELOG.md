@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+Four things that were errors now compile, the most common mistakes in cold runs of authors writing from the docs alone (`Specs/SL_NEXT.md` 2). Every program that compiled before compiles to exactly what it did.
+
+- A swizzle can be assigned to: `p.x = 1;`, `c.rgb *= 0.5;`
+- A single number fills a vector in a declaration, an assignment or a uniform default: `float3 c = 0.5;`
+- A float4 goes into a float3 by dropping its fourth component: `float3 c = #ff8040;`
+- A local or a uniform may take a builtin's or a prelude function's name
+
 ## 0.1.3
 
 `onejs-sl/tables` names every parameter, so an editor can offer `lerp(x, y, s)` rather than an argument count. Nothing a program compiles to changes.
