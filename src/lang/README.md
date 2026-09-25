@@ -195,7 +195,9 @@ statement or declaration, the checker and the lowering move to the next one,
 and a local whose line was refused is still declared, as a zero of its type, so
 its uses are not reported again. A later stage runs only when the earlier ones
 found nothing: names are not checked in a file that cannot be read, since those
-errors would be about the hole. `diagnose.test.ts` holds it to the property that
+errors would be about the hole. For the same reason a file with a syntax error
+is not also told it declares no main: an unclosed body reads to the end of the
+file, main with it, and one mistake should be one error. `diagnose.test.ts` holds it to the property that
 matters, that whatever `parse` refuses a file with, `diagnose` reports at the
 same place, over every program one token short of a real one.
 
@@ -211,6 +213,37 @@ not scope: a local named `circle` still reads as a builtin where it is used.
 name may be neither. `onejs-sl/tables` carries them with a one line description
 of every builtin, input and prelude function; a prelude function's is the
 comment above it in `prelude-source.ts`.
+
+## From GLSL
+
+`fromGLSL(glsl)` (`glsl.ts`) turns a pasted Shadertoy or WebGL fragment shader
+into a `.sl` file, and returns it with `notes`, one line each on what it could
+not carry over or changed the meaning of, and `errors`, which is `diagnose` on
+the result. It never throws, since a paste arrives a piece at a time.
+
+It rewrites tokens and keeps everything else: comments, layout and names stay
+where they were, so the result reads as the shader it came from. What it does:
+
+- The spellings that mean the same (`vec3`, `mix`, `fract`, `texture`,
+  `iTime`, `gl_FragCoord`) become the HLSL ones. So do the calls that need an
+  expression: `mod` floors (`a - b * floor(a / b)`, never `%`, which
+  truncates), and `atan`, `inversesqrt`, `radians`, `degrees`, `exp2` and
+  `log2` become what they compute.
+- `mainImage` becomes `float4 main()`, with its colour parameter as a local it
+  returns; `void main()` writing `gl_FragColor` or a WebGL2 `out vec4` does the
+  same. Shadertoy's `uv = fragCoord / iResolution.xy` line is dropped, since
+  that is the input `uv`.
+- `iResolution`, `iMouse`, `iChannel0` to `3` and `uniform sampler2D` become
+  `resolution`, a `mouse` uniform and declared textures. `#define NAME value`
+  becomes a const; any other directive is kept as a comment, with a note.
+- A name the language already means something by gets a `_` suffix, and an
+  `int` becomes a float (a for-loop counter stays an int), each with a note.
+- What has no counterpart (`iFrame`, `textureLod`, `dFdx`, a function returning
+  nothing) is left in place with a note, for `errors` to point at.
+
+It is not a GLSL parser, and is not meant to be: a shader it cannot follow comes
+out with errors on the lines to look at, which is where a person pasting one
+starts anyway.
 
 ## See also
 

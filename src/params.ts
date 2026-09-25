@@ -164,11 +164,15 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
     ramp: "t mapped through evenly spaced colour stops, from the first at 0 to the last at 1.",
 }
 
-/** One line on each input, for the same tooltips. */
+/**
+ * One line on each input, for the same tooltips. In the words of no one host:
+ * the output is a UI element in OneJS and an image on a Magerie board, and the
+ * clock is whichever one the host runs.
+ */
 export const INPUT_DOCS: Readonly<Record<InputName, string>> = {
-    uv: "Where this pixel is in the element, 0 to 1 on each axis, with y up.",
-    fragCoord: "Where this pixel is in the element, in pixels, with y up.",
-    resolution: "The element's size in pixels.",
-    time: "Seconds since the effect started.",
-    aspect: "The element's width divided by its height.",
+    uv: "Where this pixel is in the output, 0 to 1 on each axis, with y up.",
+    fragCoord: "Where this pixel is in the output, in pixels, with y up.",
+    resolution: "The output's size in pixels.",
+    time: "The clock, in seconds.",
+    aspect: "The output's width divided by its height.",
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.8
+
+A pasted GLSL shader becomes a `.sl` file (`Specs/SL_NEXT.md` 5). Nothing a program compiles to changes.
+
+- `fromGLSL` converts a Shadertoy or WebGL fragment shader, with a note on everything it could not carry over
+- `INPUT_DOCS` describe the output and the clock, not an element and an effect
+- A body never closed is not also reported as a missing main
+
 ## 0.1.7
 
 `diagnose` finds a mistake inside a refused call's arguments and on both sides of an operator, found by the Play editor's first run in a real browser. Nothing a program compiles to changes.

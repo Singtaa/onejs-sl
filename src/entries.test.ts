@@ -26,8 +26,8 @@ describe("entry points", () => {
 
     it("the main entry is core plus the parser", () => {
         const parser = [
-            "PRELUDE_SOURCE", "SLParseError", "analyze", "classify", "diagnose", "parse", "parseUnit", "preludeFunctions",
-            "tokenize",
+            "PRELUDE_SOURCE", "SLParseError", "analyze", "classify", "diagnose", "fromGLSL", "parse", "parseUnit",
+            "preludeFunctions", "tokenize",
         ]
         expect(names(main)).toEqual([...names(core), ...parser].sort())
     })
