@@ -27,8 +27,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # onejs-unity's checks against this commit, so a release cannot publish a
+  # build that breaks the package re-exporting it. No npm token is involved.
+  consumers:
+    uses: ./.github/workflows/consumers.yml
+
   publish:
     name: publish to npm
+    needs: consumers
     runs-on: ubuntu-latest
 
     steps:

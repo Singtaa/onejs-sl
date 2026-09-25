@@ -159,11 +159,25 @@ and QuickJS (Magerie). Two checks hold it to that:
 
 Push a tag `v<version>` matching `package.json`; `.github/workflows/publish.yml`
 publishes through npm trusted publishing (OIDC), so no token exists anywhere.
-Note the release in `CHANGELOG.md` first. The one exception is the first version: npm
-attaches a trusted publisher to a package that already exists, so 0.1.0 was
-published by hand, and the workflow checks its tag and publishes nothing. In the OneJS container this package
-is checked out at `JSModules/onejs-sl`, and `onejs-unity` links it with
-`file:../onejs-sl` as a dev dependency beside its `^` peer range.
+Before the tag:
+
+1. Note the release in `CHANGELOG.md` and bump `package.json`.
+2. Prove the corpus: a program that compiled before compiles to the same bytes,
+   unless the release says otherwise.
+3. Run PlaySite's checks in the container, where the Play editor bundles this
+   package: `node scripts/gen-sl-parser.mjs`, then `npx vitest run`, in
+   `PlaySite/`. It is a private repo, so no workflow here can.
+4. Push `main` and wait for CI, whose `consumers` job runs onejs-unity's
+   typecheck and tests against the commit (`consumers.yml`). `publish.yml`
+   runs the same job and publishes nothing if it fails. When a consumer has to
+   follow a change, land it here, fix the consumer, then re-run and tag.
+
+The one exception to publishing by tag is the first version: npm attaches a
+trusted publisher to a package that already exists, so 0.1.0 was published by
+hand, and the workflow checks its tag and publishes nothing. In the OneJS
+container this package is checked out at `JSModules/onejs-sl`, and
+`onejs-unity` links it with `file:../onejs-sl` as a dev dependency beside its
+`^` peer range.
 
 ## The one idea
 

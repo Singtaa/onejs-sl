@@ -45,3 +45,7 @@ jobs:
       # in QuickJS, and this is the only check that can see it does not.
       - name: Test, in Node and in QuickJS
         run: npm test
+
+  # The packages that build on this one, against this commit.
+  consumers:
+    uses: ./.github/workflows/consumers.yml

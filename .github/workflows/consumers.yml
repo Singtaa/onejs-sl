@@ -1,0 +1,53 @@
+# onejs-unity's own checks, run against THIS commit of onejs-sl.
+#
+# onejs-unity links onejs-sl with "file:../onejs-sl" and re-exports it, so a
+# change here that passes every onejs-sl test can still break it: 0.1.5 changed
+# an error's wording, and onejs-unity's esbuild test pinned the old words. This
+# is the check that would have caught it. CI calls it on every push, and
+# publish.yml requires it before anything reaches npm.
+#
+# onejs-unity's main, not a pinned commit: the question is whether the
+# consumer as it stands today survives this build. A change a consumer has to
+# follow lands here first (this job goes red), then in onejs-unity, then this
+# is re-run and the tag goes on a green run.
+#
+# PlaySite is the other consumer, and it lives in the private container repo,
+# so its check is a release step in README.md rather than a job here.
+name: Consumers
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  onejs-unity:
+    name: onejs-unity against this onejs-sl
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: onejs-unity
+
+    steps:
+      # Side by side, the layout "file:../onejs-sl" expects.
+      - uses: actions/checkout@v4
+        with:
+          path: onejs-sl
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Singtaa/onejs-unity
+          ref: main
+          path: onejs-unity
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: onejs-unity/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
