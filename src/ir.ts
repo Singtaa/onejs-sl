@@ -425,9 +425,12 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
         return d
     }
 
-    // The IR version is in the hash, so a change to what an opcode computes
-    // changes every hash and every cache keyed by one (an editor's generated
-    // shaders, Magerie's pipelines) recompiles rather than serving the old maths.
+    // The IR version is in the hash, so a change to what an opcode means in the
+    // IR changes every hash and every cache keyed by one recompiles rather than
+    // serving the old maths. A change to the helper library alone (a noise's
+    // arithmetic, say) is not one: every host includes the library's text when
+    // it compiles, and none caches a compiled program by hash across a
+    // library update, so the new text reaches every shader without a bump.
     const parts: string[] = [`v${SL_HASH_VERSION}:${SL_IR_VERSION}`, of(result)]
     for (const u of uniforms) parts.push(`U:${u.name}:${u.type}:${u.value.map(fixed).join(",")}`)
     for (const t of textures) parts.push(`T:${t.name}:${t.slot}`)
@@ -451,8 +454,17 @@ export const SL_HASH_VERSION = 1
 
 /**
  * Bumped whenever the IR changes in a way a reader has to know about: a new
- * opcode, a new shape, a change to what an existing opcode computes, or a
- * change to the JSON shape (which also gets a migration in `fromJSON`).
+ * opcode, a new shape, a change to what an existing opcode's operands or
+ * result mean, or a change to the JSON shape (which also gets a migration in
+ * `fromJSON`).
+ *
+ * NOT bumped for a change to the helper library (`lib/*.hlsl`) that keeps the
+ * IR's shape, such as 0.1.11's value noise hash. Hosts include the library's
+ * text when they compile and do not cache its output by hash: OneJS's
+ * generated shaders include `SLCommon.cginc`, which recompiles, and Magerie
+ * keys its compiled pipelines by source text. A bump would change every hash,
+ * which strands every recorded program in a player built before the editor
+ * records it again, for no gain.
  *
  * A reader accepts every version up to its own and refuses a newer one with a
  * message naming both, the rule the particle wire and fx follow. Part of the

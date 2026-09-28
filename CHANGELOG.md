@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.11
+
+The value noise hash no longer rounds differently from one GPU to the next. Seeded value noise looks different, with the same character; program hashes do not change.
+
+- `fbm` with 2 or more octaves now looks different
+- Default `fx.noise` fields now look different, since they are seeded
+- `noise`, one octave of `fbm`, simplex, turbulence and ridged are unchanged
+- A helper library change that keeps the IR's shape does not bump `SL_IR_VERSION`
+
 ## 0.1.10
 
 Attributes on uniforms, for a host's controls (`Specs/SL_NEXT.md` 1). A program that has none compiles to exactly what it did, and one that has them hashes as it would without.
