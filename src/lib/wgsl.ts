@@ -589,7 +589,7 @@ fn sdCircleWave(pIn: vec2f, tbIn: f32, ra: f32) -> f32 {
     `
 fn onejsHash21(pIn: vec2f, seed: f32) -> f32 {
     var p: vec2f = pIn;
-    p = fract(p * vec2f(123.34, 456.21) + seed * 0.1731);
+    p = fract(fract(p * vec2f(123.34, 456.21)) + fract(seed * 0.1731));
     p += dot(p, p + 45.32);
     return fract(p.x * p.y);
 }

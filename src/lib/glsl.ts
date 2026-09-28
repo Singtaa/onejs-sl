@@ -548,7 +548,7 @@ float sdCircleWave(vec2 p, float tb, float ra) {
 `,
     `
 float onejsHash21(vec2 p, float seed) {
-    p = fract(p * vec2(123.34, 456.21) + seed * 0.1731);
+    p = fract(fract(p * vec2(123.34, 456.21)) + fract(seed * 0.1731));
     p += dot(p, p + 45.32);
     return fract(p.x * p.y);
 }

@@ -11,7 +11,7 @@
 
 float onejsHash21(float2 p, float seed)
 {
-    p = frac(p * float2(123.34, 456.21) + seed * 0.1731);
+    p = frac(frac(p * float2(123.34, 456.21)) + frac(seed * 0.1731));
     p += dot(p, p + 45.32);
     return frac(p.x * p.y);
 }
