@@ -315,11 +315,13 @@ describe("calls", () => {
         `)).toThrow(/"box"\) takes at most 4 parameters and was given 6/)
     })
 
-    it("refuses a ramp stop that is not a colour", () => {
-        expect(() => parse(`
-            uniform float4 hot = #ff0000;
-            float4 main() { return ramp(uv.x, #000000, hot); }
-        `)).toThrow(/a ramp's stops are constants, written as colours/)
+    it("refuses a ramp stop that is computed rather than written as a colour, at the stop", () => {
+        const e = refuse(`uniform float4 hot = #ff0000;
+float4 main() { return ramp(uv.x, #000000, hot * 0.5); }`)
+        expect(e.message).toMatch(/2:48: a ramp's stop is a colour as written.*Blend computed colours with lerp/)
+        expect(() => parse("uniform float4 plain = float4(1, 0, 0, 1);\nfloat4 main() { return ramp(uv.x, #000000, plain); }"))
+            .toThrow(/a ramp's stop is a colour as written/)
+        expect(() => parse("float4 main() { return ramp(uv.x, #000000, 0.5); }")).toThrow(/a float3 or a float4, and this is a float/)
     })
 
     it("explains that a texture is only ever tex2D's first argument", () => {

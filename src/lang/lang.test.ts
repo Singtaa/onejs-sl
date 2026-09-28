@@ -54,6 +54,27 @@ describe("sdf", () => {
     })
 })
 
+describe("ramp", () => {
+    it("takes a colour uniform, a [Color] uniform or a const holding a hex as a stop, blended as written", () => {
+        const p = parse(`
+            uniform float4 hot = #ff4000;
+            [Color] uniform float3 cool = float3(0, 0.5, 1);
+            const float4 mid = #80ff80;
+            float4 main() { return ramp(uv.x, hot, mid, cool, #000000); }
+        `)
+        // Each value stop reaches the mixes as written: the uniforms raw, the const as its constant.
+        const toLinear = p.nodes.filter((n) => n.k === "call" && n.op === SLOP.TO_LINEAR)
+        const reachableToLinear = toLinear.filter((n) => p.nodes.some((m) => m.k === "call" && m.op === SLOP.MIX && m.args.includes(p.nodes.indexOf(n))))
+        expect(reachableToLinear).toEqual([])
+    })
+
+    it("is the program it was when every stop is a hex", () => {
+        const p = parse("float4 main() { return ramp(uv.x, #000018, #0080ff, #ffffff); }")
+        const q = sl.program(({ uv }) => sl.ramp(uv.x, ["#000018", "#0080ff", "#ffffff"]))
+        expect(p.hash).toBe(q.hash)
+    })
+})
+
 describe("noise", () => {
     it("takes an octave count that is a value as an operand, rounded and held to 1 to 4 where it is read", () => {
         const p = parse(`

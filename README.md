@@ -132,12 +132,13 @@ what a WebGL player draws.
 
 `npm run goldens` draws it on WebGPU and WebGL2 in a Chrome with its own
 profile (set `CHROME` to choose one). The two backends must agree within 1/255
-over every pixel, and six anchors must match arithmetic, not each other:
+over every pixel, and seven anchors must match arithmetic, not each other:
 `orient.sl` (orientation, and the linear to sRGB store), `hex.sl` (a hex colour
 stores as written), `texture.sl` (a texture's orientation and sRGB decode) and
 `lod.sl` (each mip level `tex2Dlod` reads, the texture's smaller levels being
-solid colours). `sdf-values.sl` and `fbm-values.sl` are black unless a shape or
-a noise draws differently with its parameters as values than as constants.
+solid colours). `sdf-values.sl`, `fbm-values.sl` and `ramp-values.sl` are black unless a
+shape, a noise or a ramp draws differently with its parameters as values than
+as constants.
 The whole translated library must also compile on both backends, including
 the functions no fixture reaches. The file describes the sampling grid, the
 times and the texture every sampled slot gets. A host imports it as
@@ -415,6 +416,12 @@ ramp, and converts the result once through `TO_LINEAR`; `sl.color("#hex")` is
 own for a vec4 built from raw components. Both backends implement it gamma
 aware (`sl_toLinear` in `lib/common.hlsl`), so a Gamma project gets the value
 as written. Alpha is coverage and is never converted. Same rule as `fx`.
+
+A ramp's stop can also be a colour value that was written as one: a colour
+uniform, or a const holding a hex. The ramp takes the value from under the
+conversion that reading it applied (`writtenColour` in `ir.ts`), so it blends
+as written like a hex stop. A value computed in linear light has no written
+form to take, so it is refused, with lerp as the way to blend it.
 
 ## Noise
 

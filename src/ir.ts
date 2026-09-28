@@ -213,6 +213,24 @@ export function checkCaps(p: Pick<Program, "uniforms" | "textures">): void {
     if (p.textures.length > TEXTURE_SLOTS) throw new SLError(tooManyTextures(p.textures.length, "program"))
 }
 
+/**
+ * The colour as written behind a colour value: the operand of the `TO_LINEAR`
+ * that reading a hex or a colour uniform applied, or null for a value computed
+ * in the working space. What a ramp's stop has to be, since a ramp blends its
+ * stops as written (`sl.ramp`).
+ */
+export function writtenColour(nodes: readonly SLNode[], ref: NodeRef): NodeRef | null {
+    const n = nodes[ref]!
+    if (n.k !== "call" || n.op !== SLOP.TO_LINEAR || (n.type !== TYPE.VEC3 && n.type !== TYPE.VEC4)) return null
+    return n.args[0]!
+}
+
+/** Why a computed value is not a ramp's stop, in one wording for both surfaces. */
+export const RAMP_STOP_COMPUTED =
+    "a ramp's stop is a colour as written: a hex like #ff8040, or a uniform or const that holds one. " +
+    "This one is computed, and a ramp blends its stops as written before it converts them, so it has " +
+    "no written colour to blend. Blend computed colours with lerp instead"
+
 /** Operations a single program may hold. Generous: a guard against a runaway builder, not a budget. */
 export const MAX_NODES = 4096
 

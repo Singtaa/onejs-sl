@@ -8,6 +8,7 @@
 - `fromGLSL` turns `textureLod` into `tex2Dlod`
 - A shape's parameters may be any value, a uniform included; a vector counts as its components
 - `fbm`, `turbulence` and `ridged` take an octave count that is a value, rounded and held to 1 to 4
+- A ramp's stop may be a colour uniform or a const holding a hex, as well as a hex
 
 ## 0.3.0
 

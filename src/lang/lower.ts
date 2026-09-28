@@ -32,7 +32,9 @@
  * than an optimisation.
  */
 
-import { controlProblem, DERIVED_INPUTS, INPUTS, type Program, type SLType, type UniformControl } from "../ir"
+import {
+    controlProblem, DERIVED_INPUTS, INPUTS, RAMP_STOP_COMPUTED, writtenColour, type Program, type SLType, type UniformControl,
+} from "../ir"
 import type { SlSdfKind } from "../shapes"
 import * as sl from "../sl"
 import type { Num, Val } from "../sl"
@@ -629,17 +631,18 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
 
         if (n === "ramp") {
             const t = lowerExpr(e.args[0]!, scope)
-            const stops: string[] = []
-            for (const a of e.args.slice(1)) {
-                if (a.k !== "hex") {
-                    fail(
-                        "a ramp's stops are constants, written as colours: `ramp(t, #000018, #0080ff, " +
-                        "#ffffff)`. A stop that changes wants lerp between two uniforms instead",
-                        a.pos,
-                    )
+            // A hex stays the string it was, so a ramp of hexes is the program
+            // it always was. Anything else is a value, which has to be a colour
+            // as written (`sl.ramp` says why), a colour uniform say.
+            const stops = e.args.slice(1).map((a) => {
+                if (a.k === "hex") return a.hex
+                const v = lowerExpr(a, scope)
+                if (typeof v === "number" || v.width < 3) {
+                    fail(`a ramp's stop is a colour, a float3 or a float4, and this is a ${typeof v === "number" ? "float" : widthType(v.width)}`, a.pos)
                 }
-                stops.push(a.hex)
-            }
+                if (writtenColour(v.owner.nodes, v.ref) === null) fail(RAMP_STOP_COMPUTED, a.pos)
+                return v as never
+            })
             return at(e.pos, () => sl.ramp(t, stops) as unknown as Val)
         }
 

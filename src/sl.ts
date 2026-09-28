@@ -24,7 +24,7 @@
 
 import { parseColor as parseHex } from "./color"
 import {
-    Builder, INPUTS, SLError, TYPE, hashProgram, programVersion, widthName,
+    Builder, INPUTS, RAMP_STOP_COMPUTED, SLError, TYPE, hashProgram, programVersion, widthName, writtenColour,
     type InputName, type NodeRef, type Program, type SLNode, type SLType, type UniformControl,
 } from "./ir"
 import { SLOP, type SLOpCode } from "./ops"
@@ -596,14 +596,23 @@ export function parseColor(hex: string): [number, number, number, number] {
  *
  * This is the argument for the EDSL in miniature. A library function that
  * composes from primitives costs one function here and nothing anywhere else.
+ *
+ * A stop is a colour as written: a hex, four numbers, or a value that is a
+ * colour as written, which is one `color`, `sl.uniform.colour` or a hex
+ * literal made (a colour uniform, say). The ramp blends the colours as
+ * written, so a value computed any other way, already in the working space,
+ * has nothing it could blend, and is refused.
  */
-export function ramp(t: Num, stops: Array<string | [number, number, number, number]>): Vec4 {
+export function ramp(t: Num, stops: Array<string | [number, number, number, number] | Vec3 | Vec4>): Vec4 {
     if (stops.length < 2) throw new SLError(`a ramp needs at least 2 stops, got ${stops.length}`)
     const tv = (typeof t === "number" ? float(t) : t).saturate()
+    const written = stops.map((s) => (s instanceof Val ? asWritten(s) : null))
     // Each stop is built immediately before the mix that consumes it. The graph
     // and the hash are the same either way (the hash is over the shape, not the
     // storage order); the order only mattered to the VM's register allocator.
     const colourAt = (i: number) => {
+        const w = written[i]
+        if (w !== null && w !== undefined) return w
         const v = typeof stops[i] === "string" ? parseColor(stops[i] as string) : (stops[i] as number[])
         return vec4(v[0], v[1], v[2], v[3])
     }
@@ -619,6 +628,18 @@ export function ramp(t: Num, stops: Array<string | [number, number, number, numb
     // what reads as an even ramp; one conversion at the end puts the result in
     // the target's working space. Same rule as fx's gradient and ramp.
     return toLinear(out)
+}
+
+/**
+ * A colour value as it was written, a float4: the operand of the `toLinear`
+ * that reading it as a colour applied, with alpha 1 when it has three
+ * components. Anything else was computed in the working space.
+ */
+function asWritten(v: Vec3 | Vec4): Vec4 {
+    const ref = writtenColour(v.owner.nodes, v.ref)
+    if (ref === null) throw new SLError(RAMP_STOP_COMPUTED)
+    const raw = mk(v.owner, ref, v.width) as Val
+    return v.width === TYPE.VEC4 ? (raw as Vec4) : vec4(raw, 1)
 }
 
 /**
