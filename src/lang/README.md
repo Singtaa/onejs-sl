@@ -58,7 +58,9 @@ It writes two things beside the code:
 
 - **`<name>.sl.d.ts`**, the way a USS module gets one, carrying the uniform
   names in the type. `uniforms={{ wrap: 1 }}` is then a call site error rather
-  than a console warning on a frame nobody is looking at.
+  than a console warning on a frame nobody is looking at. Its doc comment lists
+  each uniform with its default and the control its attributes ask for, so
+  hovering the import says what to set (from onejs-unity after 0.5.19).
 - **`app.sl.json`** beside the bundle, the manifest `SLShaderGenerator` already
   watches for. This is the thing the file format makes possible and the EDSL
   cannot: a program in a file is known statically, so **an ejected game is
