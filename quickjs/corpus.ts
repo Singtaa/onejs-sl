@@ -8,8 +8,6 @@
  */
 import { SLError, SLParseError, fromJSON, parse, sl, toJSON, type Program } from "../src/index"
 import { BUILTINS } from "../src/tables"
-import { vmFit } from "../src/limits"
-import { encode } from "../src/vm"
 import { compile } from "../src/compile"
 import { emitShader } from "../src/emit/unity"
 import { emitGLSL, emitWGSL } from "../src/emit/web"
@@ -34,16 +32,6 @@ function describe(p: Program): Result {
     const out: Result = { hash: p.hash, version: p.version, nodes: p.nodes.length }
     const back = fromJSON(JSON.parse(JSON.stringify(toJSON(p))))
     out.roundTrip = back.hash === p.hash
-    out.fit = vmFit(p)
-    try {
-        const e = encode(p)
-        out.vm = {
-            wire: e.wire, instructions: e.instructions, registers: e.registersUsed,
-            result: e.resultRegister, data: Array.from(e.data), defaults: e.defaults,
-        }
-    } catch (e) {
-        out.vm = { refused: String((e as Error).message) }
-    }
     out.hlsl = emitShader(p)
     out.wgsl = emitWGSL(p)
     out.glsl = emitGLSL(p)

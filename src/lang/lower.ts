@@ -15,8 +15,7 @@
  * existed. Reassignment is free; it is not a store.
  *
  * **`for` unrolls.** The bounds are constants, so the body is lowered once per
- * iteration with the counter substituted as a number. `sl.unrolled` records the
- * span so the instruction ceiling error can name the loop that spent it.
+ * iteration with the counter substituted as a number.
  *
  * **`if` becomes `select`.** Both sides are lowered and every local assigned in
  * either is selected at the join. A constant condition folds instead, which is
@@ -421,20 +420,19 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
                         count++
                         if (count > MAX_UNROLL) {
                             fail(
-                                `this loop would unroll to more than ${MAX_UNROLL} iterations. There is ` +
-                                `no loop on either backend, so every iteration is emitted in full and ` +
-                                `the VM runs at most 256 instructions`,
+                                `this loop would unroll to more than ${MAX_UNROLL} iterations. A for ` +
+                                `loop unrolls at build time, so every iteration is written out in full`,
                                 s.pos,
                             )
                         }
                     }
-                    at(s.pos, () => sl.unrolled(count, () => {
+                    at(s.pos, () => {
                         for (let i = from; s.inclusive ? i <= to : i < to; i += step) {
                             const inner = new Scope(scope)
                             inner.declare(s.counter, { width: 1, value: i })
                             exec(s.body, inner, ret)
                         }
-                    }))
+                    })
                     break
                 }
                 default:
@@ -447,7 +445,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         if (typeof v !== "number") {
             fail(
                 `a for loop unrolls at build time, so its ${what} has to be a constant. This one is ` +
-                `computed while the shader runs, and neither backend has a loop to run it in`,
+                `computed while the shader runs`,
                 e.pos,
             )
         }
@@ -609,7 +607,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
                 const v = lowerExpr(a, scope)
                 if (typeof v !== "number") {
                     fail(
-                        `sdf.${shape}'s shape parameters ride inside the instruction, so they have to ` +
+                        `sdf.${shape}'s shape parameters are part of the operation, so they have to ` +
                         `be constants. A size that changes belongs on the point: scale or offset it ` +
                         `before the call`,
                         a.pos,
@@ -730,8 +728,8 @@ const ARITH: Record<ArithOp, (a: number, b: number) => number> = {
     "-": (a, b) => a - b,
     "*": (a, b) => a * b,
     "/": (a, b) => a / b,
-    // JavaScript's % is the truncated remainder, which is what HLSL's fmod is
-    // and what the VM's OP_MOD implements. Folding it in JS is the same answer.
+    // JavaScript's % is the truncated remainder, which is what HLSL's fmod is.
+    // Folding it in JS is the same answer.
     "%": (a, b) => a % b,
 }
 

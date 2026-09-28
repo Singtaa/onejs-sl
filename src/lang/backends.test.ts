@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { encode } from "../encode"
+import { compile } from "../compile"
 import { emitShader } from "../hlsl"
 import { parse } from "./index"
 
@@ -8,8 +8,7 @@ import { parse } from "./index"
  *
  * The parity test already proves the graphs match an EDSL twin, which is the
  * stronger claim. This is the cheap end to end check that nothing in the way a
- * `.sl` file reaches the IR trips the encoder or the emitter, because those are
- * the two things Phase B will hand a file to.
+ * `.sl` file reaches the IR trips compile or an emitter.
  */
 
 const SOURCE = `
@@ -35,12 +34,11 @@ float4 main() {
 describe("both backends take a parsed program", () => {
     const program = parse(SOURCE, { file: "rings.sl" })
 
-    it("encodes inside the VM's budgets", () => {
-        const e = encode(program)
-        expect(e.instructions).toBeLessThanOrEqual(256)
-        expect(e.registersUsed).toBeLessThanOrEqual(8)
-        expect(e.uniforms).toEqual(["warp", "tint"])
-        expect(e.hash).toBe(program.hash)
+    it("compiles with its names and hash", () => {
+        const c = compile(program)
+        expect(c.uniforms).toEqual(["warp", "tint"])
+        expect(c.textures).toEqual(["grain"])
+        expect(c.hash).toBe(program.hash)
     })
 
     it("emits a shader whose name carries the hash", () => {

@@ -344,8 +344,8 @@ class Parser {
         if (t.text === "for") return this.parseFor()
         if (t.text === "while" || t.text === "do") {
             this.fail(
-                `there is no ${t.text} loop: the VM has no branches, so a loop has to unroll, and ` +
-                `only a for loop with constant bounds can. See a for loop`,
+                `there is no ${t.text} loop: a loop unrolls at build time, and only a for loop ` +
+                `with constant bounds can. See a for loop`,
                 t,
             )
         }

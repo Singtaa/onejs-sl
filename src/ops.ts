@@ -1,10 +1,9 @@
 /**
  * The shader language opcode table.
  *
- * Phase 1 of `Specs/SHADER_LANG.md`. This is the contract three things will
- * share: the encoder that packs a program into a texture, the VM shader that
- * evaluates it, and the HLSL emitter that prints it. Two of those do not exist
- * yet, which is exactly why the numbering is fixed now rather than later.
+ * Phase 1 of `Specs/SHADER_LANG.md`. The numbers are in every program's hash
+ * and in its JSON, so an opcode keeps its number for good, and one that goes
+ * leaves its number unused.
  *
  * Numbered in families with gaps, the convention `fx/ops.ts` set, so a reader
  * can tell what an opcode is from its value:
@@ -23,18 +22,6 @@
  */
 
 /**
- * The newest VM encoding this encoder writes. The VM accepts 1..its own and
- * refuses newer, where there is a VM: a WebGL player draws compiled and never
- * reads the buffer.
- *
- * A payload records the LOWEST version that can run it (`Encoded.wire`), not
- * this: a program that uses nothing new stays 1, so a new bundle still runs on
- * an older Play container, and only a program that needs a newer instruction
- * is refused by an older one rather than drawn wrong.
- */
-export const SL_WIRE_VERSION = 2
-
-/**
  * How many uniforms and textures one program may declare: the language's caps,
  * for a host to read.
  *
@@ -50,11 +37,7 @@ export const SL_WIRE_VERSION = 2
 export const UNIFORM_SLOTS = 16
 export const TEXTURE_SLOTS = 4
 
-/** The VM's names for the same two caps, which go when the VM does. */
-export const VM_UNIFORMS = UNIFORM_SLOTS
-export const VM_TEXTURES = TEXTURE_SLOTS
-
-/** Input ids, fixed here because the shader switches on them. */
+/** Input ids, which the web emitter switches on. */
 export const INPUT_ID: Record<string, number> = {
     uv: 0, fragCoord: 1, resolution: 2, time: 3, aspect: 4,
 }
@@ -136,10 +119,7 @@ export const SLOP = {
     // made bright. imm.x carries the octave count, as FBM does.
     TURBULENCE: 133,
     RIDGED: 134,
-    // VM only: an SDF given a fifth or sixth parameter, which one instruction's
-    // four immediates and id cannot hold. The encoder makes it (`forVm`); the
-    // IR and every compiled backend only ever see SDF.
-    SDF_WIDE: 135,
+    // 135 was SDF_WIDE, the VM's form of an SDF with more than four parameters.
 
     // Sampling
     SAMPLE: 144,
@@ -149,7 +129,7 @@ export const SLOP = {
 export type SLOpCode = (typeof SLOP)[keyof typeof SLOP]
 
 /**
- * How many arguments each op takes, for validation and for the encoder.
+ * How many arguments each op takes, for validation.
  *
  * -1 means variadic: COMPOSE takes however many parts add up to its width, RAMP
  * takes a value plus its stops. Everything else is fixed, and a mismatch is a
@@ -177,7 +157,7 @@ export const SL_ARITY: Record<number, number> = {
     [SLOP.RAMP]: -1, [SLOP.HSV2RGB]: 1, [SLOP.RGB2HSV]: 1, [SLOP.LUMINANCE]: 1, [SLOP.TO_LINEAR]: 1,
 
     [SLOP.NOISE]: 1, [SLOP.SIMPLEX]: 1, [SLOP.FBM]: 1, [SLOP.SDF]: 1,
-    [SLOP.VORONOI]: 1, [SLOP.TURBULENCE]: 1, [SLOP.RIDGED]: 1, [SLOP.SDF_WIDE]: 2,
+    [SLOP.VORONOI]: 1, [SLOP.TURBULENCE]: 1, [SLOP.RIDGED]: 1,
 
     [SLOP.SAMPLE]: 1, [SLOP.SAMPLE_LOD]: 2,
 }
@@ -187,18 +167,10 @@ export const SL_NAME: Record<number, string> = Object.fromEntries(
     Object.entries(SLOP).map(([name, code]) => [code, name.toLowerCase()]),
 )
 
-export const FIRST_ARITHMETIC = 16
-export const FIRST_MATHS = 48
-export const FIRST_GEOMETRY = 80
-export const FIRST_INTERPOLATE = 96
-export const FIRST_COLOUR = 112
-export const FIRST_PROCEDURAL = 128
-export const FIRST_SAMPLING = 144
+const FIRST_SAMPLING = 144
 
 /**
- * Ops that read a texture. Sampler slots are the one resource ceiling neither
- * backend can widen (16 in a fragment shader on WebGL2), so these are counted
- * at record time.
+ * Ops that read a texture.
  */
 export function isSampling(op: number): boolean {
     return op >= FIRST_SAMPLING
@@ -292,7 +264,6 @@ export const SL_HLSL: Record<number, SLSurface> = {
     [SLOP.VORONOI]: { call: "voronoi" },
     [SLOP.TURBULENCE]: { call: "turbulence" },
     [SLOP.RIDGED]: { call: "ridged" },
-    [SLOP.SDF_WIDE]: { syntax: "sdf.<shape>(p, ...) given a fifth or sixth parameter" },
 
     [SLOP.SAMPLE]: { call: "tex2D" },
     [SLOP.SAMPLE_LOD]: { call: "tex2Dlod" },
@@ -303,16 +274,15 @@ export const SL_HLSL: Record<number, SLSurface> = {
  *
  * Numbered so the families stay in order, and refused at the surface until
  * somebody writes both halves. A program reaching one would render as whatever
- * the VM's dispatch falls through to and fail outright in the HLSL emitter,
- * which is the silent-disagreement failure this design exists to prevent, so
- * the parser names them rather than treating them as unknown identifiers.
+ * nothing: the emitters have no case for them. So the parser names them rather
+ * than treating them as unknown identifiers.
  *
  * `REMAP` is here because the opcode is unimplemented; the SURFACE `remap` is a
  * macro over arithmetic and works everywhere.
  */
 export const SL_UNIMPLEMENTED: Record<number, string> = {
-    [SLOP.RGB2HSV]: "neither the VM shader nor the HLSL emitter has a case for it",
-    [SLOP.SAMPLE_LOD]: "the VM samples without an explicit LOD; use tex2D",
+    [SLOP.RGB2HSV]: "no backend has a case for it yet",
+    [SLOP.SAMPLE_LOD]: "no backend samples at an explicit LOD yet; use tex2D",
     [SLOP.REMAP]: "the surface form is a macro over arithmetic, so the opcode is unused",
 }
 

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-import { encode } from "../encode"
 import { emitShader } from "../hlsl"
 import * as sl from "../sl"
 import type { Program } from "../ir"
@@ -17,12 +16,12 @@ import { parse } from "./index"
  * is a much stronger claim than "both compile". Two programs agreeing on it
  * agree on every node, every operand order, every constant to nine digits and
  * every uniform slot. And because the claim is about the IR, the existing GPU
- * fixtures, the codegen goldens and the C# VM tests all cover the text form for
- * free: they run on what comes out of here.
+ * fixtures and the codegen goldens cover the text form for free: they run on
+ * what comes out of here.
  *
  * When one of these fails, the lowering has quietly picked a different graph
- * for the same source. `sameShape` prints both instruction counts and both
- * shaders, because "the hashes differ" on its own says nothing about where.
+ * for the same source. It prints both shaders, because "the hashes differ" on
+ * its own says nothing about where.
  */
 
 function pair(name: string, source: string, build: () => Program): void {
@@ -33,7 +32,6 @@ function pair(name: string, source: string, build: () => Program): void {
             expect(emitShader(text, { name: "text" })).toBe(emitShader(edsl, { name: "text" }))
         }
         expect(text.hash).toBe(edsl.hash)
-        expect(encode(text).instructions).toBe(encode(edsl).instructions)
     })
 }
 

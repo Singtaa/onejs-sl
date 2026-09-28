@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { sl } from "./index"
-import { encode } from "./encode"
 import { SL_IR_VERSION, hashProgram } from "./ir"
 import { fromJSON, toJSON } from "./serial"
-import { SL_WIRE_VERSION } from "./ops"
 
 const plasma = () => sl.program(({ uv, time }) => {
     const k = sl.uniform.float("k", 0.5)
@@ -25,7 +23,6 @@ describe("IR versions", () => {
         expect(back.hash).toBe(p.hash)
         expect(back.nodes).toEqual(p.nodes)
         expect(back.uniforms).toEqual(p.uniforms)
-        expect(encode(back).data).toEqual(encode(p).data)
     })
 
     it("refuse a newer version, naming both", () => {
@@ -58,6 +55,15 @@ describe("IR versions", () => {
     })
 })
 
+describe("opcodes", () => {
+    it("refuses 135, which only the removed VM encoder wrote and no emitter draws", () => {
+        const j = toJSON(plasma())
+        const uv = j.nodes.findIndex((n) => n.k === "input" && n.name === "uv")
+        const nodes = [...j.nodes, { k: "call", type: 1, op: 135, args: [uv, uv], imm: [0, 0, 0, 0, 0, 0] }]
+        expect(() => fromJSON({ ...j, nodes, hash: undefined })).toThrow(/calls opcode 135, which this compiler does not know/)
+    })
+})
+
 describe("the caps", () => {
     // 0.2.0's builder wrote these; the builder refuses them now, so a stored
     // one is the way they still arrive.
@@ -77,12 +83,5 @@ describe("the caps", () => {
         }))
         const seventeen = { ...j, uniforms: [...j.uniforms, { name: "u16", type: 1, value: [0] }], hash: undefined }
         expect(() => fromJSON(seventeen)).toThrow(/this program declares 17 uniforms and a program may hold 16\./)
-    })
-})
-
-describe("the wire version", () => {
-    it("is 1 for every program that uses nothing newer", () => {
-        expect(encode(plasma()).wire).toBe(1)
-        expect(SL_WIRE_VERSION).toBeGreaterThanOrEqual(1)
     })
 })

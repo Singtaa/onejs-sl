@@ -71,7 +71,7 @@ describe("the HLSL emitter", () => {
         expect(src).toContain("tex2D(_Tex0,")
     })
 
-    it("includes the helpers the VM shares, rather than restating them", () => {
+    it("includes the shared helpers, rather than restating them", () => {
         // Both backends computing noise from one source is what makes them
         // comparable at all. A second copy here would fail the golden image
         // check on nearly every program.
@@ -107,7 +107,7 @@ describe("the HLSL emitter", () => {
 
     it("refuses an opcode it has no case for, rather than emitting nothing", () => {
         // A missing case must fail loudly here. Emitting a program that silently
-        // differs between the VM and a compiled build is the one failure this
+        // differs between a Unity build and a browser is the one failure this
         // design cannot tolerate.
         const p = sl.program(({ uv }) => sl.vec4(uv, 0, 1))
         const broken = { ...p, nodes: p.nodes.map((n, i) => i === p.result ? { ...n, op: 9999 } as any : n) }

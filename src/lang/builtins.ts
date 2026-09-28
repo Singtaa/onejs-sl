@@ -45,13 +45,12 @@ const name = (op: number): string => {
 const val = (v: Num): Val => (typeof v === "number" ? (sl.float(v) as unknown as Val) : v)
 
 /**
- * Asserts an operand's width where the two backends would otherwise part ways.
+ * Asserts an operand's width where the backends would otherwise part ways.
  *
- * The VM keeps every value in a float4 register and writes `a.xy` or `a.rgb`
- * whatever it was handed, so a noise call on a float3 quietly works there. The
- * generated HLSL passes the real type to `sl_valueNoise(float2)` and either
- * truncates with a warning or fails to compile. Neither outcome is one an
- * author should discover after ejecting, so the narrow ops say so here.
+ * The generated HLSL passes the real type to `sl_valueNoise(float2)` and either
+ * truncates with a warning or fails to compile, while a browser may accept it.
+ * Neither outcome is one an author should discover in a build, so the narrow
+ * ops say so here.
  */
 function widthMustBe(fn: string, v: Num, want: 1 | 2 | 3 | 4, why: string): Val {
     const got = typeof v === "number" ? 1 : v.width
@@ -146,7 +145,7 @@ function octaves(fn: string, v: Num | undefined): number {
     if (v === undefined) return 3
     if (typeof v !== "number") {
         throw new SLError(
-            `${fn}'s octave count is baked into the instruction, so it has to be a constant. ` +
+            `${fn}'s octave count is part of the operation, so it has to be a constant. ` +
             `A uniform or a computed value cannot change how many octaves the shader runs.`,
         )
     }

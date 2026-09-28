@@ -71,7 +71,7 @@ describe("the web emitters", () => {
     it("handle every opcode the HLSL emitter handles", () => {
         // One call node per opcode over uv, printed by both. A case missing
         // from the web emitters throws, which is the point: the op would
-        // otherwise run on the VM and fail to compile, or differ, on the web.
+        // otherwise draw in a Unity build and fail to compile, or differ, on the web.
         for (const [name, op] of Object.entries(SLOP)) {
             if (op <= SLOP.SWIZZLE) continue
             const nodes: SLNode[] = [

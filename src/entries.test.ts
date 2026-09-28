@@ -3,8 +3,6 @@ import * as main from "./index"
 import * as core from "./core"
 import * as compiler from "./compile"
 import * as tables from "./tables"
-import * as limits from "./limits"
-import * as vm from "./vm"
 import * as unity from "./emit/unity"
 import * as web from "./emit/web"
 import * as body from "./emit/hlsl-body"
@@ -19,7 +17,7 @@ const names = (m: object) => Object.keys(m).sort()
 describe("entry points", () => {
     it("core is a program without the parser", () => {
         expect(names(core)).toEqual([
-            "CONTROL_FIELDS", "INPUTS", "INPUT_ID", "MAX_NODES", "MAX_TEXTURES", "SLError", "SLOP", "SL_ARITY",
+            "CONTROL_FIELDS", "INPUTS", "INPUT_ID", "MAX_NODES", "SLError", "SLOP", "SL_ARITY",
             "SL_IR_VERSION", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_SHAPES", "TEXTURE_SLOTS", "TYPE", "UNIFORM_SLOTS",
             "controlProblem", "fromJSON", "hashProgram", "inputsUsed", "isSampling", "parseColor", "sl", "toJSON",
             "widthName",
@@ -41,11 +39,6 @@ describe("entry points", () => {
             "SL_KEYWORDS", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_PARAM_NAMES", "SL_SDF_SHAPES", "SL_TYPES",
             "SL_UNIMPLEMENTED", "SOURCE_INPUTS", "TYPE_WIDTH",
         ])
-        expect(names(limits)).toEqual(["MAX_INSTRUCTIONS", "REGISTERS", "VM_TEXTURES", "VM_UNIFORMS", "vmFit"])
-        expect(names(vm)).toEqual([
-            "INPUT_ID", "MAX_INSTRUCTIONS", "REGISTERS", "SL_WIRE_VERSION", "TEXELS_PER_INSTRUCTION", "VM_TEXTURES",
-            "VM_UNIFORMS", "encode", "forVm", "liveRanges", "reachable",
-        ])
         expect(names(compiler)).toEqual(["compile"])
         expect(names(unity)).toEqual(["emitFragmentBody", "emitShader", "uniformProperty"])
         expect(names(body)).toEqual(["emitBody", "emitLibrary"])
@@ -55,7 +48,7 @@ describe("entry points", () => {
     it("every entry in package.json exists and is one of these", async () => {
         const pkg = (await import("../package.json")).default as { exports: Record<string, string> }
         expect(Object.keys(pkg.exports).sort()).toEqual(
-            [".", "./compile", "./core", "./emit/hlsl-body", "./emit/unity", "./emit/web", "./goldens.json", "./limits", "./tables", "./vm"],
+            [".", "./compile", "./core", "./emit/hlsl-body", "./emit/unity", "./emit/web", "./goldens.json", "./tables"],
         )
         // The one entry that is data: what a host's own renderer is held to.
         expect(pkg.exports["./goldens.json"]).toBe("./goldens/goldens.json")

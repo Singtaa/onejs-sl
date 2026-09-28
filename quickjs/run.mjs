@@ -49,7 +49,6 @@ const cases = Object.keys(a)
 const differ = cases.filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
 const missing = Object.keys(b).filter((k) => !(k in a))
 const programs = cases.filter((k) => a[k] && typeof a[k] === "object" && "hash" in a[k]).length
-const refused = cases.filter((k) => a[k]?.vm?.refused !== undefined)
 if (differ.length > 0 || missing.length > 0 || got !== expected) {
     for (const k of differ) {
         const x = JSON.stringify(a[k]), y = JSON.stringify(b[k])
@@ -60,5 +59,5 @@ if (differ.length > 0 || missing.length > 0 || got !== expected) {
     for (const k of missing) console.error(`[quickjs] ${k} is only in QuickJS's result`)
     process.exit(1)
 }
-console.log(`[quickjs] ${cases.length} cases (${programs} programs, ${refused.length} over the VM's limits) agree with Node, ` +
+console.log(`[quickjs] ${cases.length} cases (${programs} programs) agree with Node, ` +
     `${(got.length / 1024).toFixed(0)} KB byte for byte, bundle ${(bundle.length / 1024).toFixed(0)} KB`)

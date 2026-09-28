@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { encode } from "../encode"
+import { compile } from "../compile"
 import { SLOP } from "../ops"
 import * as sl from "../sl"
 import { PRELUDE_SOURCE, analyze, parse } from "./index"
@@ -23,7 +23,6 @@ describe("sdf", () => {
         `)
         const call = p.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF)!
         expect(call.k === "call" && call.imm).toEqual([24, -0.3, 0, 0.3, 0, 0.1])
-        expect(encode(p).wire).toBe(2)
     })
 })
 
@@ -197,7 +196,7 @@ describe("control flow", () => {
         expect(ops(p).filter((o) => o === SLOP.SELECT).length).toBe(2)
     })
 
-    it("a for loop unrolls, and the span is recorded for the ceiling error", () => {
+    it("a for loop unrolls into the same program as writing each iteration out", () => {
         const p = parse(`
             float4 main() {
                 float v = 0;
@@ -205,8 +204,14 @@ describe("control flow", () => {
                 return float4(v, 0, 0, 1);
             }
         `)
-        expect(p.loops.length).toBe(1)
-        expect(p.loops[0]!.count).toBe(4)
+        const written = parse(`
+            float4 main() {
+                float v = 0;
+                v = v + uv.x * 0; v = v + uv.x * 1; v = v + uv.x * 2; v = v + uv.x * 3;
+                return float4(v, 0, 0, 1);
+            }
+        `)
+        expect(p.hash).toBe(written.hash)
     })
 
     it("the counter is a number, so it reaches an immediate", () => {
@@ -235,7 +240,15 @@ describe("control flow", () => {
                 return float4(v, 0, 0, 1);
             }
         `)
-        expect(p.loops.length).toBe(3)
+        const written = parse(`
+            float4 main() {
+                float v = 0;
+                v = v + uv.x * 0 * 0; v = v + uv.x * 0 * 1; v = v + uv.x * 0 * 2;
+                v = v + uv.x * 1 * 0; v = v + uv.x * 1 * 1; v = v + uv.x * 1 * 2;
+                return float4(v, 0, 0, 1);
+            }
+        `)
+        expect(p.hash).toBe(written.hash)
     })
 })
 
@@ -321,7 +334,7 @@ describe("functions", () => {
                 return float4(c, 1);
             }
         `)
-        expect(encode(p).instructions).toBeGreaterThan(0)
+        expect(compile(p).hlsl.length).toBeGreaterThan(0)
     })
 })
 

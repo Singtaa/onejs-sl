@@ -176,6 +176,24 @@ describe("names", () => {
     })
 })
 
+describe("no message names the VM", () => {
+    // The VM went in 0.3.0. An error that gives it as the reason sends an
+    // author looking for a machine that is not there.
+    const cases: Record<string, string> = {
+        "a while loop": "float4 main() { while (1) { } return #fff; }",
+        "a long loop": "float4 main() { float v = 0; for (int i = 0; i < 500; i++) { v = v + uv.x; } return float4(v, 0, 0, 1); }",
+        "a computed bound": "uniform float n = 3;\nfloat4 main() { float v = 0; for (int i = 0; i < n; i++) { v = v + uv.x; } return float4(v, 0, 0, 1); }",
+        "a computed shape parameter": "uniform float r = 0.2;\nfloat4 main() { return float4(sdf.circle(uv, r), 0, 0, 1); }",
+        "a computed octave count": "uniform float o = 3;\nfloat4 main() { return float4(fbm(uv, o), 0, 0, 1); }",
+    }
+    for (const [what, source] of Object.entries(cases)) {
+        it(`for ${what}`, () => {
+            const e = refuse(source)
+            expect(e.message).not.toMatch(/\bVM\b|instruction|either backend|neither backend/)
+        })
+    }
+})
+
 describe("caps", () => {
     it("reports too many uniforms at the one that went over", () => {
         const decls = Array.from({ length: 17 }, (_, i) => `uniform float u${i} = 0;`).join("\n")
@@ -276,10 +294,9 @@ describe("calls", () => {
             .toThrow(/sdf names a family of shapes/)
     })
 
-    it("refuses an operand width the two backends would read differently", () => {
-        // The VM writes a.xy whatever the register holds; the generated HLSL
-        // passes the real type. A float3 here works in the browser and warns or
-        // fails to compile after an eject.
+    it("refuses an operand width the backends would read differently", () => {
+        // The generated HLSL passes the real type to a float2 helper, which
+        // warns or fails to compile on a float3.
         expect(() => parse("float4 main() { return float4(noise(float3(uv, 1)), 0, 0, 1); }"))
             .toThrow(/noise takes a float2 to sample at, and this is a float3/)
         expect(() => parse("float4 main() { return float4(luminance(uv.x), 0, 0, 1); }"))
@@ -297,7 +314,7 @@ describe("calls", () => {
         expect(() => parse(`
             uniform float r = 0.25;
             float4 main() { return float4(sdf.circle(uv - 0.5, r), 0, 0, 1); }
-        `)).toThrow(/ride inside the instruction, so they have to be constants/)
+        `)).toThrow(/are part of the operation, so they have to be constants/)
     })
 
     it("refuses a ramp stop that is not a colour", () => {

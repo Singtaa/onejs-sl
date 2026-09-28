@@ -33,7 +33,7 @@ export const LIB_FILES: LibFile[] = [
  */
 export const WEB_LINEAR: Record<"glsl" | "wgsl", string> = { glsl: "sl_Opt.x > 0.5", wgsl: "sl.opt.x > 0.5" }
 
-/** The distance function the VM and the Unity frame dispatch through; the web calls its shapes directly. */
+/** The distance function the Unity frame dispatches through; the web calls its shapes directly. */
 const SDF_DISPATCH = "sl_sdfDistance"
 
 export interface Generated {

@@ -8,7 +8,7 @@
  *     import { parse } from "onejs-sl"
  *
  *     const plasma = parse(source, { file: "plasma.sl" })
- *     //    ^ a Program: encode() it, emit HLSL from it, hash it
+ *     //    ^ a Program: compile() it, emit HLSL from it, hash it
  *
  * The parser is not a second authoring surface with its own semantics. It
  * lowers through the EDSL, so a `.sl` file and the `sl.program(...)` an author

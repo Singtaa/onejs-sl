@@ -207,7 +207,7 @@ function align2(a: Val, o: Num): [NodeRef, NodeRef] {
  * right for two operands because `bin` takes the max itself; the three and four
  * operand ops used to take the width from one chosen operand, so
  * `mix(0, aVec3, t)` produced a node typed float that held three components.
- * The VM keeps every value in a float4 register and never noticed, while the
+ * The VM, which kept every value in a float4 register, never noticed, while the
  * HLSL emitter declared `float` and truncated, so the two backends rendered
  * different pictures from one program. Anything component wise with more than
  * two operands goes through here.
@@ -294,7 +294,6 @@ export function program(fn: (inputs: ProgramInputs) => Vec4): Program {
             uniforms: b.uniforms.slice(),
             textures: b.textures.slice(),
             hash: hashProgram(nodes, out.ref, b.uniforms, b.textures),
-            loops: b.loops.slice(),
         }
     } finally {
         current = null
@@ -312,23 +311,14 @@ function compose(width: SLType, parts: Num[]): Val {
     // Wide parts are SPLIT into their components here, so COMPOSE only ever
     // sees scalars.
     //
-    // The VM keeps every value in a float4 register and took the x of each
-    // operand, which silently dropped everything after the first component:
-    // vec4(uv, 0, 1) rendered (uv.x, 0, 1, 0) instead of (uv.x, uv.y, 0, 1).
-    // Teaching the shader each part's width would need widths in an encoding
-    // that has no room for them, and would put the complexity in the half that
-    // is hardest to test. Splitting at record time costs a few extra swizzle
-    // nodes, which the register allocator reclaims immediately, and leaves the
-    // VM's COMPOSE trivially correct.
+    // The VM (removed in 0.3.0) took the x of each operand, which dropped
+    // everything after the first component: vec4(uv, 0, 1) rendered
+    // (uv.x, 0, 1, 0). Splitting at record time costs a few extra swizzle
+    // nodes and keeps every emitter's COMPOSE trivial.
     // A constructor of literals is ONE constant, not a COMPOSE of four.
     //
-    // `vec4(0.1, 0.2, 0.3, 0.4)` was five instructions holding four registers
-    // at once, because every part became its own CONST and COMPOSE kept them
-    // all live. The IR has always been able to say it in one node: a const
-    // carries up to four components. A two stop `ramp` used five of the eight
-    // registers on nothing but its own stop colours, which put the language's
-    // headline colour tool within one or two registers of unusable in any
-    // program that also did something.
+    // Every part as its own CONST, joined by a COMPOSE, is five nodes where the
+    // IR can say it in one: a const carries up to four components.
     if (parts.length === width && parts.every((p) => typeof p === "number")) {
         return mk(b, b.constant(parts as number[]), width)
     }
@@ -425,9 +415,8 @@ export function hsv2rgb(c: Vec3): Vec3 {
 /**
  * Cross and reflect, both vec3 only.
  *
- * The VM evaluates them as `cross(a.xyz, b.xyz)`, so a vec2 or vec4 would mean
- * one thing in a compiled build and another in the interpreter. Refusing the
- * other widths here is what keeps the two honest.
+ * Refusing the other widths here keeps every backend drawing the same thing,
+ * rather than each deciding what a vec2 or vec4 cross product means.
  */
 export function cross(a: Vec3, b: Vec3): Vec3 {
     if (a.width !== TYPE.VEC3 || b.width !== TYPE.VEC3) {
@@ -452,7 +441,7 @@ export function reflect(incident: Vec3, normal: Vec3): Vec3 {
  *
  * A MACRO, like `ramp`, and for the same reason: it expands into arithmetic
  * both backends already have, so it needs no opcode, no second implementation
- * in the emitter and no VM case. `SLOP.REMAP` stays a reserved number.
+ * in the emitters. `SLOP.REMAP` stays a reserved number.
  *
  * Unclamped on purpose, which is what HLSL authors expect of the one liner they
  * would otherwise write; wrap it in `saturate` when the ends matter.
@@ -495,11 +484,10 @@ export function select(cond: Num, whenTrue: Num, whenFalse: Num): Val {
     const t = typeof whenTrue === "number" ? float(whenTrue) : whenTrue
     const f = typeof whenFalse === "number" ? float(whenFalse) : whenFalse
     // The condition is widened with the branches, not left at its own width.
-    // A register is a float4 whatever it holds, so a scalar condition sits
-    // there as (c, 0, 0, 0) and the VM's `step(0.5, cond)` answered 0 for
-    // components y, z and w, while the HLSL backend broadcasts a scalar
-    // itself. The two DISAGREED on every vector valued select, which is the one
-    // failure this design cannot tolerate.
+    // The VM (removed in 0.3.0) held a scalar condition as (c, 0, 0, 0) and
+    // answered 0 for components y, z and w, while HLSL broadcasts a scalar
+    // itself; the two disagreed on every vector valued select. Widening here
+    // keeps every emitter's SELECT the same simple form.
     const { refs, width } = alignN([c, t, f])
     return mk(b, b.call(SLOP.SELECT, width, refs), width)
 }
@@ -507,8 +495,8 @@ export function select(cond: Num, whenTrue: Num, whenFalse: Num): Val {
 /**
  * The interpolant is broadcast to the operand width before it crosses.
  *
- * A register is a float4 whatever it holds, so a scalar `t` sits there as
- * (t, 0, 0, 0) and the shader's lerp ran per component against those zeros:
+ * The VM (removed in 0.3.0) held a scalar `t` as (t, 0, 0, 0) and its lerp
+ * ran per component against those zeros:
  * a black to white ramp at its midpoint rendered (0.5, 0, 0, 1) instead of
  * grey. Broadcasting here rather than in the shader keeps `t` free to be a
  * genuine per component vector when an author wants one.
@@ -597,13 +585,9 @@ export function parseColor(hex: string): [number, number, number, number] {
 export function ramp(t: Num, stops: Array<string | [number, number, number, number]>): Vec4 {
     if (stops.length < 2) throw new SLError(`a ramp needs at least 2 stops, got ${stops.length}`)
     const tv = (typeof t === "number" ? float(t) : t).saturate()
-    // Each stop is built IMMEDIATELY BEFORE the mix that consumes it, not all
-    // of them up front. The graph is identical either way and so is the hash,
-    // which is a Merkle hash over the shape and not over storage order, but the
-    // register allocator walks the array: built up front, every stop stayed
-    // live until the last mix, and a four stop ramp reserved four of the VM's
-    // eight registers before the program did anything. That put the language's
-    // headline colour tool a couple of registers from unusable.
+    // Each stop is built immediately before the mix that consumes it. The graph
+    // and the hash are the same either way (the hash is over the shape, not the
+    // storage order); the order only mattered to the VM's register allocator.
     const colourAt = (i: number) => {
         const v = typeof stops[i] === "string" ? parseColor(stops[i] as string) : (stops[i] as number[])
         return vec4(v[0], v[1], v[2], v[3])
@@ -733,34 +717,13 @@ export function texture(name: string): Texture {
  *
  * Honest about what it is: a macro, not a loop. It covers fbm, layered noise and
  * small iterated distance fields, which is most of what 2D shaders loop for. A
- * data dependent loop is out of scope, because in the VM it would need a nested
- * bounded loop with a dynamic trip count while codegen would handle it fine, and
- * the two backends agreeing is the property this whole design protects.
+ * loop with a runtime count is `Specs/SL_NEXT.md` proposal 3b.
  */
 export function repeat<T extends Val>(n: number, body: (i: number, acc: T) => T, seed: T): T {
     if (!Number.isInteger(n) || n < 0 || n > 64) {
         throw new SLError(`repeat count must be a whole number from 0 to 64, got ${n}`)
     }
-    return unrolled(n, () => {
-        let acc = seed
-        for (let i = 0; i < n; i++) acc = body(i, acc)
-        return acc
-    })
-}
-
-/**
- * Records the nodes a body produced as one unrolled span.
- *
- * Diagnostic only: the instruction ceiling error uses the span to say which
- * loop spent the budget, so the fix reads as "lower this count" rather than
- * "fewer instructions". `repeat` is the EDSL's form of it and the text
- * language's `for` is the other, and neither should be reaching into the
- * Builder to push a span itself.
- */
-export function unrolled<T>(count: number, body: () => T): T {
-    const b = ctx()
-    const start = b.nodes.length
-    const out = body()
-    b.loops.push({ count, start, end: b.nodes.length })
-    return out
+    let acc = seed
+    for (let i = 0; i < n; i++) acc = body(i, acc)
+    return acc
 }

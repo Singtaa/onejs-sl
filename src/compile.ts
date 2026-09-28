@@ -6,10 +6,9 @@
  * editor to generate a shader from, WGSL and GLSL ES 3.00 for a browser to
  * compile on Unity's own device.
  *
- * There is no budget. `encode` refuses a program past the VM's 256
- * instructions or 8 registers, because the VM cannot run it; every backend
- * here is a real compiler, so a long program costs what it costs, as any
- * shader does. `Specs/SL_NEXT.md` section 0.5, step 3.
+ * There is no budget: every backend is a real compiler, so a long program
+ * costs what it costs, as any shader does. The caps on uniforms and textures
+ * are the only refusal (`checkCaps`).
  */
 
 import { checkCaps, type Program } from "./ir"

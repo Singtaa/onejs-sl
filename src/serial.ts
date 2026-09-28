@@ -55,7 +55,7 @@ export function fromJSON(json: unknown): Program {
     if (v === SL_IR_VERSION && j.hash !== undefined && j.hash !== hash) {
         fail(`its hash ${j.hash} does not match its nodes (${hash}); it was changed after it was written`)
     }
-    return { version: SL_IR_VERSION, nodes, result: result!, uniforms, textures, hash, loops: [] }
+    return { version: SL_IR_VERSION, nodes, result: result!, uniforms, textures, hash }
 }
 
 function node(n: unknown, i: number): SLNode {

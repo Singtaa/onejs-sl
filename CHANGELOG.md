@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+The VM is gone: every program is compiled, so there is no instruction buffer, wire version or VM limit left to import. A host on `compile` changes nothing; one still importing `onejs-sl/vm` or `onejs-sl/limits` moves to `onejs-sl/compile` and `onejs-sl/core`.
+
+- `onejs-sl/vm`, `onejs-sl/limits`, `encode`, `forVm`, `vmFit` and `SL_WIRE_VERSION` are removed
+- `VM_UNIFORMS` and `VM_TEXTURES` are removed; `UNIFORM_SLOTS` and `TEXTURE_SLOTS` in `onejs-sl/core` are the same numbers
+- `MAX_TEXTURES` is removed
+- `Program.loops`, `LoopSpan` and `sl.unrolled` are removed
+- `fromJSON` refuses opcode 135, which only the VM's encoder wrote
+- No error, doc or generated shader comment names the VM
+
 ## 0.2.1
 
 A program built in code or read from JSON is refused past 16 uniforms or 4 textures, as a `.sl` file already was, instead of compiling and then drawing differently on different hosts. A host can read both caps.

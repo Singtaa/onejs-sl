@@ -1,9 +1,8 @@
 /**
- * The shader language IR: one graph, two consumers.
+ * The shader language IR: one graph, and every backend a function of it.
  *
- * Phase 1 of `Specs/SHADER_LANG.md` section 4. Everything the VM encoder and the
- * HLSL emitter do is a function of this shape, so it is the part worth getting
- * right before either exists.
+ * Phase 1 of `Specs/SHADER_LANG.md` section 4. Every emitter (HLSL, WGSL, GLSL
+ * ES) reads this shape and nothing else.
  *
  * Four properties are load bearing:
  *
@@ -12,7 +11,7 @@
  * produces the author facing type errors.
  *
  * **Nodes are a flat array in topological order.** A node refers to earlier
- * nodes by index only, never forwards, so an encoder can walk the array once and
+ * nodes by index only, never forwards, so an emitter can walk the array once and
  * emit in order. The hash deliberately does NOT depend on that order; see
  * `hashProgram`.
  *
@@ -21,8 +20,7 @@
  * pass. A tree would silently square the cost of the most natural way to write a
  * shader.
  *
- * **Nothing here knows about shaders.** No HLSL, no texture layout, no register
- * allocation. Those belong to the backends; this file is the contract between
+ * **Nothing here knows about shaders.** No HLSL, no texture layout, no binding. Those belong to the backends; this file is the contract between
  * them, and it is fully testable with no GPU.
  */
 
@@ -47,7 +45,7 @@ export type InputName = keyof typeof INPUTS
  * handed over by the host (`Specs/SL_NEXT.md` 6). Each read records the same
  * few nodes a program would if it wrote the expression out, and the builder's
  * hash consing makes every later read the same node. So there is no new
- * instruction, no VM or host change, and a program that never names one holds
+ * operation, no host change, and a program that never names one holds
  * no extra node, compiling to the bytes it always did.
  *
  *   texel     1 / resolution: one pixel, in uv
@@ -172,18 +170,6 @@ export interface TextureDecl {
     slot: number
 }
 
-/**
- * The nodes one `sl.repeat` call unrolled into, as the half open range
- * `[start, end)` of `nodes`. Diagnostic only: the instruction ceiling error
- * uses it to say which loop the operations came from, since a program that is
- * "too long" has usually been made so by one count.
- */
-export interface LoopSpan {
-    count: number
-    start: NodeRef
-    end: NodeRef
-}
-
 export interface Program {
     /** The `SL_IR_VERSION` this program's nodes mean what they mean under. */
     version: number
@@ -194,15 +180,7 @@ export interface Program {
     textures: TextureDecl[]
     /** Canonical, stable across machines. See `hashProgram`. */
     hash: string
-    /** Not part of the hash: it changes nothing about what the program computes. */
-    loops: LoopSpan[]
 }
-
-/**
- * @deprecated Use `TEXTURE_SLOTS`. Was 15, the WebGL2 sampler count, which let a
- * program declare textures no native host binds.
- */
-export const MAX_TEXTURES = TEXTURE_SLOTS
 
 /**
  * The refusals for a program past its caps, worded once for the parser (a
@@ -232,7 +210,7 @@ export function checkCaps(p: Pick<Program, "uniforms" | "textures">): void {
     if (p.textures.length > TEXTURE_SLOTS) throw new SLError(tooManyTextures(p.textures.length, "program"))
 }
 
-/** Instructions a single program may hold. Generous; the ceiling that matters is registers. */
+/** Operations a single program may hold. Generous: a guard against a runaway builder, not a budget. */
 export const MAX_NODES = 4096
 
 export class SLError extends Error {
@@ -253,7 +231,6 @@ export class Builder {
     readonly nodes: SLNode[] = []
     readonly uniforms: UniformDecl[] = []
     readonly textures: TextureDecl[] = []
-    readonly loops: LoopSpan[] = []
     private readonly interned = new Map<string, NodeRef>()
 
     add(node: SLNode): NodeRef {
@@ -401,8 +378,7 @@ export function widthName(t: SLType): string {
  *
  * This is the link between a program and its compiled shader. If it differs
  * between the machine that generated the shader and the machine that runs it,
- * the runtime silently falls back to the VM and nobody is told, which is the
- * worst failure this design can have: correct output, quietly slow, no error.
+ * a native player finds no shader for the program and draws nothing.
  *
  * So it hashes the canonicalised node array and nothing else. Never object
  * identity, never insertion order of a Map, never a JSON stringify whose key

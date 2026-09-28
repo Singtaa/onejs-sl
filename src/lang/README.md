@@ -28,12 +28,12 @@ const plasma = parse(source, { file: "plasma.sl" })
 written, and the two produce the same graph. `parity.test.ts` asserts that as
 hash equality for every GPU fixture and for the example on play.onejs.com: same
 hash means same generated shader and same pixels, established without rendering
-anything. It also means the existing GPU fixtures, the codegen goldens and the
-C# VM tests cover the text form for free, because they run on the IR.
+anything. It also means the existing GPU fixtures and the codegen goldens
+cover the text form for free, because they run on the IR.
 
 If that property ever breaks, the failure is silent in the worst way: a program
-whose hash does not match its generated shader falls back to the VM and nobody
-is told. So parity is the test to keep green, not the parser's unit tests.
+whose hash does not match its generated shader draws nothing in a native
+player. So parity is the test to keep green, not the parser's unit tests.
 
 | File | What it does |
 |---|---|
@@ -49,8 +49,8 @@ is told. So parity is the test to keep green, not the parser's unit tests.
 
 ## The loader
 
-`slPlugin()`, in onejs-unity's `onejs-unity/esbuild`, parses and encodes at BUILD TIME, so an import resolves to a small
-object of numbers and the bundle carries neither the parser nor the source. A
+`slPlugin()`, in onejs-unity's `onejs-unity/esbuild`, parses and compiles at BUILD TIME, so an import resolves to a small
+object of names, defaults and shader sources and the bundle carries neither the parser nor the source. A
 parse error becomes an esbuild error with the file, line and column, which the
 Play editor surfaces and every terminal editor links.
 
@@ -158,16 +158,12 @@ recorded gap, not an oversight, and each has its own error message rather than
 
 | | Why |
 |---|---|
-| `rgb2hsv`, `tex2Dlod` | The opcodes are numbered and **neither backend implements them**. Writing one would render as whatever the VM's dispatch falls through to and fail outright in the HLSL emitter. |
+| `rgb2hsv`, `tex2Dlod` | The opcodes are numbered and **no backend implements them**; every emitter throws on them. |
 | `fbm`'s simplex base | `sl.fbm(p, octaves, "simplex")` picks the base with a string, and the language has no strings. `fbm(p, octaves)` is the value base, and `turbulence` and `ridged` are the simplex family. |
 
-Related, and worth knowing: **the EDSL lets a program declare 15 textures and
-the VM has 4.** `ir.ts` picked its ceiling from the WebGL2 sampler count rather
-than from `FxProgram.shader`, which declares `_Tex0` to `_Tex3` and samples
-`_Tex3` for every slot past it, so slots 4 and up are silently wrong in the
-browser and correct after an eject. A `.sl` file is held to the real number, 4,
-reported at the declaration. The EDSL's ceiling is untouched here because
-lowering it changes recorded behaviour rather than parser behaviour.
+A `.sl` file and the EDSL are held to the same caps, `UNIFORM_SLOTS` (16) and
+`TEXTURE_SLOTS` (4), reported at the declaration in one wording (`ir.ts`'s
+`tooManyUniforms` and `tooManyTextures`).
 
 ## Attributes
 

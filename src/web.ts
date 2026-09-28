@@ -2,11 +2,10 @@
  * The web backends: prints a program as GLSL ES 3.00 or WGSL, for a browser to
  * compile at runtime on Unity's own graphics device.
  *
- * Unity cannot compile a shader in a built game, which is why the VM exists.
- * A browser can, and the Play container runs on WebGPU with WebGL2 behind it,
- * so a program becomes WGSL on one and GLSL ES on the other and runs compiled:
- * no register budget, no interpreter, and on the spike's measurements 100 to
- * 600 times cheaper per pixel. The host that compiles and draws these lives in
+ * Unity cannot compile a shader in a built game, so a native build ships the
+ * shaders the editor generated. A browser can compile, and the Play container
+ * runs on WebGPU with WebGL2 behind it, so a program becomes WGSL on one and
+ * GLSL ES on the other. The host that compiles and draws these lives in
  * OneJS (`Plugins/WebGL/OneJSSLWeb.jslib`); this file only prints them.
  *
  * Structurally the HLSL emitter again: one local per reachable node, in order,
@@ -159,7 +158,7 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             case SLOP.MIX: return `mix(${s[0]}, ${s[1]}, ${s[2]})`
             case SLOP.STEP: return `step(${s[0]}, ${s[1]})`
             case SLOP.SMOOTHSTEP: smoothsteps.add(t); return `sl_smoothstep${t}(${s[0]}, ${s[1]}, ${s[2]})`
-            // As the VM and the HLSL emitter do it: branchless, so every
+            // As the HLSL emitter does it: branchless, so every
             // backend agrees on the edge value.
             case SLOP.SELECT: {
                 const c = typeOf(n.args[0])
@@ -182,7 +181,7 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             default:
                 throw new SLError(
                     `the ${lang.toUpperCase()} emitter has no case for opcode ${n.op}. A program using it would ` +
-                    `differ between the VM and a compiled build, which is the one failure this design cannot tolerate.`,
+                    `differ between a browser and a Unity build, which is the one failure this design cannot tolerate.`,
                 )
         }
 

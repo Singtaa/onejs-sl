@@ -1,19 +1,12 @@
 /**
- * The second backend: prints a program as real HLSL, compiled at build time.
+ * The Unity backend: prints a program as real HLSL, compiled at build time.
  *
- * Phase 3 of `Specs/SHADER_LANG.md` section 6, and the half the whole design
- * exists for. Unity cannot compile a shader at runtime in a player build, so on
- * play.onejs.com a program has to be interpreted. Ejecting to a Unity project
- * does not change what the author wrote, it changes what is POSSIBLE, because
- * an editor compiles shaders at build time.
+ * Phase 3 of `Specs/SHADER_LANG.md` section 6. Unity cannot compile a shader
+ * at runtime in a player build, so the editor generates one per program and the
+ * build ships it; a browser compiles the web emitters' output instead
+ * (`web.ts`). The same source draws both ways with no edit in between.
  *
- * So the same source is interpreted in the browser and compiled after an eject,
- * with no edit in between. That is what stops "Play games eject cleanly" from
- * quietly acquiring an asterisk.
- *
- * WHY THIS IS THE EASY BACKEND. The VM keeps every value in a float4 register
- * and has to be told how wide each one really is. Here the IR's types become the
- * HLSL types directly, so `float2` is a `float2` and nothing needs padding or
+ * The IR's types become the HLSL types directly, so `float2` is a `float2` and nothing needs padding or
  * explaining. One local per node also gives common subexpression elimination for
  * free: a node is emitted once no matter how many nodes reference it.
  *
@@ -48,8 +41,8 @@ export interface EmitOptions {
  * Emits a complete `.shader` for a program.
  *
  * The shader's name carries the program hash, which is how the runtime finds it
- * again. If that link breaks, the runtime silently falls back to the VM and
- * nobody is told: correct output, quietly slow, no error. See `hashProgram`.
+ * again. If that link breaks, the program has no shader and draws nothing. See
+ * `hashProgram`.
  */
 export function emitShader(p: Program, options: EmitOptions = {}): string {
     const name = options.name ?? `Hidden/SLGenerated/${p.hash}`
@@ -99,7 +92,7 @@ ${props.join("\n")}
             #pragma fragment frag
             #pragma target 3.0
             #include "UnityCG.cginc"
-            // Shared with the VM, so both backends compute the same noise.
+            // Shared with the web frame, so every backend computes the same noise.
             #include "${include}"
 
 ${decls.join("\n")}
@@ -111,8 +104,8 @@ ${decls.join("\n")}
             {
                 v2f o;
                 o.pos = UnityObjectToClipPos(v.vertex);
-                // Origin corrected here exactly as the VM does it, so an ejected
-                // game is not upside down relative to the one on the site.
+                // Origin corrected here, so a Unity build is not upside down
+                // relative to the same program in a browser.
                 o.uv = float2(v.uv.x, lerp(v.uv.y, 1.0 - v.uv.y, _FlipY));
                 return o;
             }

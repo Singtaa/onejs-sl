@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest"
 import { existsSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { sl } from "../index"
-import { encode } from "../encode"
 import { emitShader } from "../hlsl"
 import { parse } from "../lang"
 
@@ -12,13 +11,9 @@ import { parse } from "../lang"
  * The expected colours here are worked out ANALYTICALLY, not by running a
  * reference evaluator. That matters: a reference implementation shares its
  * author's misunderstandings with the thing it is checking, so if I had both
- * encoded and evaluated the graph, a wrong opcode number would agree with
+ * emitted and evaluated the graph, a wrong opcode number would agree with
  * itself and the test would pass. `uv.x + 0.25` at the centre of a pixel is
  * 0.75 because of arithmetic, not because of anything in this repository.
- *
- * The buffers, though, come from the real encoder. Hand writing them in the
- * C# test would check the VM against my idea of the encoding rather than
- * against the encoding.
  */
 
 // The container's editor tests read these. Outside the container (this
@@ -28,9 +23,6 @@ const OUT = resolve(__dirname, "../../../../Assets/OneJSContainer/Tests/Editor/s
 interface Fixture {
     name: string
     note: string
-    data: number[]
-    instructions: number
-    resultRegister: number
     /** Flat float4 per uniform slot, so the host can seed declared defaults. */
     uniforms: number[]
     /**
@@ -54,10 +46,8 @@ describe("sl GPU fixtures", () => {
     it("writes fixtures with analytically known answers", () => {
         const fx: Fixture[] = []
         const add = (name: string, note: string, p: any, expected: [number, number, number, number]) => {
-            const e = encode(p)
             fx.push({
-                name, note, data: [...e.data], instructions: e.instructions,
-                resultRegister: e.resultRegister, uniforms: sl.uniformDefaults(p),
+                name, note, uniforms: sl.uniformDefaults(p),
                 uniformNames: p.uniforms.map((u: { name: string }) => u.name), expected,
                 hlsl: emitShader(p, { name: `Hidden/SLTest/${p.hash}` }), hash: p.hash,
             })
@@ -83,14 +73,14 @@ describe("sl GPU fixtures", () => {
             sl.program(({ uv }) => sl.vec4(sl.sin(uv.x.sub(0.5)), 0, 0, 1)), [0, 0, 0, 1])
 
         // length((0.5,0.5)) = sqrt(0.5) = 0.7071..., which is also the check that
-        // operand width reaches the VM: length of four components would be
+        // operand width reaches the shader: length of four components would be
         // sqrt(0.5) too if z and w were zero, so the vec2 case is made distinct
         // by using a value whose extra channels are NOT zero.
         add("length of a vec2", "length((0.5, 0.5)) is sqrt(0.5)",
             sl.program(({ uv }) => sl.vec4(uv.length(), 0, 0, 1)), [Math.SQRT1_2, 0, 0, 1])
 
         add("length is not fooled by the other channels",
-            "length of the vec2 (0.5,0.5) stays sqrt(0.5) even though the register also holds 3 and 4",
+            "length of the vec2 (0.5,0.5) stays sqrt(0.5) even though the vec4 it came from also holds 3 and 4",
             sl.program(() => {
                 const wide = sl.vec4(0.5, 0.5, 3, 4)
                 return sl.vec4(wide.xy.length(), 0, 0, 1)
@@ -115,8 +105,8 @@ describe("sl GPU fixtures", () => {
                 return sl.vec4(d, 0, 0, 1)
             }), [-0.25, 0, 0, 1])
 
-        // #129: shapes that read a fifth or sixth parameter, which the VM runs
-        // as SDF_WIDE. Both were NaN or a lost parameter before.
+        // #129: shapes that read a fifth or sixth parameter. Both were NaN or a
+        // lost parameter before.
         //
         // The point is (0, 0), midway between the tips of a vesica from
         // (-0.3, 0) to (0.3, 0) whose width is 0.1, so the distance is -0.1: in
@@ -160,8 +150,8 @@ describe("sl GPU fixtures", () => {
         // The parity test already proves a file and its EDSL twin are the same
         // graph, which is the stronger claim and needs no GPU. These two are
         // here because the eject path is checked on real hardware from this
-        // file: SLEjectPathTests generates a shader per fixture, renders it and
-        // the VM, and compares. Without one that started as text, that end to
+        // file: the container's SL tests generate a shader per fixture, render
+        // it, and compare with the answer. Without one that started as text, that end to
         // end check would still only ever have seen the EDSL.
         add("a .sl file with a uniform default",
             "signed distance at the centre of a radius 0.25 circle is -0.25, plus a 0.75 default",
@@ -173,9 +163,8 @@ describe("sl GPU fixtures", () => {
                 }
             `, { file: "bias.sl" }), [0.5, 0, 0, 1])
 
-        // An `if` is a `select` on both backends, which is the lowering most
-        // likely to drift: the VM evaluates step(0.5, cond) per component and
-        // the HLSL emitter writes a lerp. Rendering both is how that stays true.
+        // An `if` is a `select` on every backend, which is the lowering most
+        // likely to drift. Rendering it is how that stays true.
         add("a .sl file whose if became a select",
             "uv.x is 0.5 at the centre, so the branch taken is the 0.75 one",
             parse(`
@@ -190,8 +179,5 @@ describe("sl GPU fixtures", () => {
             writeFileSync(OUT, JSON.stringify({ generatedBy: "onejs-sl/src/fixtures/gen.test.ts", fixtures: fx }, null, 1))
         }
         expect(fx.length).toBeGreaterThan(10)
-        // Every fixture must be inside the register file, or the GPU side will
-        // reject it for a reason that has nothing to do with what it tests.
-        for (const f of fx) expect(f.resultRegister).toBeLessThan(8)
     })
 })

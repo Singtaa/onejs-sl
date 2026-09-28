@@ -43,7 +43,7 @@ export interface BodyTarget {
      *   an sRGB texture is decoded before it is filtered, as an sRGB sampler
      *   does; with `gamma`, rgb is as stored.
      * - **Filtered and wrapped by the host.** The body does neither. OneJS's
-     *   hosts, the generated shader, the VM and the web backends alike, use the
+     *   hosts, the generated shader and the web backends alike, use the
      *   bound texture's own filter and wrap modes, so a host that filters by
      *   hand draws the same picture by following the texture's settings.
      *
@@ -143,7 +143,7 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.MUL: return `(${a[0]} * ${a[1]})`
             case SLOP.DIV: return `(${a[0]} / ${a[1]})`
             case SLOP.MOD: return `fmod(${s[0]}, ${s[1]})`
-            // abs on the base, matching the VM. pow of a negative base is
+            // abs on the base, matching the web emitters. pow of a negative base is
             // undefined in HLSL and the backends must be undefined in the same
             // direction.
             case SLOP.POW: return `pow(abs(${s[0]}), ${s[1]})`
@@ -170,8 +170,8 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.CLAMP: return `clamp(${s[0]}, ${s[1]}, ${s[2]})`
             case SLOP.SATURATE: return `saturate(${a[0]})`
 
-            // Of a scalar, Metal's are ambiguous, so what the VM computes for one
-            // (its lanes past the width hold 0) is written out.
+            // Of a scalar, Metal's are ambiguous, so the scalar case is written
+            // out.
             case SLOP.LENGTH: return w0 === 1 ? `abs(${a[0]})` : `length(${a[0]})`
             case SLOP.DISTANCE: return w0 === 1 ? `abs(${a[0]} - ${a[1]})` : `distance(${a[0]}, ${a[1]})`
             case SLOP.DOT: return w0 === 1 ? `(${a[0]} * ${a[1]})` : `dot(${a[0]}, ${a[1]})`
@@ -184,7 +184,7 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.MIX: return `lerp(${s[0]}, ${s[1]}, ${s[2]})`
             case SLOP.STEP: return `step(${s[0]}, ${s[1]})`
             case SLOP.SMOOTHSTEP: return `smoothstep(${s[0]}, ${s[1]}, ${s[2]})`
-            // Matches the VM exactly, branchlessly, rather than using an if.
+            // Branchless, as the web emitters do it, rather than using an if.
             // Two backends that pick differently here disagree on every edge
             // value.
             case SLOP.SELECT: return `lerp(${s[2]}, ${s[1]}, step(${k(0.5, t)}, ${s[0]}))`
@@ -211,7 +211,7 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             default:
                 throw new SLError(
                     `the HLSL emitter has no case for opcode ${n.op}. A program using it would silently ` +
-                    `differ between the VM and a compiled build, which is the one failure this design ` +
+                    `differ between a Unity build and a browser, which is the one failure this design ` +
                     `cannot tolerate.`,
                 )
         }

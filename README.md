@@ -3,8 +3,7 @@
 The OneJS shader language: a small typed language for per pixel programs. A
 program is written as a `.sl` file (HLSL text) or with the TypeScript form, and
 recorded as one portable IR, a flat typed graph with a hash. The package emits
-that IR as the buffer OneJS's VM evaluates, a Unity ShaderLab shader, WGSL and
-GLSL ES.
+that IR as a Unity ShaderLab shader, WGSL and GLSL ES.
 
 It is the compiler [OneJS](https://onejs.com) uses, taken out of `onejs-unity`
 so a host without Unity can run it too. `onejs-unity/sl` and
@@ -39,8 +38,6 @@ only what it calls.
 | `onejs-sl/core` | the same without the parser: what a game needs at run time. Also the caps on one program, `UNIFORM_SLOTS` (16) and `TEXTURE_SLOTS` (4), which the parser and the builder enforce and a host can read |
 | `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`, `SL_KEYWORDS`, `SL_TYPES`, `TYPE_WIDTH`, `PRELUDE_NAMES`: what completion and highlighting read. `BUILTIN_PARAMS`, `SL_SDF_PARAM_NAMES` and `LIB_SIGNATURES` name every parameter, so an editor can show `lerp(x, y, s)`, and `BUILTIN_DOCS`, `INPUT_DOCS` and `PRELUDE_DOCS` give each a line for its tooltip |
 | `onejs-sl/compile` | `compile(program)`: what a host draws a program with. Its hash, its uniform and texture names in slot order, their defaults, and `hlsl`, `wgsl` and `glsl` as lazy getters. No budget |
-| `onejs-sl/limits` | `vmFit(program)`: whether the VM runs it, and why not. The VM's, until it is deleted |
-| `onejs-sl/vm` | `encode`, `SL_WIRE_VERSION`: `compile` plus the VM's buffer. The VM's, until it is deleted |
 | `onejs-sl/emit/hlsl-body` | `emitBody`: a program as a function body for a host's own frame; `emitLibrary`: the library functions it calls |
 | `onejs-sl/emit/unity` | `emitShader`: the `.shader` a Unity editor generates, a frame over `emitBody` |
 | `onejs-sl/emit/web` | `emitWGSL`, `emitGLSL`: OneJS's web frame |
@@ -91,7 +88,7 @@ by `npm run lib`, and nobody edits the copies:
 
 - **OneJS's `.cginc` files** (`SDF2D`, `Noise2D`, `SLCommon` in
   `Resources/OneJS/`) are the source with an include guard and a generated
-  header around it. The VM, the generated Unity shaders and `fx` include them.
+  header around it. The generated Unity shaders and `fx` include them.
   `npm run lib` writes them when the package sits in the OneJS container.
 - **`src/lib/`**: `table.ts` (every function, its signature, what it calls, and
   the shape table read from `sl_sdfDistance`'s switch), and the text of each
@@ -169,7 +166,7 @@ and QuickJS (Magerie). Two checks hold it to that:
 - `npm run test:quickjs` bundles `quickjs/corpus.ts` as one ES2020 IIFE, the
   way Magerie bundles a script, runs it in QuickJS-ng and in a bare Node
   context, and fails unless the two results agree byte for byte. The corpus
-  parses, encodes, fits and emits every program in `corpus/`, every
+  parses, compiles and emits every program in `corpus/`, every
   shape at its full parameter count, and the error paths. `npm test` runs it
   after vitest.
 
@@ -206,15 +203,14 @@ container this package is checked out at `JSModules/onejs-sl`, and
 ## The one idea
 
 **One authoring surface, one IR, several backends.** Unity cannot compile a
-shader at runtime in a player build, on any graphics API, so the first backend
-made a program data that a fixed shader evaluates: a VM. An editor does compile
-shaders, at build time, so the second prints HLSL for it.
+shader at runtime in a player build, on any graphics API, but an editor
+compiles shaders at build time, so `hlsl.ts` prints HLSL for it and the build
+ships the result.
 
 So the same source draws compiled from generated HLSL in the editor and in a
-native player, with no edit in between, and the VM stays behind a switch: OneJS
-leaves it out unless a project defines `ONEJS_SL_VM`. `compile.ts` gives a host
-everything it draws with and no VM buffer; `encode.ts` adds the buffer for
-`FxProgram.shader`, and goes with the VM. `hlsl.ts` feeds OneJS's
+native player, with no edit in between. `compile.ts` gives a host everything it
+draws with. (Until 0.3.0 a VM, one fixed shader evaluating a program as data,
+drew what had no shader yet; OneJS 3.8 deleted it.) `hlsl.ts` feeds OneJS's
 `Editor/SLShaderGenerator.cs`. Nobody writes a manifest for it: an editor that
 draws a program asks the compiled program for its
 `hlsl` (a lazy getter, never read in Play), records it into
@@ -229,7 +225,7 @@ as GLSL ES 3.00 (carrying the library functions it calls, translated from
 `Plugins/WebGL/OneJSSLWeb.jslib` compiles whichever one Unity's device speaks
 and draws it into the element's target. A `.sl` import carries both strings,
 printed at build time; a `compile()` result has them as lazy getters, like
-`hlsl`. A WebGL player has no VM: the element draws nothing until the compiled
+`hlsl`. The element draws nothing until the compiled
 program is ready, and nothing after a compile error, which the page reports.
 The host contract (the frame block, the
 16 uniform slots, one binding pair per sampled texture) is written out at the
@@ -237,7 +233,7 @@ top of `web.ts`.
 
 The emitters match the HLSL emitter's semantics rather than each language's
 own: `%` truncates like `fmod`, `pow` takes `abs` of its base, `asin` and
-`acos` clamp, `log` and `sqrt` guard their argument, a select is the VM's
+`acos` clamp, `log` and `sqrt` guard their argument, a select is a
 branchless `lerp`. `web.test.ts` checks the structure (every shape, every
 opcode, the library order); whether the output matches the goldens is
 measured in a browser, through the real element, by `Tools/sl-web-parity` in
@@ -274,7 +270,7 @@ references, and writing it out long hand three times costs exactly the same,
 because nodes are interned as they are built.
 
 That reasoning is why the parser, when it came, cost only a parser: it emits
-this same IR, so it inherited the encoder, the emitter, the hash and every test
+this same IR, so it inherited the emitters, the hash and every test
 that runs on a program.
 
 ## What is checked, and when
@@ -289,11 +285,12 @@ at module load, not at draw time:
 | A program returning something other than a `vec4` | "a program must return a vec4. Wrap it: sl.vec4(value, 1)" |
 | `vec4` given the wrong number of parts | "vec4 needs 4 components, got 3" |
 | One uniform name at two widths | "declared as both a float and a vec4" |
-| More than 15 textures | Names the limit and why it cannot be widened |
+| More than 16 uniforms or 4 textures | "this program declares 5 textures and a program may sample 4", the parser's words |
 | A value borrowed from another program | "a value from another program cannot be used in this one" |
 
-The texture ceiling is the fragment shader's sampler slots on the WebGL2
-baseline, which is the one resource neither backend can widen.
+The caps are `UNIFORM_SLOTS` and `TEXTURE_SLOTS`: what OneJS binds to one
+program. `compile` and `fromJSON` hold a program to them too, however it was
+made.
 
 ## The hash is the fragile part
 
@@ -323,20 +320,9 @@ refuses a newer one with a message naming both.
   `fromJSON` (`serial.ts`) are the IR as JSON for a host that stores programs;
   `fromJSON` checks everything an emitter relies on, refuses a newer version,
   and migrates an older one.
-- **`SL_WIRE_VERSION`** (`ops.ts`) is the newest VM encoding, and
-  `SLProgramBridge.WireVersion` in OneJS must match it (a container test
-  compares the two). `Encoded.wire`, and the `wire` in a `.sl` import, is the
-  LOWEST version that can run that program, so a program using nothing new
-  stays 1 and still runs on an older Play container. The VM refuses a newer
-  one, only where the VM runs; a WebGL player draws compiled and never reads
-  the buffer.
-
-IR 2 and wire 2 came with #129. A shape takes as many parameters as it reads
+IR 2 came with #129. A shape takes as many parameters as it reads
 (`SL_SDF_PARAMS`, six at most, and never fewer than four accepted), where it
-used to take four and lose the rest. One instruction holds a shape id and four
-immediates, so the encoder's `forVm` turns a shape given a fifth or sixth into
-`SDF_WIDE`, which reads the remaining four from a constant register. Only the
-VM sees it, and only those programs are wire 2.
+used to take four and lose the rest.
 
 ## Control flow
 
@@ -346,13 +332,10 @@ unrolls at record time because `n` is a JavaScript number.
 
 `repeat` is honest about being a macro rather than a loop. It covers fbm,
 layered noise and small iterated distance fields, which is most of what 2D
-shaders loop for. A data dependent loop is out of scope: the VM would need a
-nested bounded loop with a dynamic trip count while codegen would handle it
-fine, and the two backends agreeing is the property the whole design protects.
-Because it unrolls, the count multiplies the body's operation count. `compile`
-has no ceiling, so a long program costs what it costs, as any shader does;
-`corpus/long.sl` is over a thousand operations. `encode` still refuses past the
-VM's 256, and names any `repeat` that fills a quarter of that.
+shaders loop for. A loop with a runtime count is `Specs/SL_NEXT.md` proposal
+3b. Because it unrolls, the count multiplies the body's operation count.
+`compile` has no ceiling, so a long program costs what it costs, as any shader
+does; `corpus/long.sl` is over a thousand operations.
 
 Every loop that reaches a GPU is therefore bounded by a constant: `repeat` is
 unrolled, fbm's octaves are a constant 1 to 4, the helper loops in the noise
@@ -364,8 +347,8 @@ reset takes the whole page's device, Unity's included.
 ## See also
 
 - `Specs/SHADER_LANG.md` in the OneJS container, sections 3 and 4, and section 5.4 for the Phase 0
-  measurements that decided the VM's shape
-- `Tools/shader-vm-spike/`, the harness behind those numbers
+  measurements that decided the VM's shape; the harness behind those numbers,
+  `Tools/shader-vm-spike/`, is in the container's history at `afd2535`
 - `onejs-unity`'s `fx`, the image pipeline this becomes a source and an operand for
 
 ## What a program is given

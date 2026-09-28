@@ -3,7 +3,7 @@ import { sl } from "./index"
 import { SLError, TYPE, hashProgram } from "./ir"
 import { SLOP } from "./ops"
 import { SL_SDF_SHAPES } from "./shapes"
-import { encode, forVm } from "./encode"
+import { compile } from "./compile"
 
 /**
  * Phase 1 is pure TypeScript on purpose, so everything the IR promises can be
@@ -122,8 +122,8 @@ describe("the hash is canonical", () => {
 
     it("ignores float noise in constants", () => {
         // 0.1 + 0.2 is 0.30000000000000004. If that produced a different hash,
-        // a generated shader would be silently orphaned from its program and the
-        // runtime would fall back to the VM without telling anybody.
+        // a generated shader would be orphaned from its program, and a native
+        // player would draw nothing.
         const a = sl.program(({ uv }) => sl.vec4(uv.x.add(0.3), 0, 0, 1))
         const b = sl.program(({ uv }) => sl.vec4(uv.x.add(0.1 + 0.2), 0, 0, 1))
         expect(b.hash).toBe(a.hash)
@@ -149,6 +149,14 @@ describe("the hash is canonical", () => {
 
     it("is eight lowercase hex characters, so C# can produce the same string", () => {
         expect(trivial().hash).toMatch(/^[0-9a-f]{8}$/)
+    })
+})
+
+describe("what a program carries", () => {
+    it("carries no loop spans, which only the removed VM encoder read", () => {
+        const p = sl.program(({ uv }) => sl.vec4(sl.repeat(3, (i, a) => a.add(uv.x.mul(i)), sl.float(0)), 0, 0, 1))
+        expect("loops" in p).toBe(false)
+        expect("unrolled" in sl).toBe(false)
     })
 })
 
@@ -277,8 +285,8 @@ describe("recording context", () => {
 
 describe("the opcode table", () => {
     it("keeps every opcode in its family's range", () => {
-        // The families are load bearing: the VM switches on ranges, and a value
-        // in the wrong band would be dispatched as the wrong kind of thing.
+        // The families are load bearing: `isSampling` reads a range, and a
+        // reader tells what an opcode is from its value.
         const families: Array<[string[], number, number]> = [
             [["ADD", "SUB", "MUL", "DIV", "MOD", "POW", "NEG", "RECIP"], 16, 47],
             [["SIN", "COS", "SQRT", "CLAMP", "SATURATE"], 48, 79],
@@ -428,38 +436,18 @@ describe("sdf and voronoi", () => {
         const p = sl.program(({ uv }) => sl.vec4(sl.sdf("orientedVesica", uv.sub(0.5), [-0.3, 0, 0.3, 0, 0.1]), 0, 0, 1))
         const node = p.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF)!
         expect(node.k === "call" && node.imm).toEqual([24, -0.3, 0, 0.3, 0, 0.1])
-        const e = encode(p)
-        expect(e.wire).toBe(2)
+        const e = compile(p)
         expect(e.hlsl).toContain("float4(-0.3, 0.0, 0.3, 0.0), float2(0.1, 0.0)")
         expect(e.glsl).toMatch(/sdOrientedVesica\([^)]*vec2\(-0\.3, 0\.0\), vec2\(0\.3, 0\.0\), 0\.1\)/)
         expect(e.wgsl).toMatch(/sdOrientedVesica\([^)]*vec2f\(-0\.3, 0\.0\), vec2f\(0\.3, 0\.0\), 0\.1\)/)
     })
 
     it("leaves a program of four or fewer exactly as it was", () => {
-        // Same node, same instructions, wire 1: an existing picture cannot move.
+        // Same node, same shader: an existing picture cannot move.
         const p = sl.program(({ uv }) => sl.vec4(sl.sdf("roundedBox", uv.sub(0.5), [0.3, 0.2, 0.05, 0.1]), 0, 0, 1))
         const node = p.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF)!
         expect(node.k === "call" && node.imm).toEqual([1, 0.3, 0.2, 0.05, 0.1])
-        expect(forVm(p)).toBe(p)
-        const e = encode(p)
-        expect(e.wire).toBe(1)
-        expect(e.hlsl).toContain("float2(0.0, 0.0)")
-    })
-
-    it("runs a wide shape on the VM as SDF_WIDE with the rest in one constant register", () => {
-        const p = sl.program(({ uv }) => sl.vec4(sl.sdf("orientedVesica", uv.sub(0.5), [-0.3, 0.1, 0.3, 0.2, 0.05]), 0, 0, 1))
-        const vm = forVm(p)
-        expect(vm.hash).toBe(p.hash)
-        const wide = vm.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF_WIDE)!
-        expect(wide.k === "call" && wide.imm).toEqual([24, -0.3, 0.1, 0])
-        const rest = wide.k === "call" ? vm.nodes[wide.args[1]!] : undefined
-        expect(rest).toEqual({ k: "const", type: 4, v: [0.3, 0.2, 0.05, 0] })
-        // Decoded from the buffer: the instruction really is SDF_WIDE.
-        const e = encode(p)
-        const ops: number[] = []
-        for (let i = 0; i < e.instructions; i++) ops.push(e.data[i * 8]!)
-        expect(ops).toContain(SLOP.SDF_WIDE)
-        expect(ops).not.toContain(SLOP.SDF)
+        expect(compile(p).hlsl).toContain("float2(0.0, 0.0)")
     })
 
     it("takes an already transformed point rather than an offset", () => {

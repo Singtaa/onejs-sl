@@ -122,9 +122,8 @@ describe("emitBody for Magerie's target", () => {
             }
             expect(() => emitBody(p, MAGERIE)).not.toThrow()
         }
-        // Not calls in a graph: node kinds, a builtin that lowers to other ops,
-        // and the VM's own encoding of a wide shape.
-        const notCalls = new Set<number>([SLOP.CONST, SLOP.INPUT, SLOP.UNIFORM, SLOP.SWIZZLE, SLOP.RAMP, SLOP.SDF_WIDE])
+        // Not calls in a graph: node kinds, and a builtin that lowers to other ops.
+        const notCalls = new Set<number>([SLOP.CONST, SLOP.INPUT, SLOP.UNIFORM, SLOP.SWIZZLE, SLOP.RAMP])
         const missing = Object.keys(SL_HLSL).map(Number)
             .filter((op) => !(op in SL_UNIMPLEMENTED) && !notCalls.has(op) && !seen.has(op))
         expect(missing.map((op) => SL_NAME[op])).toEqual([])

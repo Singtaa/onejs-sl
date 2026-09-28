@@ -44,7 +44,6 @@ const EDSL_ONLY: Record<string, string> = {
     uniform: "uniform <type> name = <default>;",
     texture: "texture2D name;",
     repeat: "for (int i = 0; i < n; i++)",
-    unrolled: "for (int i = 0; i < n; i++)",
     select: "?:",
     uniformDefaults: "not an authoring op: a host reads defaults with it",
     Val: "not an authoring op: the recorded value class",

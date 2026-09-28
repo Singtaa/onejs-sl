@@ -2,16 +2,14 @@
  * `onejs-sl`: the shader language, with no Unity in it.
  *
  * Source text or the TypeScript form in, a `Program` out: a flat typed graph
- * with a hash. Everything a host does with a program (run it on the VM, emit
- * HLSL, WGSL or GLSL ES) is a separate entry, so a host bundles only what it
+ * with a hash. Everything a host does with a program (emit HLSL, WGSL or GLSL
+ * ES) is a separate entry, so a host bundles only what it
  * calls:
  *
  *   onejs-sl             this: parse, diagnose, classify, fromGLSL, the TypeScript form, the IR, its JSON
  *   onejs-sl/core        the same without the parser, for a game at run time
  *   onejs-sl/tables      builtins, opcodes, inputs, shapes: what an editor reads
  *   onejs-sl/compile     what a host draws a program with, and no budget
- *   onejs-sl/limits      whether a program fits the VM, until the VM goes
- *   onejs-sl/vm          the VM encoder, until the VM goes
  *   onejs-sl/emit/unity  the ShaderLab shader a Unity editor generates
  *   onejs-sl/emit/web    WGSL and GLSL ES with OneJS's web frame
  *
