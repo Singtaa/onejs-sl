@@ -12,7 +12,7 @@
  * shader does. `Specs/SL_NEXT.md` section 0.5, step 3.
  */
 
-import type { Program } from "./ir"
+import { checkCaps, type Program } from "./ir"
 import { emitShader } from "./hlsl"
 import { emitGLSL, emitWGSL } from "./web"
 import { uniformDefaults } from "./sl"
@@ -69,6 +69,7 @@ export interface Compiled {
 }
 
 export function compile(program: Program): Compiled {
+    checkCaps(program)
     const compiled = {
         hash: program.hash,
         // Slot order, which is declaration order: Builder.uniform pushes and

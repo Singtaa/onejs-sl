@@ -58,6 +58,28 @@ describe("IR versions", () => {
     })
 })
 
+describe("the caps", () => {
+    // 0.2.0's builder wrote these; the builder refuses them now, so a stored
+    // one is the way they still arrive.
+    it("refuses a program with a fifth texture", () => {
+        const j = toJSON(sl.program(({ uv }) => {
+            for (let i = 0; i < 4; i++) sl.texture("t" + i)
+            return sl.vec4(uv, 0, 1)
+        }))
+        const five = { ...j, textures: [...j.textures, { name: "t4", slot: 4 }], hash: undefined }
+        expect(() => fromJSON(five)).toThrow(/this program declares 5 textures and a program may sample 4\./)
+    })
+
+    it("refuses a program with a seventeenth uniform", () => {
+        const j = toJSON(sl.program(() => {
+            for (let i = 0; i < 16; i++) sl.uniform.float("u" + i)
+            return sl.vec4(0, 0, 0, 1)
+        }))
+        const seventeen = { ...j, uniforms: [...j.uniforms, { name: "u16", type: 1, value: [0] }], hash: undefined }
+        expect(() => fromJSON(seventeen)).toThrow(/this program declares 17 uniforms and a program may hold 16\./)
+    })
+})
+
 describe("the wire version", () => {
     it("is 1 for every program that uses nothing newer", () => {
         expect(encode(plasma()).wire).toBe(1)

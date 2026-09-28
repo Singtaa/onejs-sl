@@ -49,3 +49,25 @@ describe("compile", () => {
         }
     })
 })
+
+describe("compile holds a program to the caps", () => {
+    // Every program passes through compile on its way to a host, however it
+    // was made, so this is the check nothing can go around.
+    const base = parse("texture2D t0;\nuniform float u0 = 0;\nfloat4 main() { return tex2D(t0, uv) * u0; }")
+
+    it("refuses a fifth texture", () => {
+        const textures = Array.from({ length: 5 }, (_, i) => ({ name: "t" + i, slot: i }))
+        expect(() => compile({ ...base, textures })).toThrow(/this program declares 5 textures and a program may sample 4\./)
+    })
+
+    it("refuses a seventeenth uniform", () => {
+        const uniforms = Array.from({ length: 17 }, (_, i) => ({ name: "u" + i, type: 1 as const, value: [0] }))
+        expect(() => compile({ ...base, uniforms })).toThrow(/this program declares 17 uniforms and a program may hold 16\./)
+    })
+
+    it("takes a program at both caps", () => {
+        const textures = Array.from({ length: 4 }, (_, i) => ({ name: "t" + i, slot: i }))
+        const uniforms = Array.from({ length: 16 }, (_, i) => ({ name: "u" + i, type: 1 as const, value: [0] }))
+        expect(compile({ ...base, textures, uniforms }).textures).toHaveLength(4)
+    })
+})

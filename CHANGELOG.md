@@ -2,7 +2,7 @@
 
 ## 0.2.1
 
-A program built in code is refused past 16 uniforms or 4 textures, as a `.sl` file already was, instead of compiling and then drawing differently on different hosts. A host can read both caps.
+A program built in code or read from JSON is refused past 16 uniforms or 4 textures, as a `.sl` file already was, instead of compiling and then drawing differently on different hosts. A host can read both caps.
 
 ### Fixed
 
@@ -11,6 +11,7 @@ A program built in code is refused past 16 uniforms or 4 textures, as a `.sl` fi
 ### Changed
 
 - `sl.texture` and `sl.uniform` refuse past the caps where they are declared, in the parser's words
+- `compile` and `fromJSON` refuse a program past either cap, however it was made
 - `onejs-sl/core` exports `UNIFORM_SLOTS` (16) and `TEXTURE_SLOTS` (4), which the parser and the builder both read
 - `MAX_TEXTURES` is a deprecated alias of `TEXTURE_SLOTS`, so 4 rather than 15
 - `VM_UNIFORMS` and `VM_TEXTURES` are the same numbers, and go with the VM

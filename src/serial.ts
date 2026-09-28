@@ -9,7 +9,7 @@
  * older one is migrated to this one and rehashed under it.
  */
 import {
-    INPUTS, SLError, SL_IR_VERSION, TYPE, controlOf, controlProblem, hashProgram,
+    INPUTS, SLError, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, hashProgram,
     type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
 } from "./ir"
 import { SL_ARITY, SL_NAME } from "./ops"
@@ -44,6 +44,7 @@ export function fromJSON(json: unknown): Program {
     if (nodes[result!]!.type !== TYPE.VEC4) fail("its result is not a float4")
     const uniforms = (j.uniforms ?? []).map(uniform)
     const textures = (j.textures ?? []).map(texture)
+    checkCaps({ uniforms, textures })
     for (const n of nodes) {
         if (n.k === "uniform" && n.slot >= uniforms.length) fail(`a node reads uniform slot ${n.slot}, which is not declared`)
     }

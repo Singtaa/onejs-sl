@@ -221,6 +221,17 @@ export function tooManyTextures(declared: number, source: "file" | "program"): s
         `this one would sample nothing there while a browser drew it: two pictures from one ${source}.`
 }
 
+/**
+ * Refuses a finished program past either cap. The parser and the builder
+ * refuse at the declaration, where the message can point at it; this is for
+ * a program that arrived some other way, stored as JSON or put together by
+ * hand, and `compile` runs it so nothing reaches a host around it.
+ */
+export function checkCaps(p: Pick<Program, "uniforms" | "textures">): void {
+    if (p.uniforms.length > UNIFORM_SLOTS) throw new SLError(tooManyUniforms(p.uniforms.length, "program"))
+    if (p.textures.length > TEXTURE_SLOTS) throw new SLError(tooManyTextures(p.textures.length, "program"))
+}
+
 /** Instructions a single program may hold. Generous; the ceiling that matters is registers. */
 export const MAX_NODES = 4096
 
