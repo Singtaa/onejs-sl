@@ -602,19 +602,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             if (typeof p === "number" || p.width !== 2) {
                 fail(`sdf.${shape} measures the distance to a point, so it takes a float2`, e.args[0]!.pos)
             }
-            const params: number[] = []
-            for (const a of e.args.slice(1)) {
-                const v = lowerExpr(a, scope)
-                if (typeof v !== "number") {
-                    fail(
-                        `sdf.${shape}'s shape parameters are part of the operation, so they have to ` +
-                        `be constants. A size that changes belongs on the point: scale or offset it ` +
-                        `before the call`,
-                        a.pos,
-                    )
-                }
-                params.push(v)
-            }
+            const params = e.args.slice(1).map((a) => lowerExpr(a, scope))
             return at(e.pos, () => sl.sdf(shape, p as never, params))
         }
 

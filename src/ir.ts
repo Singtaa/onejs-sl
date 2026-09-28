@@ -476,7 +476,28 @@ function nodeVersion(n: SLNode): number {
     if (n.k !== "call") return 2
     switch (n.op) {
         case SLOP.SAMPLE_LOD: return 3
+        case SLOP.SDF: return n.args.length > 1 ? 3 : 2
         default: return 2
+    }
+}
+
+/**
+ * What is wrong with a call's form, for the ops that have more than one, or
+ * null. The builder only makes the right ones; this is for a program read from
+ * JSON, which an emitter would otherwise print as something else.
+ *
+ *   SDF  the point, its shape parameters immediates after the shape id; or the
+ *        point, a float4 and a float2 holding them, the id the one immediate
+ */
+export function formProblem(n: Extract<SLNode, { k: "call" }>, nodes: readonly SLNode[]): string | null {
+    const widths = n.args.map((a) => nodes[a]!.type).join(",")
+    switch (n.op) {
+        case SLOP.SDF:
+            if (widths === "2" && (n.imm?.length ?? 0) >= 5) return null
+            if (widths === "2,4,2" && n.imm?.length === 1) return null
+            return "an sdf takes a float2 and its parameters as immediates, or a float2, a float4 and a float2 and the shape alone"
+        default:
+            return null
     }
 }
 
@@ -504,7 +525,7 @@ export const SL_HASH_VERSION = 1
  *
  *   1  the first versioned IR
  *   2  an SDF call carries up to six shape parameters, not four (#129)
- *   3  SAMPLE_LOD
+ *   3  SAMPLE_LOD; an SDF's shape parameters as operands
  */
 export const SL_IR_VERSION = 3
 

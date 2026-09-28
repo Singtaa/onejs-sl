@@ -24,6 +24,34 @@ describe("sdf", () => {
         const call = p.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF)!
         expect(call.k === "call" && call.imm).toEqual([24, -0.3, 0, 0.3, 0, 0.1])
     })
+
+    it("takes a vector parameter as its components, so a constant one is the same program as numbers", () => {
+        const numbers = parse("float4 main() { return float4(sdf.box(uv - 0.5, 0.3, 0.2), 0, 0, 1); }")
+        const vector = parse("float4 main() { return float4(sdf.box(uv - 0.5, float2(0.3, 0.2)), 0, 0, 1); }")
+        expect(vector.hash).toBe(numbers.hash)
+        expect(vector.version).toBe(2)
+    })
+
+    it("takes a uniform or a computed parameter as an operand, which is IR 3", () => {
+        const p = parse(`
+            [Range(0.1, 0.5)] uniform float r = 0.25;
+            uniform float2 size = float2(0.3, 0.2);
+            float4 main() {
+                float a = sdf.circle(uv - 0.5, r);
+                float b = sdf.box(uv - 0.5, size * (1 + 0.1 * sin(time)));
+                float c = sdf.star(uv - 0.5, 0.35, r * 20, 3);
+                return float4(a, b, c, 1);
+            }
+        `)
+        expect(p.version).toBe(3)
+        const calls = p.nodes.filter((n) => n.k === "call" && n.op === SLOP.SDF)
+        expect(calls.map((n) => n.k === "call" && [n.args.length, n.imm])).toEqual([[3, [0]], [3, [2]], [3, [17]]])
+        const e = compile(p)
+        // A shape's int parameter, the star's point count, truncates as HLSL's int() does.
+        expect(e.glsl).toMatch(/sdStar\(n\d+, n\d+\.x, int\(n\d+\.y\), n\d+\.z\)/)
+        expect(e.wgsl).toMatch(/i32\(n\d+\.y\)/)
+        expect(e.hlsl).toMatch(/sl_sdfDistance\(17, n\d+, n\d+, n\d+\)/)
+    })
 })
 
 describe("declarations", () => {

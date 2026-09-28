@@ -9,7 +9,7 @@
  * older one is migrated to this one and rehashed under it.
  */
 import {
-    INPUTS, SLError, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, hashProgram, programVersion,
+    INPUTS, SLError, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, formProblem, hashProgram, programVersion,
     type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
 } from "./ir"
 import { SL_ARITY, SL_NAME } from "./ops"
@@ -39,6 +39,10 @@ export function fromJSON(json: unknown): Program {
     }
     if (!Array.isArray(j.nodes) || j.nodes.length === 0) fail("it has no nodes")
     const nodes = j.nodes.map((n, i) => node(n, i))
+    nodes.forEach((n, i) => {
+        const problem = n.k === "call" ? formProblem(n, nodes) : null
+        if (problem !== null) fail(`node ${i} is not a form its op has: ${problem}`)
+    })
     const result = j.result
     if (!Number.isInteger(result) || result! < 0 || result! >= nodes.length) fail(`its result ${String(result)} is not a node`)
     if (nodes[result!]!.type !== TYPE.VEC4) fail("its result is not a float4")

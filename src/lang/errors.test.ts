@@ -183,7 +183,6 @@ describe("no message names the VM", () => {
         "a while loop": "float4 main() { while (1) { } return #fff; }",
         "a long loop": "float4 main() { float v = 0; for (int i = 0; i < 500; i++) { v = v + uv.x; } return float4(v, 0, 0, 1); }",
         "a computed bound": "uniform float n = 3;\nfloat4 main() { float v = 0; for (int i = 0; i < n; i++) { v = v + uv.x; } return float4(v, 0, 0, 1); }",
-        "a computed shape parameter": "uniform float r = 0.2;\nfloat4 main() { return float4(sdf.circle(uv, r), 0, 0, 1); }",
         "a computed octave count": "uniform float o = 3;\nfloat4 main() { return float4(fbm(uv, o), 0, 0, 1); }",
     }
     for (const [what, source] of Object.entries(cases)) {
@@ -310,11 +309,11 @@ describe("calls", () => {
             .toThrow(/"blob" is not a shape/)
     })
 
-    it("refuses a shape parameter that is not constant", () => {
+    it("refuses more shape parameters than the shape takes, counting a vector's components", () => {
         expect(() => parse(`
-            uniform float r = 0.25;
-            float4 main() { return float4(sdf.circle(uv - 0.5, r), 0, 0, 1); }
-        `)).toThrow(/are part of the operation, so they have to be constants/)
+            uniform float2 size = float2(0.3, 0.2);
+            float4 main() { return float4(sdf.box(uv - 0.5, size, size, size), 0, 0, 1); }
+        `)).toThrow(/"box"\) takes at most 4 parameters and was given 6/)
     })
 
     it("refuses a ramp stop that is not a colour", () => {

@@ -205,6 +205,8 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.RIDGED: return `${helper("sl_fbm")}(${a[0]}, ${Math.round(imm[0] ?? 3)}, 3)`
             case SLOP.SDF: {
                 const id = Math.round(imm[0] ?? 0)
+                // The parameters as operands (IR 3), or as the immediates after the id.
+                if (n.args.length > 1) return `${helper("sl_sdfDistance")}(${id}, ${a[0]}, ${a[1]}, ${a[2]})`
                 const q = [imm[1] ?? 0, imm[2] ?? 0, imm[3] ?? 0, imm[4] ?? 0].map(lit)
                 const r = [imm[5] ?? 0, imm[6] ?? 0].map(lit)
                 return `${helper("sl_sdfDistance")}(${id}, ${a[0]}, float4(${q.join(", ")}), float2(${r.join(", ")}))`

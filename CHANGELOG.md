@@ -6,6 +6,7 @@
 - `BodyTarget.sampleLevel` is required, for `tex2Dlod`
 - A program's IR version is the lowest that has its nodes, so IR 3 rehashes only programs that sample at a level
 - `fromGLSL` turns `textureLod` into `tex2Dlod`
+- A shape's parameters may be any value, a uniform included; a vector counts as its components
 
 ## 0.3.0
 

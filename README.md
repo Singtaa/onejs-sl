@@ -327,7 +327,8 @@ refuses a newer one with a message naming both.
   migrates an older one.
 IR 2 came with #129. A shape takes as many parameters as it reads
 (`SL_SDF_PARAMS`, six at most, and never fewer than four accepted), where it
-used to take four and lose the rest. IR 3 added `SAMPLE_LOD`.
+used to take four and lose the rest. IR 3 added `SAMPLE_LOD`, and an SDF
+whose shape parameters are values rather than constants.
 
 ## Control flow
 

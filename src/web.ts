@@ -172,7 +172,7 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             case SLOP.TURBULENCE: return octaveCall(2, a[0], imm[0])
             case SLOP.RIDGED: return octaveCall(3, a[0], imm[0])
             case SLOP.VORONOI: return `${lib("sl_voronoi")}(${a[0]})`
-            case SLOP.SDF: return sdfCall(Math.round(imm[0] ?? 0), a[0], imm)
+            case SLOP.SDF: return sdfCall(Math.round(imm[0] ?? 0), a[0], sdfParams())
             case SLOP.SAMPLE: {
                 const slot = Math.round(imm[0] ?? 0)
                 sampled.add(slot)
@@ -203,16 +203,32 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             return `${lib(fn, ["float2", "float", "int", "float", "float"])}(${pt}, 0.0, ${o}, 2.0, 0.5)`
         }
 
+        /**
+         * The six shape parameters, each as a float expression and, when it
+         * is a constant, its number: literals when they are immediates, the
+         * components of the float4 and float2 operands when they are values.
+         */
+        function sdfParams(): Array<{ text: string; value?: number }> {
+            if (n.args.length === 1) {
+                return [1, 2, 3, 4, 5, 6].map((i) => ({ text: lit(imm[i] ?? 0), value: imm[i] ?? 0 }))
+            }
+            return ["x", "y", "z", "w"].map((c) => ({ text: `${a[1]}.${c}` }))
+                .concat(["x", "y"].map((c) => ({ text: `${a[2]}.${c}` })))
+        }
+
         /** The shape is a constant, so this calls it directly instead of sl_sdfDistance's switch. */
-        function sdfCall(id: number, pt: string, im: number[]): string {
+        function sdfCall(id: number, pt: string, v: Array<{ text: string; value?: number }>): string {
             const shape = SDF_CALLS[id]
             // sl_sdfDistance returns 1e6 for an id it does not know.
             if (shape === undefined) return lit(1e6)
             const fn = lib(shape.fn)
-            const v = [im[1] ?? 0, im[2] ?? 0, im[3] ?? 0, im[4] ?? 0, im[5] ?? 0, im[6] ?? 0]
             const args = shape.args.map((arg) => {
-                if ("int" in arg) return String(Math.trunc(v[arg.int]))
-                const parts = arg.map((i) => lit(v[i]))
+                // Truncated toward zero, as HLSL's int() of the float4 does.
+                if ("int" in arg) {
+                    const p = v[arg.int]!
+                    return p.value !== undefined ? String(Math.trunc(p.value)) : W ? `i32(${p.text})` : `int(${p.text})`
+                }
+                const parts = arg.map((i) => v[i]!.text)
                 return parts.length === 1 ? parts[0] : `${T(parts.length as SLType)}(${parts.join(", ")})`
             })
             return `${fn}(${[pt, ...args].join(", ")})`

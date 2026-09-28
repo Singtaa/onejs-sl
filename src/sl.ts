@@ -621,27 +621,52 @@ export function ramp(t: Num, stops: Array<string | [number, number, number, numb
  *
  * A shape takes up to `SL_SDF_PARAMS[kind]` parameters, six at most. Fewer
  * fills zeros, which is all a program could pass before six shapes grew their
- * fifth and sixth.
+ * fifth and sixth. A vector parameter counts as its components, so a box's
+ * half extents can be one float2.
  *
  * Which parameters a shape takes is the shape's own business; `circle` wants a
  * radius, `roundedBox` wants half extents and a corner. See `lib/sdf2d.hlsl`.
+ *
+ * A parameter may be any value, a uniform or one computed per pixel. When every
+ * one is a constant they are part of the operation, as they always were, so a
+ * program that passes constants is the node it was and hashes the same; one
+ * value among them makes them operands (IR 3), a float4 and a float2.
  */
-export function sdf(kind: SlSdfKind, p: Vec2, params: number[] = []): Float {
+export function sdf(kind: SlSdfKind, p: Vec2, params: Num[] = []): Float {
     const id = SL_SDF_SHAPES[kind]
     if (id === undefined) throw new SLError(`"${kind}" is not a shape; see SL_SDF_SHAPES for the 42 names`)
+    const c = params.flatMap((v) => components(p.owner, v))
     // At least four, so a program that passed a shape more than it reads, which
     // was harmless when every shape took four, still builds.
     const most = Math.max(4, SL_SDF_PARAMS[kind])
-    if (params.length > most) {
-        throw new SLError(`sl.sdf("${kind}") takes at most ${most} parameters and was given ${params.length}`)
+    if (c.length > most) {
+        throw new SLError(`sl.sdf("${kind}") takes at most ${most} parameters and was given ${c.length}`)
     }
-    for (const v of params) {
-        if (!Number.isFinite(v)) throw new SLError(`sl.sdf parameters must be finite, got ${v}`)
+    if (c.every((v) => typeof v === "number")) {
+        for (const v of c) {
+            if (!Number.isFinite(v)) throw new SLError(`sl.sdf parameters must be finite, got ${v}`)
+        }
+        // Four always, as before, and a fifth and sixth only when given: a program
+        // using four or fewer is the same node, and hashes the same, as it was.
+        const imm = [c[0] ?? 0, c[1] ?? 0, c[2] ?? 0, c[3] ?? 0, ...c.slice(4)] as number[]
+        return mk(p.owner, p.owner.call(SLOP.SDF, TYPE.FLOAT, [p.ref], [id, ...imm]), TYPE.FLOAT)
     }
-    // Four always, as before, and a fifth and sixth only when given: a program
-    // using four or fewer is the same node, and hashes the same, as it was.
-    const imm = [params[0] ?? 0, params[1] ?? 0, params[2] ?? 0, params[3] ?? 0, ...params.slice(4)]
-    return mk(p.owner, p.owner.call(SLOP.SDF, TYPE.FLOAT, [p.ref], [id, ...imm]), TYPE.FLOAT)
+    const q = vec4(c[0] ?? 0, c[1] ?? 0, c[2] ?? 0, c[3] ?? 0)
+    const r = vec2(c[4] ?? 0, c[5] ?? 0)
+    return mk(p.owner, p.owner.call(SLOP.SDF, TYPE.FLOAT, [p.ref, q.ref, r.ref], [id]), TYPE.FLOAT)
+}
+
+/**
+ * A value as its components: numbers for a constant, which is what it would
+ * have been written as, and a float per component otherwise.
+ */
+function components(b: Builder, v: Num): Num[] {
+    if (typeof v === "number") return [v]
+    if (v.owner !== b) throw new SLError("a value from another program cannot be used in this one")
+    const n = b.nodes[v.ref]!
+    if (n.k === "const") return n.v.slice()
+    if (v.width === 1) return [v]
+    return Array.from({ length: v.width }, (_, i) => v.swz("xyzw"[i] as "x"))
 }
 
 /** Distance to the nearest point of a jittered lattice. Cells, cracks, scales. */
