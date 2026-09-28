@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.13
+
+Unity's Metal compile of OneJS's effects no longer warns of an uninitialized variable. Nothing draws differently.
+
+- `onejsFbmKind` returns once, so FxSources compiles on Metal with no warning
+- A WGSL noise kind no longer evaluates both fBm kinds to pick one
+
 ## 0.1.12
 
 The noise hashes are integer arithmetic, so every GPU draws the same bits. Value noise and voronoi look different, seed 0 included; program hashes do not change.

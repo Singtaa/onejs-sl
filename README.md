@@ -204,17 +204,17 @@ container this package is checked out at `JSModules/onejs-sl`, and
 
 ## The one idea
 
-**One authoring surface, one IR, two backends.** Unity cannot compile a shader
-at runtime in a player build, on any graphics API, so in the browser a program
-has to become data that a fixed shader evaluates. Ejecting to a Unity project
-does not change what the author wrote, it changes what is possible, because an
-editor compiles shaders at build time.
+**One authoring surface, one IR, several backends.** Unity cannot compile a
+shader at runtime in a player build, on any graphics API, so the first backend
+made a program data that a fixed shader evaluates: a VM. An editor does compile
+shaders, at build time, so the second prints HLSL for it.
 
-So the same source is interpreted by a VM on play.onejs.com and compiled from
-generated HLSL after an eject, with no edit in between. Both backends exist:
+So the same source draws compiled from generated HLSL in the editor and in a
+native player, with no edit in between, and the VM stays behind a switch: OneJS
+leaves it out unless a project defines `ONEJS_SL_VM`. Both backends exist:
 `encode.ts` feeds OneJS's `Runtime/SL/SLProgramBridge.cs` and `FxProgram.shader`,
 and `hlsl.ts` feeds its `Editor/SLShaderGenerator.cs`. Nobody writes a manifest for the
-second: an editor that interprets a program asks the encoded program for its
+second: an editor that draws a program asks the encoded program for its
 `hlsl` (a lazy getter, never read in Play), records it into
 `Assets/OneJS/Recorded.sl.json`, generates the shader and
 moves the live material onto it. `manifest()` is still there for an app that
@@ -297,8 +297,10 @@ baseline, which is the one resource neither backend can widen.
 
 `Program.hash` is what will link a program to its compiled shader. If it differs
 between the machine that generated the shader and the machine that runs it, the
-runtime falls back to the VM and **nobody is told**: correct output, quietly
-slow, no error. That is the worst failure this design can have.
+player finds no shader for the program: it draws nothing and logs one error
+naming the hash. Before OneJS 3.6.0 it fell back to the VM and **nobody was
+told**: correct output, quietly slow, no error, the worst failure this design
+could have, and the reason the hash is built the way it is.
 
 So it is a Merkle hash over the graph reachable from the result, not a walk of
 the node array. An earlier version hashed storage order, which meant hoisting a

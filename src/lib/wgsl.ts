@@ -761,13 +761,17 @@ fn onejsRidged(pIn: vec2f, seed: f32, octaves: i32, lacunarity: f32, gain: f32) 
 `,
     `
 fn onejsFbmKind(kind: i32, p: vec2f, seed: f32, octaves: i32, lacunarity: f32, gain: f32) -> f32 {
+    var n: f32;
     if (kind == 2) {
-        return onejsTurbulence(p, seed, octaves, lacunarity, gain);
+        n = onejsTurbulence(p, seed, octaves, lacunarity, gain);
+    } else if (kind == 3) {
+        n = onejsRidged(p, seed, octaves, lacunarity, gain);
+    } else if (kind == 1) {
+        n = onejsFbmSimplex(p, seed, octaves, lacunarity, gain);
+    } else {
+        n = onejsFbm_f2_f_i_f_f(p, seed, octaves, lacunarity, gain);
     }
-    if (kind == 3) {
-        return onejsRidged(p, seed, octaves, lacunarity, gain);
-    }
-    return select(onejsFbm_f2_f_i_f_f(p, seed, octaves, lacunarity, gain), onejsFbmSimplex(p, seed, octaves, lacunarity, gain), kind == 1);
+    return n;
 }
 `,
     `

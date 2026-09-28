@@ -105,4 +105,23 @@ describe("the generated library", () => {
         for (const fn of hashes) visit(fn.body, fn.name)
         expect(problems).toEqual([])
     })
+
+    /**
+     * Early returns there make Unity's Metal compile of OneJS's FxSources warn
+     * of a potentially uninitialized variable in every project (issue #1). Only
+     * this function: other early returns in the library compile clean.
+     */
+    it("returns once from onejsFbmKind", () => {
+        const fns = check(LIB_FILES.flatMap((f) => parseLibrary(readFileSync(resolve(ROOT, "lib", f.source), "utf8").replace(/\r\n/g, "\n"), f.source))).fns
+        const kind = fns.find((fn) => fn.name === "onejsFbmKind")!
+        let returns = 0
+        const visit = (node: unknown) => {
+            if (node === null || typeof node !== "object") return
+            if (Array.isArray(node)) { for (const n of node) visit(n); return }
+            if ((node as { k?: string }).k === "return") returns++
+            for (const v of Object.values(node)) if (typeof v === "object") visit(v)
+        }
+        visit(kind.body)
+        expect(returns).toBe(1)
+    })
 })

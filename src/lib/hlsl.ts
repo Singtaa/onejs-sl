@@ -710,13 +710,17 @@ float onejsRidged(float2 p, float seed, int octaves, float lacunarity, float gai
 `,
     `
 float onejsFbmKind(int kind, float2 p, float seed, int octaves, float lacunarity, float gain) {
+    float n;
     if (kind == 2) {
-        return onejsTurbulence(p, seed, octaves, lacunarity, gain);
+        n = onejsTurbulence(p, seed, octaves, lacunarity, gain);
+    } else if (kind == 3) {
+        n = onejsRidged(p, seed, octaves, lacunarity, gain);
+    } else if (kind == 1) {
+        n = onejsFbmSimplex(p, seed, octaves, lacunarity, gain);
+    } else {
+        n = onejsFbm(p, seed, octaves, lacunarity, gain);
     }
-    if (kind == 3) {
-        return onejsRidged(p, seed, octaves, lacunarity, gain);
-    }
-    return kind == 1 ? onejsFbmSimplex(p, seed, octaves, lacunarity, gain) : onejsFbm(p, seed, octaves, lacunarity, gain);
+    return n;
 }
 `,
     `
