@@ -1,12 +1,14 @@
-# onejs-unity's own checks, run against THIS commit of onejs-sl.
+# The checks of the packages built on onejs-sl, run against THIS commit of it.
 #
 # onejs-unity links onejs-sl with "file:../onejs-sl" and re-exports it, so a
 # change here that passes every onejs-sl test can still break it: 0.1.5 changed
 # an error's wording, and onejs-unity's esbuild test pinned the old words. This
-# is the check that would have caught it. CI calls it on every push, and
-# publish.yml requires it before anything reaches npm.
+# is the check that would have caught it. onejs-play builds games through
+# onejs-unity, and 0.1.7 broke it the same way ("vec2" became "float2" in an
+# error its CLI test reads), so it is checked too. CI calls this on every push,
+# and publish.yml requires it before anything reaches npm.
 #
-# onejs-unity's main, not a pinned commit: the question is whether the
+# Each consumer's main, not a pinned commit: the question is whether the
 # consumer as it stands today survives this build. A change a consumer has to
 # follow lands here first (this job goes red), then in onejs-unity, then this
 # is re-run and the tag goes on a green run.
@@ -45,6 +47,65 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: onejs-unity/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+  onejs-play:
+    name: onejs-play against this onejs-sl
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: onejs-play
+
+    steps:
+      # onejs-play's own CI layout: every sibling it links with "file:../",
+      # except that onejs-sl is this commit rather than its main.
+      - uses: actions/checkout@v4
+        with:
+          path: onejs-sl
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Singtaa/onejs-play
+          ref: main
+          path: onejs-play
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Singtaa/onejs-react
+          ref: main
+          path: onejs-react
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Singtaa/onejs-unity
+          ref: main
+          path: onejs-unity
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Singtaa/unity-types
+          ref: main
+          path: unity-types
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: onejs-play/package-lock.json
+
+      # Both are compiled from source by this typecheck, and tsc resolves an
+      # import inside each relative to its own folder.
+      - run: npm ci
+        working-directory: onejs-react
+
+      - run: npm ci
+        working-directory: onejs-unity
 
       - run: npm ci
 

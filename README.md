@@ -170,7 +170,7 @@ Before the tag:
    or an error's fix changed, also run `node Tools/editor-sl-smoke/editor-sl-smoke.mjs`
    from the container root, which drives the Play editor in real Monaco.
 4. Push `main` and wait for CI, whose `consumers` job runs onejs-unity's
-   typecheck and tests against the commit (`consumers.yml`). `publish.yml`
+   and onejs-play's typecheck and tests against the commit (`consumers.yml`). `publish.yml`
    runs the same job and publishes nothing if it fails. When a consumer has to
    follow a change, land it here, fix the consumer, then re-run and tag.
 
