@@ -115,8 +115,8 @@ know the project's colour space when it prints.
 difference, the `.cginc` copies included in the container, and OneJS's
 `SLSharedLibraryTests` checks them from the other side. What proves the
 translations draw the same picture: the goldens compile the whole library on
-WebGPU and WebGL2 and draw every fixture; OneJS's parity harness holds the web
-output to the VM; `SLSharedLibraryTests` draws every corpus program in Unity
+WebGPU and WebGL2 and draw every fixture; OneJS's parity harness draws every
+fixture through a real WebGL player and holds it to the goldens; `SLSharedLibraryTests` draws every corpus program in Unity
 through `SLCommon.cginc` and through the translated shared subset and requires
 them to agree; and the Metal check above compiles the shared subset.
 
@@ -125,9 +125,11 @@ them to agree; and the Metal check above compiles the shared subset.
 `goldens/goldens.json` is every corpus fixture drawn as a Linear OneJS game
 stores it: the package's WGSL and GLSL ES in OneJS's web frame, into an
 `rgba8unorm-srgb` target (the format the element's render texture has), read
-back raw, with no Unity, no UI Toolkit and no browser colour management. A
-second host's own backend is checked against it; OneJS's parity harness is what
-proves the web emitters equal the VM in the first place.
+back raw, with no Unity, no UI Toolkit and no browser colour management. The
+goldens stand on their own: the two backends must agree, and the anchors and
+the hash probes must match arithmetic. A host's own backend is checked against
+them, as OneJS's parity harness (`Tools/sl-web-parity` in the container) checks
+what a WebGL player draws.
 
 `npm run goldens` draws it on WebGPU and WebGL2 in a Chrome with its own
 profile (set `CHROME` to choose one). The two backends must agree within 1/255
@@ -223,10 +225,11 @@ shader, but the page it runs in can. `web.ts` prints every program as WGSL and
 as GLSL ES 3.00 (carrying the library functions it calls, translated from
 `lib/*.hlsl`), and OneJS's
 `Plugins/WebGL/OneJSSLWeb.jslib` compiles whichever one Unity's device speaks
-and draws it into the element's target in place of the VM. A `.sl` import
-carries both strings, printed at build time; an `encode()` result has them as
-lazy getters, like `hlsl`. The VM draws until the compiled program is ready,
-and for good if it fails to compile. The host contract (the frame block, the
+and draws it into the element's target. A `.sl` import carries both strings,
+printed at build time; an `encode()` result has them as lazy getters, like
+`hlsl`. A WebGL player has no VM: the element draws nothing until the compiled
+program is ready, and nothing after a compile error, which the page reports.
+The host contract (the frame block, the
 16 uniform slots, one binding pair per sampled texture) is written out at the
 top of `web.ts`.
 
@@ -234,7 +237,7 @@ The emitters match the HLSL emitter's semantics rather than each language's
 own: `%` truncates like `fmod`, `pow` takes `abs` of its base, `asin` and
 `acos` clamp, `log` and `sqrt` guard their argument, a select is the VM's
 branchless `lerp`. `web.test.ts` checks the structure (every shape, every
-opcode, the library order); whether the output matches the VM within 1/255 is
+opcode, the library order); whether the output matches the goldens is
 measured in a browser, through the real element, by `Tools/sl-web-parity` in
 the container.
 

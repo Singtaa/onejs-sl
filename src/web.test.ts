@@ -11,11 +11,12 @@ import { sl } from "./index"
 import { parse } from "./lang"
 
 /**
- * The web emitters print; whether what they print compiles and matches the VM
- * is proven in a browser (`Tools/sl-web-parity` in the container, every
- * example and every shape, compiled against the VM within 1/255). These are the
- * structural checks that do not need a GPU: a table that drifted, a library
- * entry out of order, an opcode the HLSL emitter knows and these do not.
+ * The web emitters print; whether what they print compiles and draws the
+ * goldens is proven in a browser (`npm run goldens`, and `Tools/sl-web-parity`
+ * in the container, every golden fixture through a real WebGL player within
+ * 2/255). These are the structural checks that do not need a GPU: a table that
+ * drifted, a library entry out of order, an opcode the HLSL emitter knows and
+ * these do not.
  */
 
 const SOURCE = `

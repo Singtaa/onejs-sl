@@ -11,7 +11,8 @@ const HERE = import.meta.dirname
 /**
  * Ordinary sizes for every shape, at its FULL parameter count (#129): a shape
  * given generic numbers can be degenerate (star with 0.2 points) and then draws
- * noise that agrees with nothing. The same values as OneJS's parity harness.
+ * noise that agrees with nothing. OneJS's parity harness draws these same
+ * programs, from the source goldens.json carries.
  */
 const SHAPE_PARAMS = {
     circle: [0.35], roundedBox: [0.3, 0.2, 0.05, 0.1, 0.15, 0.02], box: [0.3, 0.2],

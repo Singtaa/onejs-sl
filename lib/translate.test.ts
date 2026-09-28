@@ -3,9 +3,10 @@ import { check, parseLibrary, Printer, printedName, type Lang } from "./translat
 
 /**
  * The translator on small inputs. Whether its output of the real library
- * compiles and draws what the VM draws is proven in a browser (`npm run
- * goldens`, and `Tools/sl-web-parity` in the container); these pin the rules
- * that make it so, one at a time, so a rule that breaks names itself.
+ * compiles and draws the goldens is proven in a browser (`npm run goldens`,
+ * and `Tools/sl-web-parity` in the container, through a real WebGL player);
+ * these pin the rules that make it so, one at a time, so a rule that breaks
+ * names itself.
  */
 
 function print(src: string, lang: Lang): string {
