@@ -702,6 +702,11 @@ float sl_hash21(float2 p) {
 }
 `,
     `
+float2 sl_hash22(float2 p) {
+    return float2(sl_hash21(p), sl_hash21(p + 37.7));
+}
+`,
+    `
 float sl_valueNoise(float2 p) {
     return onejsVNoise(p, 0.0);
 }
@@ -823,7 +828,7 @@ float sl_voronoi(float2 p) {
     for (int y = -1; y <= 1; y++) {
         for (int x = -1; x <= 1; x++) {
             float2 o = float2(float(x), float(y));
-            float2 jitter = float2(sl_hash21(cell + o), sl_hash21(cell + o + 37.7));
+            float2 jitter = sl_hash22(cell + o);
             best = min(best, length(o + jitter - f));
         }
     }

@@ -64,6 +64,7 @@ export const LIB_PARAM_NAMES: ReadonlyArray<readonly string[]> = [
     ["p"],
     ["p"],
     ["p"],
+    ["p"],
     ["p", "octaves", "kind"],
     ["c"],
     ["id", "p", "a", "b"],

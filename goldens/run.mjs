@@ -10,9 +10,22 @@
  * `texture.sl` (a texture's orientation and its sRGB decode). Two backends can
  * agree while both are wrong in the same way; an anchor cannot.
  *
+ * The hashes are held tighter than that. `probes.hlsl` draws each of the
+ * library's two hashes bit for bit, and `corpus/probe-hash.sl` does the same
+ * through a program; `reference.mjs` says what every pixel has to be, and a
+ * single pixel off fails. A hash two compilers round differently draws a
+ * different noise, and 1/255 of agreement between two backends that happen to
+ * round alike proves nothing about a third.
+ *
  * Samples, not images: a 16 x 16 grid of pixels, at x = 2 + 4i and y = 2 + 4j,
  * rows from the top, RGBA each, per fixture per time. Small enough to diff, and
  * a wrong distance or a wrong noise anywhere in the frame still shows.
+ *
+ *     node goldens/run.mjs --check      # compare with goldens.json, write nothing
+ *
+ * `--check` is the release gate on a machine other than the one that wrote
+ * goldens.json: every fixture has to draw what it records, within the 1/255
+ * the backends are allowed, and the exact ones and the probes to the bit.
  */
 import esbuild from "esbuild"
 import { spawn } from "node:child_process"
@@ -22,17 +35,19 @@ import os from "node:os"
 import path from "node:path"
 import vm from "node:vm"
 import { fixtureSources } from "../corpus/fixtures.mjs"
+import { PROBE_PIXELS, probeProgramPixel } from "./reference.mjs"
 
 const HERE = import.meta.dirname
 const TIMES = [0, 1.25]
 const STEP = 4
 const OFFSET = 2
 const PKG = JSON.parse(fs.readFileSync(path.join(HERE, "../package.json"), "utf8"))
+const CHECK = process.argv.includes("--check")
 
 // Compiled in Node with the package's own emitters; the page only draws.
 const bundle = esbuild.buildSync({
     entryPoints: [path.join(HERE, "compile.ts")], bundle: true, format: "iife", globalName: "__goldens",
-    platform: "neutral", target: "es2020", write: false, logLevel: "silent",
+    platform: "neutral", target: "es2020", write: false, logLevel: "silent", loader: { ".hlsl": "text" },
 }).outputFiles[0].text
 const context = vm.createContext({})
 vm.runInContext(bundle, context)
@@ -40,6 +55,7 @@ const sources = fixtureSources(vm.runInContext("__goldens.SL_SDF_PARAMS", contex
 const fixtures = JSON.parse(vm.runInContext(`JSON.stringify(__goldens.compile(${JSON.stringify(sources)}))`, context))
 const irVersion = vm.runInContext("__goldens.SL_IR_VERSION", context)
 const library = JSON.parse(vm.runInContext("JSON.stringify(__goldens.wholeLibrary())", context))
+const probes = JSON.parse(vm.runInContext("JSON.stringify(__goldens.probes())", context))
 
 const page = fs.readFileSync(path.join(HERE, "page.html"))
 const server = http.createServer((req, res) => {
@@ -102,6 +118,11 @@ for (const backend of ["webgpu", "webgl2"]) {
     draw[backend] = await evaluate(`goldens.render(${JSON.stringify(backend)}, ${JSON.stringify(fixtures)}, ${JSON.stringify(TIMES)})`)
     console.log(`[goldens] ${backend}: ${draw[backend].device}`)
 }
+const probeDraw = {}
+for (const backend of ["webgpu", "webgl2"]) {
+    const asFixtures = Object.fromEntries(Object.entries(probes).map(([name, p]) => [name, { ...p.draw, defaults: [] }]))
+    probeDraw[backend] = (await evaluate(`goldens.render(${JSON.stringify(backend)}, ${JSON.stringify(asFixtures)}, [0])`)).images
+}
 // Every translated function, including the ones no fixture reaches, has to
 // compile on both backends. Checked, not recorded: goldens.json is pixels.
 const libraryErrors = {}
@@ -160,7 +181,10 @@ const anchors = {
     "hex.sl": { tolerance: 0, expect: () => [255, 128, 64, 255] },
     // Filtering in linear light is to the GPU's own precision, hence 2.
     "texture.sl": { tolerance: 2, expect: (u, v) => [0, 1, 2].map((ch) => encode(bilinear(u, v, ch))).concat(255) },
+    "probe-hash.sl": { tolerance: 0, expect: (u, v, x, y) => probeProgramPixel(x, y) },
 }
+/** A fixture compared at 0/255, here and by `--check`, and marked `exact` in goldens.json for a host. */
+const exact = (name) => anchors[name]?.tolerance === 0
 const anchorWorst = {}
 for (const [name, { tolerance, expect }] of Object.entries(anchors)) {
     if (!(name in fixtures)) { failures.push(`anchor ${name} is not in the corpus`); continue }
@@ -169,7 +193,7 @@ for (const [name, { tolerance, expect }] of Object.entries(anchors)) {
         const image = draw[backend].images[name][0]
         for (let y = 0; y < SIZE; y++) {
             for (let x = 0; x < SIZE; x++) {
-                const want = expect((x + 0.5) / SIZE, 1 - (y + 0.5) / SIZE)
+                const want = expect((x + 0.5) / SIZE, 1 - (y + 0.5) / SIZE, x, y)
                 for (let ch = 0; ch < 4; ch++) worst = Math.max(worst, Math.abs(image[(y * SIZE + x) * 4 + ch] - want[ch]))
             }
         }
@@ -178,11 +202,80 @@ for (const [name, { tolerance, expect }] of Object.entries(anchors)) {
     if (worst > tolerance) failures.push(`anchor ${name} is off arithmetic by ${worst}/255 (allowed ${tolerance})`)
 }
 
+// The probes, against reference.mjs, every pixel, on each backend.
+const probeWrong = {}
+const expected = Object.fromEntries(Object.keys(probes).map((name) => {
+    const image = []
+    for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) image.push(...PROBE_PIXELS[name](x, y))
+    return [name, image]
+}))
+for (const name of Object.keys(probes)) {
+    for (const backend of ["webgpu", "webgl2"]) {
+        const image = probeDraw[backend][name][0], want = expected[name]
+        const wrong = []
+        for (let i = 0; i < SIZE * SIZE; i++) {
+            if ([0, 1, 2, 3].some((ch) => image[i * 4 + ch] !== want[i * 4 + ch])) wrong.push(i)
+        }
+        probeWrong[`${name} on ${backend}`] = wrong.length
+        if (wrong.length > 0) {
+            const at = wrong[0]
+            failures.push(`probe ${name} on ${backend}: ${wrong.length} of ${SIZE * SIZE} pixels are not the reference's; ` +
+                `the first is (${at % SIZE}, ${Math.floor(at / SIZE)}), block ${at >> 8}, drawn ${image.slice(at * 4, at * 4 + 3)}, wanted ${want.slice(at * 4, at * 4 + 3)}`)
+        }
+    }
+}
+
+/** Each pixel's three bits as one digit, 4r + 2g + b, rows from the top: what goldens.json ships per probe. */
+const digits = (image) => {
+    let out = ""
+    for (let i = 0; i < SIZE * SIZE; i++) out += String((image[i * 4] ? 4 : 0) + (image[i * 4 + 1] ? 2 : 0) + (image[i * 4 + 2] ? 1 : 0))
+    return out
+}
+
+// --check: what this machine drew, against what goldens.json records.
+let recordedFrom = null
+if (CHECK) {
+    const recorded = JSON.parse(fs.readFileSync(path.join(HERE, "goldens.json"), "utf8"))
+    recordedFrom = recorded.drawnOn
+    for (const name of Object.keys(recorded.fixtures)) {
+        if (!(name in fixtures)) failures.push(`goldens.json records ${name}, which the corpus no longer has: regenerate it`)
+    }
+    for (const [name, fx] of Object.entries(fixtures)) {
+        const r = recorded.fixtures[name]
+        if (r === undefined) { failures.push(`${name} is not in goldens.json: regenerate it`); continue }
+        if (r.hash !== fx.hash) { failures.push(`${name} compiles to ${fx.hash}, and goldens.json has ${r.hash}: regenerate it`); continue }
+        const allowed = exact(name) ? 0 : 1
+        for (const t of TIMES) {
+            for (const backend of ["webgpu", "webgl2"]) {
+                const got = samples(draw[backend].images[name][t]), want = r.samples[t]
+                let worst = 0
+                for (let i = 0; i < want.length; i++) worst = Math.max(worst, Math.abs(got[i] - want[i]))
+                if (worst > allowed) failures.push(`${name} at ${t}s on ${backend} is ${worst}/255 from goldens.json (allowed ${allowed})`)
+            }
+        }
+    }
+    for (const [name, p] of Object.entries(probes)) {
+        const r = recorded.probes?.[name]
+        if (r === undefined) { failures.push(`probe ${name} is not in goldens.json: regenerate it`); continue }
+        for (const lang of ["hlsl", "wgsl", "glsl"]) {
+            if (r[lang] !== p[lang]) failures.push(`probe ${name}'s ${lang} differs from goldens.json: regenerate it`)
+        }
+        if (r.bits !== digits(expected[name])) failures.push(`probe ${name}'s reference differs from goldens.json: regenerate it`)
+    }
+}
+
 for (const f of failures) console.log(`[goldens] FAIL ${f}`)
 console.log(`[goldens] the whole library (${library.wgsl.split("\n").length} WGSL lines, ${library.glsl.split("\n").length} GLSL) ` +
     `compiles on ${Object.entries(libraryErrors).filter(([, e]) => e === "").map(([b]) => b).join(" and ") || "neither backend"}`)
 console.log(`[goldens] ${Object.keys(fixtures).length} fixtures x ${TIMES.length} times, backends agree within ${agreement}/255, ` +
     `anchors off arithmetic by ${Object.entries(anchorWorst).map(([k, v]) => `${k} ${v}`).join(", ")}`)
+console.log(`[goldens] hash probes, pixels off the reference: ${Object.entries(probeWrong).map(([k, v]) => `${k} ${v}`).join(", ")}`)
+if (CHECK) {
+    console.log(`[goldens] --check: drawn on WebGPU ${draw.webgpu.device} and WebGL2 ${draw.webgl2.device}; ` +
+        `goldens.json was drawn on WebGPU ${recordedFrom?.webgpu} and WebGL2 ${recordedFrom?.webgl2}`)
+    console.log(failures.length > 0 ? `[goldens] --check FAILED, ${failures.length} problems` : "[goldens] --check passed; goldens.json left as it was")
+    process.exit(failures.length > 0 ? 1 : 0)
+}
 if (failures.length > 0) process.exit(1)
 
 const out = {
@@ -198,10 +291,18 @@ const out = {
     uniforms: "each program's declared defaults; a colour uniform's default is sRGB as written",
     drawnOn: { webgpu: draw.webgpu.device, webgl2: draw.webgl2.device },
     backendsAgreeWithin: agreement,
+    exact: "a fixture marked exact has to draw its samples to the byte, not within 1/255",
     fixtures: Object.fromEntries(Object.entries(fixtures).map(([name, fx]) => [name, {
         hash: fx.hash,
+        ...(exact(name) ? { exact: true } : {}),
         source: fx.source,
         samples: Object.fromEntries(TIMES.map((t) => [t, samples(draw.webgpu.images[name][t])])),
+    }])),
+    probeContract: `each probe is a function of a pixel of a ${SIZE} x ${SIZE} frame, x and y whole numbers from the top left, ` +
+        "calling the library's own functions (the host's, in its own frame); it returns 0 or 1 per channel and alpha 1. " +
+        "bits has one digit per pixel, rows from the top, 4r + 2g + b, and every pixel has to match",
+    probes: Object.fromEntries(Object.entries(probes).map(([name, p]) => [name, {
+        entry: p.entry, call: p.call, hlsl: p.hlsl, wgsl: p.wgsl, glsl: p.glsl, bits: digits(expected[name]),
     }])),
 }
 // One line per capture, so a changed golden reads as a changed line.

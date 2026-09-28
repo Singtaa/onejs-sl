@@ -754,6 +754,11 @@ fn sl_hash21(pIn: vec2f) -> f32 {
 }
 `,
     `
+fn sl_hash22(p: vec2f) -> vec2f {
+    return vec2f(sl_hash21(p), sl_hash21(p + 37.7));
+}
+`,
+    `
 fn sl_valueNoise(p: vec2f) -> f32 {
     return onejsVNoise(p, 0.0);
 }
@@ -918,7 +923,7 @@ fn sl_voronoi(p: vec2f) -> f32 {
     for (var y: i32 = -1; y <= 1; y++) {
         for (var x: i32 = -1; x <= 1; x++) {
             let o: vec2f = vec2f(f32(x), f32(y));
-            let jitter: vec2f = vec2f(sl_hash21(cell + o), sl_hash21(cell + o + 37.7));
+            let jitter: vec2f = sl_hash22(cell + o);
             best = min(best, length(o + jitter - f));
         }
     }
