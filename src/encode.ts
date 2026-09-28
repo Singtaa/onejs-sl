@@ -27,9 +27,7 @@ import {
     MAX_TEXTURES, SLError, TYPE, reachable, type NodeRef, type Program, type SLNode, type SLType,
 } from "./ir"
 import { INPUT_ID, SLOP } from "./ops"
-import { emitShader } from "./hlsl"
-import { emitGLSL, emitWGSL } from "./web"
-import { uniformDefaults } from "./sl"
+import { compile, type Compiled } from "./compile"
 
 // Lives in ops.ts with the other wire constants; re-exported so nothing that
 // reached it through the encoder has to move.
@@ -73,7 +71,12 @@ export const MAX_INSTRUCTIONS = 256
  */
 export const TEXELS_PER_INSTRUCTION = 2
 
-export interface Encoded {
+/**
+ * A program as the VM's buffer, plus everything `compile` gives a host.
+ *
+ * The metadata and the lazy sources are `compile`'s, so the two cannot drift.
+ */
+export interface Encoded extends Compiled {
     /** Flat RGBA float data, `TEXELS_PER_INSTRUCTION * 4` numbers per instruction. */
     data: Float32Array
     instructions: number
@@ -82,59 +85,10 @@ export interface Encoded {
     /** Registers actually used, for the shader to size nothing and for reporting. */
     registersUsed: number
     /**
-     * Uniform names in SLOT ORDER, so a host can set one by name.
-     *
-     * The VM addresses uniforms by slot and knows nothing about names, and the
-     * encoded instructions carry the slot only. Without this the host had a
-     * name from the game and no way to turn it into a slot, so it set a
-     * material property instead and every uniform stayed at zero.
-     */
-    uniforms: string[]
-    /**
-     * Declared uniform defaults, four floats per slot in slot order.
-     *
-     * The generated shader writes these into its Properties block, so a
-     * compiled material starts at them, while the VM's uniform array starts at
-     * zero. Without carrying them across, an unset uniform was its default
-     * after an eject and 0 in the browser: one program, two pictures, nothing
-     * to see in either. The host seeds these right after uploading and lets
-     * the caller's own `uniforms` write over them.
-     */
-    defaults: number[]
-    /**
-     * Texture names in SLOT order, so a host can bind one by name.
-     *
-     * The same reason the uniform names are here: the VM addresses a texture by
-     * slot and the generated shader declares `_Tex0`, so a host handed the name
-     * an author wrote had no way to reach either. Setting a material property
-     * called `grain` bound nothing, in both backends, silently.
-     */
-    textures: string[]
-    hash: string
-    /**
      * The lowest VM encoding that can run this buffer. A VM older than this
      * refuses the program; see `SL_WIRE_VERSION`.
      */
     wire: number
-    /**
-     * The program as HLSL, for a host that can compile it.
-     *
-     * Lazy, and absent from enumeration: in Play nothing ever reads it, so the
-     * emitter never runs there. In an editor the host asks for it once per
-     * program it has no compiled shader for, records it, and generates the
-     * shader, which is how an ejected game ends up compiled without anybody
-     * writing a manifest.
-     */
-    readonly hlsl: string
-    /**
-     * The program as WGSL and as GLSL ES 3.00, for a browser to compile on
-     * Unity's own device (WebGPU and WebGL2 respectively). Lazy and absent
-     * from enumeration like `hlsl`: a `.sl` import carries them as plain
-     * strings from the build instead, and a host reads only the one its
-     * backend needs.
-     */
-    readonly wgsl: string
-    readonly glsl: string
 }
 
 interface Instr {
@@ -328,34 +282,15 @@ export function encode(source: Program): Encoded {
         data[o + 6] = ins.imm[2]; data[o + 7] = ins.imm[3]
     })
 
-    const encoded = {
-        data,
-        instructions: out.length,
-        resultRegister: reg.get(program.result)!,
-        registersUsed: peak,
-        // Slot order, which is declaration order: Builder.uniform pushes and
-        // uses the resulting index as the slot.
-        uniforms: program.uniforms.map((u) => u.name),
-        defaults: uniformDefaults(program),
-        textures: program.textures.map((t) => t.name),
-        hash: program.hash,
-        wire: wireOf(source, program),
-    } as Encoded
-    let hlsl: string | undefined
-    let wgsl: string | undefined
-    let glsl: string | undefined
-    Object.defineProperty(encoded, "hlsl", {
-        enumerable: false,
-        get: () => (hlsl ??= emitShader(source)),
-    })
-    Object.defineProperty(encoded, "wgsl", {
-        enumerable: false,
-        get: () => (wgsl ??= emitWGSL(source)),
-    })
-    Object.defineProperty(encoded, "glsl", {
-        enumerable: false,
-        get: () => (glsl ??= emitGLSL(source)),
-    })
+    // The hash, names, defaults and sources are compile's, from the SOURCE
+    // program: every compiled backend reads the IR's own SDF, and forVm keeps
+    // the hash, since nothing about what the program computes changed.
+    const encoded = compile(source) as Encoded
+    encoded.data = data
+    encoded.instructions = out.length
+    encoded.resultRegister = reg.get(program.result)!
+    encoded.registersUsed = peak
+    encoded.wire = wireOf(source, program)
     return encoded
 }
 

@@ -10,6 +10,7 @@ import { SLError, SLParseError, fromJSON, parse, sl, toJSON, type Program } from
 import { BUILTINS } from "../src/tables"
 import { vmFit } from "../src/limits"
 import { encode } from "../src/vm"
+import { compile } from "../src/compile"
 import { emitShader } from "../src/emit/unity"
 import { emitGLSL, emitWGSL } from "../src/emit/web"
 import { emitBody, emitLibrary, type BodyTarget } from "../src/emit/hlsl-body"
@@ -46,6 +47,11 @@ function describe(p: Program): Result {
     out.hlsl = emitShader(p)
     out.wgsl = emitWGSL(p)
     out.glsl = emitGLSL(p)
+    const c = compile(p)
+    out.compiled = {
+        hash: c.hash, uniforms: c.uniforms, defaults: c.defaults, textures: c.textures,
+        sources: c.hlsl === out.hlsl && c.wgsl === out.wgsl && c.glsl === out.glsl,
+    }
     const body = emitBody(p, TARGET)
     out.body = body
     out.library = emitLibrary(body.uses.helpers, TARGET.colour)

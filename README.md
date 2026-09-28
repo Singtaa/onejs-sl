@@ -38,8 +38,9 @@ only what it calls.
 | `onejs-sl` | `parse` and `analyze`, `diagnose` (every error in a file, not just the first), `classify` (every token with its class, comments kept, never throws), `fromGLSL` (a pasted Shadertoy or WebGL shader as a `.sl` file, with notes on what did not carry over), the TypeScript form `sl`, the IR types, `SL_IR_VERSION`, `toJSON`/`fromJSON`, `SLParseError` (file, line, column, offset, length, the bare `text`, and a `fix` where one is certain) |
 | `onejs-sl/core` | the same without the parser: what a game needs at run time |
 | `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`, `SL_KEYWORDS`, `SL_TYPES`, `TYPE_WIDTH`, `PRELUDE_NAMES`: what completion and highlighting read. `BUILTIN_PARAMS`, `SL_SDF_PARAM_NAMES` and `LIB_SIGNATURES` name every parameter, so an editor can show `lerp(x, y, s)`, and `BUILTIN_DOCS`, `INPUT_DOCS` and `PRELUDE_DOCS` give each a line for its tooltip |
-| `onejs-sl/limits` | `vmFit(program)`: whether the VM runs it, and why not, without encoding |
-| `onejs-sl/vm` | `encode`, `SL_WIRE_VERSION` |
+| `onejs-sl/compile` | `compile(program)`: what a host draws a program with. Its hash, its uniform and texture names in slot order, their defaults, and `hlsl`, `wgsl` and `glsl` as lazy getters. No budget |
+| `onejs-sl/limits` | `vmFit(program)`: whether the VM runs it, and why not. The VM's, until it is deleted |
+| `onejs-sl/vm` | `encode`, `SL_WIRE_VERSION`: `compile` plus the VM's buffer. The VM's, until it is deleted |
 | `onejs-sl/emit/hlsl-body` | `emitBody`: a program as a function body for a host's own frame; `emitLibrary`: the library functions it calls |
 | `onejs-sl/emit/unity` | `emitShader`: the `.shader` a Unity editor generates, a frame over `emitBody` |
 | `onejs-sl/emit/web` | `emitWGSL`, `emitGLSL`: OneJS's web frame |
@@ -211,10 +212,11 @@ shaders, at build time, so the second prints HLSL for it.
 
 So the same source draws compiled from generated HLSL in the editor and in a
 native player, with no edit in between, and the VM stays behind a switch: OneJS
-leaves it out unless a project defines `ONEJS_SL_VM`. Both backends exist:
-`encode.ts` feeds OneJS's `Runtime/SL/SLProgramBridge.cs` and `FxProgram.shader`,
-and `hlsl.ts` feeds its `Editor/SLShaderGenerator.cs`. Nobody writes a manifest for the
-second: an editor that draws a program asks the encoded program for its
+leaves it out unless a project defines `ONEJS_SL_VM`. `compile.ts` gives a host
+everything it draws with and no VM buffer; `encode.ts` adds the buffer for
+`FxProgram.shader`, and goes with the VM. `hlsl.ts` feeds OneJS's
+`Editor/SLShaderGenerator.cs`. Nobody writes a manifest for it: an editor that
+draws a program asks the compiled program for its
 `hlsl` (a lazy getter, never read in Play), records it into
 `Assets/OneJS/Recorded.sl.json`, generates the shader and
 moves the live material onto it. `manifest()` is still there for an app that
@@ -226,7 +228,7 @@ as GLSL ES 3.00 (carrying the library functions it calls, translated from
 `lib/*.hlsl`), and OneJS's
 `Plugins/WebGL/OneJSSLWeb.jslib` compiles whichever one Unity's device speaks
 and draws it into the element's target. A `.sl` import carries both strings,
-printed at build time; an `encode()` result has them as lazy getters, like
+printed at build time; a `compile()` result has them as lazy getters, like
 `hlsl`. A WebGL player has no VM: the element draws nothing until the compiled
 program is ready, and nothing after a compile error, which the page reports.
 The host contract (the frame block, the
@@ -347,10 +349,10 @@ layered noise and small iterated distance fields, which is most of what 2D
 shaders loop for. A data dependent loop is out of scope: the VM would need a
 nested bounded loop with a dynamic trip count while codegen would handle it
 fine, and the two backends agreeing is the property the whole design protects.
-Because it unrolls, the count multiplies the body's operation count toward the
-VM's 256-instruction ceiling. The ceiling error names any `repeat` that fills a
-quarter of the budget or more, so the fix reads as "lower this count" rather
-than "fewer instructions".
+Because it unrolls, the count multiplies the body's operation count. `compile`
+has no ceiling, so a long program costs what it costs, as any shader does;
+`corpus/long.sl` is over a thousand operations. `encode` still refuses past the
+VM's 256, and names any `repeat` that fills a quarter of that.
 
 Every loop that reaches a GPU is therefore bounded by a constant: `repeat` is
 unrolled, fbm's octaves are a constant 1 to 4, the helper loops in the noise

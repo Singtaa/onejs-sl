@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+`compile()` replaces `encode()` for every host that draws compiled: it gives a program's hash, names, defaults and sources with no VM buffer and no budget, so a long program or one with many values at once compiles. Program hashes do not change.
+
+- `onejs-sl/compile` exports `compile(program)`: hash, uniforms, defaults, textures, and lazy `hlsl`, `wgsl` and `glsl`
+- `compile` never refuses a program for its length or for how many values it holds at once
+- `encode` is `compile` plus the VM's buffer, and still applies the VM's limits
+- `onejs-sl/vm` and `onejs-sl/limits` stay until the VM is deleted
+- `corpus/long.sl`, over a thousand operations, is in the goldens
+
 ## 0.1.13
 
 Unity's Metal compile of OneJS's effects no longer warns of an uninitialized variable. Nothing draws differently.

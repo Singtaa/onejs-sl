@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import * as main from "./index"
 import * as core from "./core"
+import * as compiler from "./compile"
 import * as tables from "./tables"
 import * as limits from "./limits"
 import * as vm from "./vm"
@@ -44,6 +45,7 @@ describe("entry points", () => {
             "INPUT_ID", "MAX_INSTRUCTIONS", "REGISTERS", "SL_WIRE_VERSION", "TEXELS_PER_INSTRUCTION", "VM_TEXTURES",
             "VM_UNIFORMS", "encode", "forVm", "liveRanges", "reachable",
         ])
+        expect(names(compiler)).toEqual(["compile"])
         expect(names(unity)).toEqual(["emitFragmentBody", "emitShader", "uniformProperty"])
         expect(names(body)).toEqual(["emitBody", "emitLibrary"])
         expect(names(web)).toEqual(["WEB_UNIFORM_SLOTS", "emitGLSL", "emitWGSL"])
@@ -52,7 +54,7 @@ describe("entry points", () => {
     it("every entry in package.json exists and is one of these", async () => {
         const pkg = (await import("../package.json")).default as { exports: Record<string, string> }
         expect(Object.keys(pkg.exports).sort()).toEqual(
-            [".", "./core", "./emit/hlsl-body", "./emit/unity", "./emit/web", "./goldens.json", "./limits", "./tables", "./vm"],
+            [".", "./compile", "./core", "./emit/hlsl-body", "./emit/unity", "./emit/web", "./goldens.json", "./limits", "./tables", "./vm"],
         )
         // The one entry that is data: what a host's own renderer is held to.
         expect(pkg.exports["./goldens.json"]).toBe("./goldens/goldens.json")
