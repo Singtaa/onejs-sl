@@ -21,7 +21,9 @@ import { KEYWORD_SET, TYPE_SET } from "./words"
 
 export type SLTokenClass =
     | "keyword" | "type" | "builtin" | "input" | "prelude"
-    | "number" | "hex" | "comment" | "punct"
+    | "number" | "hex" | "string" | "comment" | "punct"
+    /** An attribute's name, as in `[Range(0, 1)]`. */
+    | "attribute"
     /** A component after a dot, as in `c.rgb`. */
     | "member"
     /** Any other name: a uniform, a local, a function the file declares. */
@@ -54,6 +56,8 @@ export function classify(source: string): SLClassifiedToken[] {
         let kind: SLTokenClass
         if (t.kind === "ident") {
             if (before === ".") kind = beforeThat === "sdf" ? "builtin" : "member"
+            // There are no arrays, so a name straight after "[" is an attribute's.
+            else if (before === "[") kind = "attribute"
             else if (KEYWORD_SET.has(t.text)) kind = "keyword"
             else if (TYPE_SET.has(t.text)) kind = "type"
             else if (INPUT_NAMES.has(t.text)) kind = "input"

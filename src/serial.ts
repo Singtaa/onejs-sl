@@ -9,7 +9,7 @@
  * older one is migrated to this one and rehashed under it.
  */
 import {
-    INPUTS, SLError, SL_IR_VERSION, TYPE, hashProgram,
+    INPUTS, SLError, SL_IR_VERSION, TYPE, controlOf, controlProblem, hashProgram,
     type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
 } from "./ir"
 import { SL_ARITY, SL_NAME } from "./ops"
@@ -125,7 +125,27 @@ function uniform(u: unknown, i: number): UniformDecl {
     }
     const out: UniformDecl = { name: x.name!, type: x.type as SLType, value: x.value!.slice() }
     if (x.colour === true) out.colour = true
-    return out
+    // Its control: shapes checked here, sense checked by the one check the
+    // compiler uses, so a hand edited file cannot give a host a range it would
+    // choke on.
+    const r = x.range as { min?: unknown; max?: unknown; step?: unknown } | undefined
+    if (r !== undefined && (typeof r !== "object" || r === null || typeof r.min !== "number" || typeof r.max !== "number" ||
+        (r.step !== undefined && typeof r.step !== "number"))) {
+        fail(`uniform ${i}'s range needs a min and a max, and a step if any, as numbers`)
+    }
+    if (x.options !== undefined && (!Array.isArray(x.options) || !x.options.every((o) => typeof o === "string"))) {
+        fail(`uniform ${i}'s options must be a list of names`)
+    }
+    for (const f of ["header", "label"] as const) {
+        if (x[f] !== undefined && typeof x[f] !== "string") fail(`uniform ${i}'s ${f} must be text`)
+    }
+    for (const f of ["toggle", "hide"] as const) {
+        if (x[f] !== undefined && x[f] !== true) fail(`uniform ${i}'s ${f} can only be true`)
+    }
+    const control = controlOf(x)
+    const problem = controlProblem(out.type, out.value, control)
+    if (problem !== null) fail(`uniform ${i}: ${problem.message}`)
+    return Object.assign(out, control)
 }
 
 function texture(t: unknown, i: number): TextureDecl {

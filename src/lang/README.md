@@ -121,7 +121,8 @@ the generated shader's Properties block shows, and every read of `tint` goes
 through `toLinear`. Without that rule, `#ff8040` written as a literal and
 `#ff8040` written as a default would be two different colours in one file.
 A default built out of numbers (`float4(1, 0.5, 0.25, 1)`) is not a colour and
-is read unconverted.
+is read unconverted, unless the uniform says `[Color]`, which makes it one
+exactly as a hex default does.
 
 **A uniform's default has to be written out.** Numbers, constructors of numbers
 and colours, and nothing else. It is baked into the program before anything
@@ -166,6 +167,26 @@ browser and correct after an eject. A `.sl` file is held to the real number, 4,
 reported at the declaration. The EDSL's ceiling is untouched here because
 lowering it changes recorded behaviour rather than parser behaviour.
 
+## Attributes
+
+Unity's names, before a uniform, say what its control is: `[Range(0, 2)]`, with
+an optional third number for the step, `[Toggle]`, `[Enum(Soft, Hard, Glow)]`,
+`[Header("Shape")]`, `[Label("Glow colour")]`, `[Color]` and `[Hide]`. They go
+on the uniform's line or the lines above it, in any order. A string exists only
+here, which is the one reason the lexer reads one.
+
+Three files share the work. The parser reads the shape (`[Name(args)]`, numbers,
+words and strings); `attributes.ts` says what each one means and refuses what it
+cannot mean, offering Unity's and English spellings as a fix (`Colour` to
+`Color`, `HideInInspector` to `Hide`); `controlProblem` in `ir.ts` refuses what
+does not fit the uniform's type and default, and is the same check the EDSL's
+`sl.uniform.float(name, value, control)` runs. The last one needs the default,
+so its errors come from lowering, marked on the attribute at fault.
+
+What they produce is metadata on the uniform (`range`, `toggle`, `options`,
+`header`, `label`, `hide`), which the hash never reads. `[Color]` is the
+exception, because it changes the reads: it is the same as a hex default.
+
 ## Errors
 
 Every one carries file, line, column, offset and length, and `text`, the
@@ -204,14 +225,15 @@ same place, over every program one token short of a real one.
 ## For an editor
 
 `classify(source)` is every token with its class (keyword, type, builtin,
-input, prelude, number, hex, comment, punct, member, ident, or invalid), built
+input, prelude, number, hex, string, comment, punct, member, attribute, ident,
+or invalid), built
 on the parser's own scanner and word lists, so the highlighting is the parser's.
 It never throws, since it runs on every keystroke. It classifies by spelling,
 not scope: a local named `circle` still reads as a builtin where it is used.
 
 `SL_KEYWORDS` and `SL_TYPES` (`words.ts`) are the lists the parser reads, and a
-name may be neither. `onejs-sl/tables` carries them with a one line description
-of every builtin, input and prelude function; a prelude function's is the
+name may be neither. `onejs-sl/tables` carries them, and `ATTRIBUTE_NAMES`, with
+a one line description of every builtin, input, attribute and prelude function; a prelude function's is the
 comment above it in `prelude-source.ts`.
 
 ## From GLSL

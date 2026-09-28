@@ -73,7 +73,86 @@ export type SLNode =
     | { k: "swizzle"; type: SLType; src: NodeRef; chans: number[] }
     | { k: "call"; type: SLType; op: SLOpCode; args: NodeRef[]; imm?: number[] }
 
-export interface UniformDecl {
+/**
+ * How a host presents a uniform: a slider, a checkbox, a dropdown, a heading
+ * above it, the name it shows, or no control at all (`Specs/SL_NEXT.md` 1).
+ * Written in a `.sl` file as Unity's attributes, `[Range(0, 2)]` and the rest,
+ * and in the EDSL as the last argument of `sl.uniform.float`.
+ *
+ * Metadata for a host, like `colour`: it changes nothing a program computes, so
+ * it is never part of the hash, and two programs that differ only in it share
+ * one compiled shader.
+ */
+export interface UniformControl {
+    /** A slider from `min` to `max`, moving by `step` when there is one. A float only. */
+    range?: { min: number; max: number; step?: number }
+    /** A checkbox. The value is 0 or 1. A float only. */
+    toggle?: true
+    /** A dropdown of these names. The value is the index of the chosen one. A float only. */
+    options?: string[]
+    /** A heading shown above this uniform's control, starting a group. */
+    header?: string
+    /** The name the control shows, in place of the uniform's own. */
+    label?: string
+    /** No control: the host sets this one from code. */
+    hide?: true
+}
+
+/** The fields of `UniformControl`, in the order a host reads them. */
+export const CONTROL_FIELDS = ["range", "toggle", "options", "header", "label", "hide"] as const
+
+/**
+ * What is wrong with giving a uniform of `type` and default `value` this
+ * control, or null. Names the field at fault, so the text form can mark the
+ * attribute that wrote it. The one check, for `.sl` files and the EDSL alike.
+ */
+export function controlProblem(type: SLType, value: readonly number[], c: UniformControl): { field: keyof UniformControl; message: string } | null {
+    const kinds = (["range", "toggle", "options"] as const).filter((k) => c[k] !== undefined)
+    if (kinds.length > 1) {
+        return { field: kinds[1]!, message: `a uniform is one control, so it cannot have both ${ATTRIBUTE_OF[kinds[0]!]} and ${ATTRIBUTE_OF[kinds[1]!]}` }
+    }
+    const kind = kinds[0]
+    if (kind !== undefined && type !== TYPE.FLOAT) {
+        return { field: kind, message: `${ATTRIBUTE_OF[kind]} is for a float, and this is a ${widthName(type)}` }
+    }
+    const v = value[0] ?? 0
+    if (c.range !== undefined) {
+        const { min, max, step } = c.range
+        if (![min, max].every(Number.isFinite) || !(min < max)) {
+            return { field: "range", message: `a range runs from a smaller number to a larger one, and this is ${min} to ${max}` }
+        }
+        if (step !== undefined && !(Number.isFinite(step) && step > 0)) {
+            return { field: "range", message: `a range's step is a number above 0, and this is ${step}` }
+        }
+        if (v < min || v > max) {
+            return { field: "range", message: `the default ${v} is outside the range ${min} to ${max}` }
+        }
+    }
+    if (c.toggle === true && v !== 0 && v !== 1) {
+        return { field: "toggle", message: `a toggle is 0 or 1, and the default is ${v}` }
+    }
+    if (c.options !== undefined) {
+        if (c.options.length < 2) return { field: "options", message: "an enum lists at least two options" }
+        const empty = c.options.findIndex((o) => o.trim() === "")
+        if (empty >= 0) return { field: "options", message: `option ${empty + 1} of the enum has no name` }
+        const twice = c.options.findIndex((o, i) => c.options!.indexOf(o) !== i)
+        if (twice >= 0) return { field: "options", message: `the enum lists "${c.options[twice]}" twice` }
+        if (!Number.isInteger(v) || v < 0 || v >= c.options.length) {
+            return { field: "options", message: `an enum's value is the index of an option, 0 to ${c.options.length - 1}, and the default is ${v}` }
+        }
+    }
+    for (const f of ["header", "label"] as const) {
+        if (c[f] !== undefined && c[f]!.trim() === "") return { field: f, message: `${ATTRIBUTE_OF[f]} needs some text` }
+    }
+    return null
+}
+
+/** How each field is written in a `.sl` file, for the messages above. */
+const ATTRIBUTE_OF: Record<keyof UniformControl, string> = {
+    range: "[Range]", toggle: "[Toggle]", options: "[Enum]", header: "[Header]", label: "[Label]", hide: "[Hide]",
+}
+
+export interface UniformDecl extends UniformControl {
     name: string
     type: SLType
     /** Default, used when a caller does not supply the uniform. */
@@ -182,7 +261,7 @@ export class Builder {
         return this.add({ k: "const", type: v.length as SLType, v: v.slice() })
     }
 
-    uniform(name: string, type: SLType, value: number[], colour = false): NodeRef {
+    uniform(name: string, type: SLType, value: number[], colour = false, control: UniformControl = {}): NodeRef {
         const existing = this.uniforms.findIndex((u) => u.name === name)
         if (existing >= 0) {
             const u = this.uniforms[existing]
@@ -192,10 +271,27 @@ export class Builder {
             if ((u.colour === true) !== colour) {
                 throw new SLError(`uniform "${name}" is declared both as a colour and as plain numbers`)
             }
+            // A second read may say nothing about the control, or the same thing again.
+            const merged = { ...controlOf(u) }
+            for (const f of CONTROL_FIELDS) {
+                if (control[f] === undefined) continue
+                if (merged[f] !== undefined && JSON.stringify(merged[f]) !== JSON.stringify(control[f])) {
+                    throw new SLError(`uniform "${name}" is given two different ${f === "options" ? "enums" : f + "s"}`)
+                }
+                Object.assign(merged, { [f]: control[f] })
+            }
+            const problem = controlProblem(type, u.value, merged)
+            if (problem !== null) throw new SLError(`uniform "${name}": ${problem.message}`)
+            Object.assign(u, merged)
             return this.add({ k: "uniform", type, slot: existing })
         }
+        const problem = controlProblem(type, value, control)
+        if (problem !== null) throw new SLError(`uniform "${name}": ${problem.message}`)
         const slot = this.uniforms.length
-        this.uniforms.push(colour ? { name, type, value: value.slice(), colour: true } : { name, type, value: value.slice() })
+        const decl: UniformDecl = { name, type, value: value.slice() }
+        if (colour) decl.colour = true
+        Object.assign(decl, controlOf(control))
+        this.uniforms.push(decl)
         return this.add({ k: "uniform", type, slot })
     }
 
@@ -336,6 +432,18 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
     for (const u of uniforms) parts.push(`U:${u.name}:${u.type}:${u.value.map(fixed).join(",")}`)
     for (const t of textures) parts.push(`T:${t.name}:${t.slot}`)
     return fnv1a(parts.join("|"))
+}
+
+/** The control fields of `c` that are set, copied, in `CONTROL_FIELDS` order. */
+export function controlOf(c: UniformControl): UniformControl {
+    const out: UniformControl = {}
+    if (c.range !== undefined) out.range = c.range.step === undefined ? { min: c.range.min, max: c.range.max } : { ...c.range }
+    if (c.toggle === true) out.toggle = true
+    if (c.options !== undefined) out.options = c.options.slice()
+    if (c.header !== undefined) out.header = c.header
+    if (c.label !== undefined) out.label = c.label
+    if (c.hide === true) out.hide = true
+    return out
 }
 
 /** Bumped when the hashing scheme changes, which invalidates generated shaders. */

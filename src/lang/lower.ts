@@ -33,11 +33,12 @@
  * than an optimisation.
  */
 
-import { DERIVED_INPUTS, INPUTS, type Program, type SLType } from "../ir"
+import { controlProblem, DERIVED_INPUTS, INPUTS, type Program, type SLType, type UniformControl } from "../ir"
 import type { SlSdfKind } from "../shapes"
 import * as sl from "../sl"
 import type { Num, Val } from "../sl"
 import { TYPE_WIDTH, type Expr, type FuncDecl, type Stmt, type TypeName } from "./ast"
+import { readAttributes } from "./attributes"
 import { BUILTINS } from "./builtins"
 import type { Checked } from "./check"
 import { SLParseError, type Pos } from "./lexer"
@@ -188,9 +189,20 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
                 // that, `#ff8040` and a uniform defaulting to `#ff8040` would be two
                 // different colours in one file. `sl.uniform.colour` also marks
                 // the declaration, for a host's colour picker.
-                const value = colour && u.init?.k === "hex"
-                    ? at(u.pos, () => sl.uniform.colour(u.name, (u.init as { hex: string }).hex, width as 3 | 4) as unknown as Val)
-                    : at(u.pos, () => declareUniform(u.name, u.type, components))
+                // What the attributes say the control is, and whether the default
+                // fits it, marked on the attribute that does not fit.
+                const read = readAttributes(u)
+                const problem = recover(() => {
+                    const p = controlProblem(width as SLType, components, read.control)
+                    const attr = p === null ? undefined : read.from[p.field]
+                    if (p !== null) fail(inFileWords(p.message), attr?.pos ?? u.pos, attr?.length ?? 1)
+                    return false
+                }, () => true)
+                const control = problem ? {} : read.control
+                // `[Color]` says the same as a hex default, for a default written as numbers.
+                const value = (colour && u.init?.k === "hex") || read.colour
+                    ? at(u.pos, () => sl.uniform.colour(u.name, components, width as 3 | 4, control) as unknown as Val)
+                    : at(u.pos, () => declareUniform(u.name, u.type, components, control))
                 global.declare(u.name, { width, value })
             }
 
@@ -228,12 +240,12 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
 
     // MARK: declarations
 
-    function declareUniform(name: string, type: TypeName, c: number[]): Val {
+    function declareUniform(name: string, type: TypeName, c: number[], control: UniformControl): Val {
         switch (type) {
-            case "float": return sl.uniform.float(name, c[0]!) as unknown as Val
-            case "float2": return sl.uniform.vec2(name, [c[0]!, c[1]!]) as unknown as Val
-            case "float3": return sl.uniform.vec3(name, [c[0]!, c[1]!, c[2]!]) as unknown as Val
-            case "float4": return sl.uniform.vec4(name, [c[0]!, c[1]!, c[2]!, c[3]!]) as unknown as Val
+            case "float": return sl.uniform.float(name, c[0]!, control) as unknown as Val
+            case "float2": return sl.uniform.vec2(name, [c[0]!, c[1]!], control) as unknown as Val
+            case "float3": return sl.uniform.vec3(name, [c[0]!, c[1]!, c[2]!], control) as unknown as Val
+            case "float4": return sl.uniform.vec4(name, [c[0]!, c[1]!, c[2]!, c[3]!], control) as unknown as Val
         }
     }
 

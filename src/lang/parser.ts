@@ -12,7 +12,7 @@
  */
 
 import {
-    type AssignOp, type BinaryOp, type Expr, type FuncDecl, type Param, type Stmt,
+    type AssignOp, type Attribute, type AttributeArg, type BinaryOp, type Expr, type FuncDecl, type Param, type Stmt,
     type TextureDecl, type TypeName, type UniformDecl, type Unit,
 } from "./ast"
 import { SLParseError, tokenize, type Pos, type SLFix, type Token } from "./lexer"
@@ -199,7 +199,18 @@ class Parser {
     private parseDeclaration(unit: Unit): void {
         const t = this.peek()
 
-        if (t.text === "uniform") { unit.uniforms.push(this.parseUniform()); return }
+        if (t.text === "[") {
+            const attrs = this.parseAttributes()
+            if (!this.at("uniform")) {
+                this.fail(
+                    `an attribute belongs on a uniform, as in \`[Range(0, 1)] uniform float amount = 0.5;\`, ` +
+                    `and this one is followed by ${describe(this.peek())}`, t,
+                )
+            }
+            unit.uniforms.push(this.parseUniform(attrs))
+            return
+        }
+        if (t.text === "uniform") { unit.uniforms.push(this.parseUniform([])); return }
         if (t.text === "texture2D") { unit.textures.push(this.parseTexture()); return }
         if (t.text === "const") { unit.consts.push(this.parseConst()); return }
         if (t.kind === "ident") {
@@ -214,14 +225,45 @@ class Parser {
         )
     }
 
-    private parseUniform(): UniformDecl {
+    private parseUniform(attrs: Attribute[]): UniformDecl {
         const kw = this.next()
         const type = this.expectType("a type after uniform")
         const name = this.expectName("a uniform name")
         let init: Expr | null = null
         if (this.eat("=")) init = this.parseExpr()
         this.expect(";", "after a uniform declaration")
-        return { name: name.text, type, init, pos: kw }
+        return { name: name.text, type, init, attrs, pos: kw }
+    }
+
+    /** `[Name]` or `[Name(arg, ...)]`, one or more. Shape only: the checker says what each means. */
+    private parseAttributes(): Attribute[] {
+        const out: Attribute[] = []
+        while (this.eat("[")) {
+            const name = this.expectIdent("an attribute's name, such as Range")
+            const args: AttributeArg[] = []
+            if (this.eat("(")) {
+                if (!this.at(")")) {
+                    do args.push(this.parseAttributeArg())
+                    while (this.eat(","))
+                }
+                this.expect(")", "to close the attribute's arguments")
+            }
+            this.expect("]", "to close the attribute")
+            out.push({ name: name.text, args, pos: name, length: name.text.length })
+        }
+        return out
+    }
+
+    private parseAttributeArg(): AttributeArg {
+        const t = this.next()
+        if (t.kind === "string") return { k: "str", text: t.str!, pos: t, length: t.text.length }
+        if (t.kind === "ident") return { k: "ident", name: t.text, pos: t, length: t.text.length }
+        if (t.kind === "number") return { k: "num", value: t.value!, pos: t, length: t.text.length }
+        if (t.text === "-" && this.peek().kind === "number") {
+            const n = this.next()
+            return { k: "num", value: -n.value!, pos: t, length: n.offset + n.text.length - t.offset }
+        }
+        this.fail(`expected a number, a word or a "string" as an attribute's argument, got ${describe(t)}`, t)
     }
 
     private parseTexture(): TextureDecl {
@@ -512,6 +554,9 @@ class Parser {
         if (t.kind === "number") return { k: "num", value: t.value!, pos: t }
         if (t.kind === "hex") return { k: "hex", hex: t.text, pos: t }
         if (t.kind === "ident") return { k: "ident", name: t.text, pos: t }
+        if (t.kind === "string") {
+            this.fail(`a string is only an attribute's argument, as in [Label("Glow colour")]; a value is a number`, t)
+        }
         if (t.text === "(") {
             const inner = this.parseExpr()
             this.expect(")", "to close a group")

@@ -18,9 +18,9 @@ const names = (m: object) => Object.keys(m).sort()
 describe("entry points", () => {
     it("core is a program without the parser", () => {
         expect(names(core)).toEqual([
-            "INPUTS", "INPUT_ID", "MAX_NODES", "MAX_TEXTURES", "SLError", "SLOP", "SL_ARITY", "SL_IR_VERSION",
-            "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_SHAPES", "TYPE", "fromJSON", "hashProgram", "inputsUsed",
-            "isSampling", "parseColor", "sl", "toJSON", "widthName",
+            "CONTROL_FIELDS", "INPUTS", "INPUT_ID", "MAX_NODES", "MAX_TEXTURES", "SLError", "SLOP", "SL_ARITY",
+            "SL_IR_VERSION", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_SHAPES", "TYPE", "controlProblem", "fromJSON",
+            "hashProgram", "inputsUsed", "isSampling", "parseColor", "sl", "toJSON", "widthName",
         ])
     })
 
@@ -34,7 +34,7 @@ describe("entry points", () => {
 
     it("the others", () => {
         expect(names(tables)).toEqual([
-            "BUILTINS", "BUILTIN_DOCS", "BUILTIN_PARAMS", "DERIVED_INPUTS", "INPUTS", "INPUT_DOCS", "LIB_SIGNATURES",
+            "ATTRIBUTE_DOCS", "ATTRIBUTE_NAMES", "BUILTINS", "BUILTIN_DOCS", "BUILTIN_PARAMS", "DERIVED_INPUTS", "INPUTS", "INPUT_DOCS", "LIB_SIGNATURES",
             "NOT_YET", "PRELUDE_DOCS", "PRELUDE_NAMES", "SLOP", "SL_ARITY", "SL_CALL_NAMES", "SL_GLSL_HINT", "SL_HLSL",
             "SL_KEYWORDS", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_PARAM_NAMES", "SL_SDF_SHAPES", "SL_TYPES",
             "SL_UNIMPLEMENTED", "SOURCE_INPUTS", "TYPE_WIDTH",

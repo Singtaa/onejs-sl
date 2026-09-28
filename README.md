@@ -367,6 +367,28 @@ sets `_Res` from the target and both backends read that.
 `fx` had already learned this: `ShaderEffectElement` sets `_Aspect` from the
 render texture with a comment saying why. The lesson did not travel.
 
+## Controls
+
+A uniform can say how a host should present it: `range` (a slider, with an
+optional `step`), `toggle`, `options` (a dropdown whose value is the index),
+`header`, `label` and `hide`, all on the `UniformDecl`. A `.sl` file writes them
+as Unity's attributes (`[Range(0, 2)] uniform float warp = 1;`), the EDSL as the
+last argument of `sl.uniform.float` and the rest. They are metadata: the hash
+never reads them, so two programs that differ only in a control share one
+compiled shader, and `toJSON` carries them for a host that stores a program.
+
+The generated shader's Properties block does not carry them, and that was
+measured rather than assumed (Unity 6000.5, 2026-09-27). Unity binds a material
+property by the HLSL variable's type, not the Properties type: a `float4`
+variable takes only `SetVector`, a `float` only `SetFloat`. Every uniform is a
+`float4` set with `SetVector`, so a `Range(0, 2)` property over one draws a
+slider whose default and every drag never reach the shader. A `Color` property
+is worse, since `SetVector` on one converts sRGB to linear and the program
+already converts a colour uniform. Carrying them means declaring a scalar
+control as `float`, with a matching Properties line (`[ToggleUI]`, since
+`[Toggle]` also defines a keyword; `[Enum]` as name, value pairs), and the bridge
+setting it with `SetFloat`. `Specs/SL_NEXT.md` 1 keeps that as a later change.
+
 ## Colours
 
 A hex colour is sRGB as written, the way CSS reads it, and the target holds

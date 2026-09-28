@@ -13,7 +13,8 @@
 
 import { SLError } from "../ir"
 
-export type TokenKind = "ident" | "number" | "hex" | "punct" | "eof"
+/** `string` only ever appears in an attribute: `[Label("Glow colour")]`. */
+export type TokenKind = "ident" | "number" | "hex" | "string" | "punct" | "eof"
 
 export interface Pos {
     /** 1 based, the way every editor counts. */
@@ -30,6 +31,8 @@ export interface Token extends Pos {
     text: string
     /** Numbers only: the parsed value. */
     value?: number
+    /** Strings only: the text between the quotes, with `\"` and `\\` read. */
+    str?: string
 }
 
 /**
@@ -202,6 +205,25 @@ export function lex(source: string, file: string, keep: boolean): Token[] | Lexe
             const value = Number(text)
             if (!Number.isFinite(value)) fail(`"${text}" is not a number`, start, text.length)
             else push({ kind: "number", text, value, ...start }, j)
+            i = j
+            continue
+        }
+
+        if (c === "\"") {
+            const start = here()
+            let j = i + 1
+            let str = ""
+            while (j < source.length && source[j] !== "\"" && source[j] !== "\n") {
+                if (source[j] === "\\" && (source[j + 1] === "\"" || source[j + 1] === "\\")) j++
+                str += source[j]
+                j++
+            }
+            if (source[j] !== "\"") {
+                fail("this string is never closed; it ends at the end of its line", start, j - i)
+            } else {
+                push({ kind: "string", text: source.slice(i, j + 1), str, ...start }, j + 1)
+                j++
+            }
             i = j
             continue
         }

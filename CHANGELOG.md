@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.10
+
+Attributes on uniforms, for a host's controls (`Specs/SL_NEXT.md` 1). A program that has none compiles to exactly what it did, and one that has them hashes as it would without.
+
+- `[Range]`, `[Toggle]`, `[Enum]`, `[Header]`, `[Label]`, `[Color]` and `[Hide]` before a uniform
+- `UniformDecl` carries `range`, `toggle`, `options`, `header`, `label` and `hide`, never hashed
+- `sl.uniform.float` and the rest take the same control as a last argument
+- `sl.uniform.colour` takes components as well as a hex string
+- `controlProblem` and `CONTROL_FIELDS` are exported from the core
+- `ATTRIBUTE_NAMES` and `ATTRIBUTE_DOCS` are exported from `onejs-sl/tables`
+- `classify` marks an attribute's name and a string
+
 ## 0.1.9
 
 Two inputs built from the others (`Specs/SL_NEXT.md` 6), and a converter that carries more of a pasted shader over. A program that names neither input compiles to exactly what it did.

@@ -34,6 +34,7 @@ import { SL_GLSL_HINT } from "../ops"
 import { BUILTINS, NOT_YET } from "./builtins"
 import { SL_SDF_SHAPES } from "../shapes"
 import type { Expr, FuncDecl, Stmt, Unit } from "./ast"
+import { readAttributes } from "./attributes"
 import { SLParseError, type Pos, type SLFix } from "./lexer"
 
 const INPUT_NAMES = new Set(Object.keys(INPUTS))
@@ -156,6 +157,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
             const clash = valueClash(u.name)
             if (clash !== null) fail(`"${u.name}" already names ${clash}`, u.pos, u.name.length)
         })
+        for (const p of readAttributes(u).problems) attempt(() => fail(p.message, p.pos, p.length, p.fix))
         if (!uniforms.has(u.name)) uniforms.set(u.name, u)
     }
     attempt(() => {

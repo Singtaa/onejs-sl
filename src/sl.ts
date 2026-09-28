@@ -25,7 +25,7 @@
 import { parseColor as parseHex } from "./color"
 import {
     Builder, INPUTS, SLError, SL_IR_VERSION, TYPE, hashProgram, widthName,
-    type InputName, type NodeRef, type Program, type SLNode, type SLType,
+    type InputName, type NodeRef, type Program, type SLNode, type SLType, type UniformControl,
 } from "./ir"
 import { SLOP, type SLOpCode } from "./ops"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
@@ -665,40 +665,49 @@ export function voronoi(p: Vec2): Float {
     return mk(p.owner, p.owner.call(SLOP.VORONOI, TYPE.FLOAT, [p.ref]), TYPE.FLOAT)
 }
 
+/**
+ * A uniform: a value the host sets by name, with the default the program
+ * starts from. The last argument says how a host presents it, a slider, a
+ * checkbox, a dropdown, a heading or a label, and is what `[Range(0, 2)]` and
+ * the other attributes write in a `.sl` file. It never changes the hash.
+ *
+ *     sl.uniform.float("warp", 1, { range: { min: 0, max: 2 } })
+ */
 export const uniform = {
-    float(name: string, value = 0): Float {
+    float(name: string, value = 0, control: UniformControl = {}): Float {
         const b = ctx()
-        return mk(b, b.uniform(name, TYPE.FLOAT, [value]), TYPE.FLOAT)
+        return mk(b, b.uniform(name, TYPE.FLOAT, [value], false, control), TYPE.FLOAT)
     },
-    vec2(name: string, value: [number, number] = [0, 0]): Vec2 {
+    vec2(name: string, value: [number, number] = [0, 0], control: UniformControl = {}): Vec2 {
         const b = ctx()
-        return mk(b, b.uniform(name, TYPE.VEC2, value), TYPE.VEC2)
+        return mk(b, b.uniform(name, TYPE.VEC2, value, false, control), TYPE.VEC2)
     },
-    vec3(name: string, value: [number, number, number] = [0, 0, 0]): Vec3 {
+    vec3(name: string, value: [number, number, number] = [0, 0, 0], control: UniformControl = {}): Vec3 {
         const b = ctx()
-        return mk(b, b.uniform(name, TYPE.VEC3, value), TYPE.VEC3)
+        return mk(b, b.uniform(name, TYPE.VEC3, value, false, control), TYPE.VEC3)
     },
-    vec4(name: string, value: [number, number, number, number] = [0, 0, 0, 1]): Vec4 {
+    vec4(name: string, value: [number, number, number, number] = [0, 0, 0, 1], control: UniformControl = {}): Vec4 {
         const b = ctx()
-        return mk(b, b.uniform(name, TYPE.VEC4, value), TYPE.VEC4)
+        return mk(b, b.uniform(name, TYPE.VEC4, value, false, control), TYPE.VEC4)
     },
     /**
-     * A colour, defaulting to `hex` as written (sRGB, the way CSS reads it).
-     * Returns it converted to linear, as a hex literal is, and marks the
-     * declaration `colour` so a host can offer a colour picker for it. Three
-     * components when `width` is 3, dropping the alpha.
+     * A colour, defaulting to `hex` as written (sRGB, the way CSS reads it), or
+     * to components written the same way. Returns it converted to linear, as a
+     * hex literal is, and marks the declaration `colour` so a host can offer a
+     * colour picker for it. Three components when `width` is 3, dropping the
+     * alpha.
      */
-    colour: ((name: string, hex: string, width: 3 | 4 = 4): Vec3 | Vec4 => {
+    colour: ((name: string, hex: string | readonly number[], width: 3 | 4 = 4, control: UniformControl = {}): Vec3 | Vec4 => {
         const b = ctx()
-        const c = parseHex(hex)
+        const c = typeof hex === "string" ? parseHex(hex) : [hex[0] ?? 0, hex[1] ?? 0, hex[2] ?? 0, hex[3] ?? 1]
         const type = width === 3 ? TYPE.VEC3 : TYPE.VEC4
-        const raw = mk(b, b.uniform(name, type, c.slice(0, width), true), type)
+        const raw = mk(b, b.uniform(name, type, c.slice(0, width), true, control), type)
         return toLinear(raw) as Vec3 | Vec4
     }) as {
-        (name: string, hex: string): Vec4
-        (name: string, hex: string, width: 3): Vec3
-        (name: string, hex: string, width: 4): Vec4
-        (name: string, hex: string, width: 3 | 4): Vec3 | Vec4
+        (name: string, hex: string | readonly number[]): Vec4
+        (name: string, hex: string | readonly number[], width: 3, control?: UniformControl): Vec3
+        (name: string, hex: string | readonly number[], width: 4, control?: UniformControl): Vec4
+        (name: string, hex: string | readonly number[], width: 3 | 4, control?: UniformControl): Vec3 | Vec4
     },
 }
 

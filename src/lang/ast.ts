@@ -63,11 +63,28 @@ export interface FuncDecl {
     prelude: boolean
 }
 
+/** An argument to an attribute: a number, a quoted string, or a bare word. */
+export type AttributeArg =
+    | { k: "num"; value: number; pos: Pos; length: number }
+    | { k: "str"; text: string; pos: Pos; length: number }
+    | { k: "ident"; name: string; pos: Pos; length: number }
+
+/** `[Range(0, 2)]` before a uniform: Unity's spelling of what its control is. */
+export interface Attribute {
+    name: string
+    args: AttributeArg[]
+    /** Where the name starts, and how long it is, for a marker. */
+    pos: Pos
+    length: number
+}
+
 export interface UniformDecl {
     name: string
     type: TypeName
     /** Null when the declaration gave no default; the slot then starts at zero. */
     init: Expr | null
+    /** In the order written. What each means is decided by the checker, not the parser. */
+    attrs: Attribute[]
     pos: Pos
 }
 

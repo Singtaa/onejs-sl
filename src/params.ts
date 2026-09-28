@@ -21,6 +21,7 @@ import { LIB_FUNCTIONS, SDF_CALLS } from "./lib/table"
 import { LIB_PARAM_NAMES } from "./lib/names"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
 import type { SourceInputName } from "./ir"
+import type { AttributeName } from "./lang/attributes"
 
 /** One function of the helper library, as its source declares it. */
 export interface LibSignature {
@@ -162,6 +163,20 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
     tex2D: "The colour of texture s at the uv t, with straight alpha.",
     sdf: "The signed distance from p to a shape, negative inside: `sdf.circle(p, r)`.",
     ramp: "t mapped through evenly spaced colour stops, from the first at 0 to the last at 1.",
+}
+
+/**
+ * One line on each attribute, for the same tooltips: what the control is, and
+ * how it is written.
+ */
+export const ATTRIBUTE_DOCS: Readonly<Record<AttributeName, string>> = {
+    Range: "A slider from the first number to the second: [Range(0, 2)]. A third number is its step. A float only.",
+    Toggle: "A checkbox. The value is 0 or 1. A float only.",
+    Enum: "A dropdown of names: [Enum(Soft, Hard, Glow)]. The value is the chosen name's index, from 0. A float only.",
+    Header: "A heading above this control, starting a group: [Header(\"Shape\")].",
+    Label: "The name the control shows, in place of the uniform's: [Label(\"Glow colour\")].",
+    Color: "A colour picker, the value a colour as written, the same as a hex default. A float3 or a float4.",
+    Hide: "No control: the host sets this uniform from code.",
 }
 
 /**
