@@ -24,9 +24,9 @@
  */
 
 import {
-    MAX_TEXTURES, SLError, TYPE, reachable, type NodeRef, type Program, type SLNode, type SLType,
+    SLError, TYPE, reachable, type NodeRef, type Program, type SLNode, type SLType,
 } from "./ir"
-import { INPUT_ID, SLOP } from "./ops"
+import { INPUT_ID, SLOP, TEXTURE_SLOTS } from "./ops"
 import { compile, type Compiled } from "./compile"
 
 // Lives in ops.ts with the other wire constants; re-exported so nothing that
@@ -188,7 +188,7 @@ export function checkBudget(program: Program, order: NodeRef[]): void {
         )
     }
     for (const t of program.textures) {
-        if (t.slot >= MAX_TEXTURES) throw new SLError(`texture "${t.name}" is past the sampler budget`)
+        if (t.slot >= TEXTURE_SLOTS) throw new SLError(`texture "${t.name}" is past the sampler budget`)
     }
 }
 

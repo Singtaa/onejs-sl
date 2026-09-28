@@ -26,7 +26,7 @@
  * them, and it is fully testable with no GPU.
  */
 
-import { SLOP, SL_ARITY, SL_NAME, type SLOpCode } from "./ops"
+import { SLOP, SL_ARITY, SL_NAME, TEXTURE_SLOTS, UNIFORM_SLOTS, type SLOpCode } from "./ops"
 
 /** Component count. The only notion of type the IR has. */
 export const TYPE = { FLOAT: 1, VEC2: 2, VEC3: 3, VEC4: 4 } as const
@@ -199,11 +199,27 @@ export interface Program {
 }
 
 /**
- * Sampler slots in a fragment shader on the WebGL2 baseline, minus one for the
- * program texture itself. Exceeding it is refused when the program is written
- * rather than when it is drawn, with a message naming the limit.
+ * @deprecated Use `TEXTURE_SLOTS`. Was 15, the WebGL2 sampler count, which let a
+ * program declare textures no native host binds.
  */
-export const MAX_TEXTURES = 15
+export const MAX_TEXTURES = TEXTURE_SLOTS
+
+/**
+ * The refusals for a program past its caps, worded once for the parser (a
+ * `file`) and the builder (a `program`) so the two cannot drift apart.
+ */
+export function tooManyUniforms(declared: number, source: "file" | "program"): string {
+    return `this ${source} declares ${declared} uniforms and a program may hold ${UNIFORM_SLOTS}. ` +
+        `OneJS keeps a program's uniforms in ${UNIFORM_SLOTS} slots, so this one would have no ` +
+        `slot of its own; it is refused here rather than drawn wrong. Pack related values into ` +
+        `a ${source === "file" ? "float4" : "vec4"}.`
+}
+
+export function tooManyTextures(declared: number, source: "file" | "program"): string {
+    return `this ${source} declares ${declared} textures and a program may sample ${TEXTURE_SLOTS}. ` +
+        `OneJS binds ${TEXTURE_SLOTS} textures to a program in the editor and a native player, so ` +
+        `this one would sample nothing there while a browser drew it: two pictures from one ${source}.`
+}
 
 /** Instructions a single program may hold. Generous; the ceiling that matters is registers. */
 export const MAX_NODES = 4096
@@ -288,6 +304,7 @@ export class Builder {
         const problem = controlProblem(type, value, control)
         if (problem !== null) throw new SLError(`uniform "${name}": ${problem.message}`)
         const slot = this.uniforms.length
+        if (slot >= UNIFORM_SLOTS) throw new SLError(tooManyUniforms(slot + 1, "program"))
         const decl: UniformDecl = { name, type, value: value.slice() }
         if (colour) decl.colour = true
         Object.assign(decl, controlOf(control))
@@ -298,12 +315,8 @@ export class Builder {
     texture(name: string): number {
         const existing = this.textures.findIndex((t) => t.name === name)
         if (existing >= 0) return this.textures[existing].slot
-        if (this.textures.length >= MAX_TEXTURES) {
-            throw new SLError(
-                `a program may sample at most ${MAX_TEXTURES} textures, and this one asks for ` +
-                `${this.textures.length + 1}. That ceiling is the fragment shader's sampler slots ` +
-                `on the WebGL2 baseline, so it cannot be widened.`,
-            )
+        if (this.textures.length >= TEXTURE_SLOTS) {
+            throw new SLError(tooManyTextures(this.textures.length + 1, "program"))
         }
         const slot = this.textures.length
         this.textures.push({ name, slot })

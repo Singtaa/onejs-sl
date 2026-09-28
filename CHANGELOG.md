@@ -2,9 +2,17 @@
 
 ## 0.2.1
 
-A host can read how many uniforms and textures one program may declare, and the parser's refusal of a seventeenth uniform or a fifth texture says why without naming the VM. Nothing draws differently.
+A program built in code is refused past 16 uniforms or 4 textures, as a `.sl` file already was, instead of compiling and then drawing differently on different hosts. A host can read both caps.
 
-- `onejs-sl/core` exports `UNIFORM_SLOTS` (16) and `TEXTURE_SLOTS` (4)
+### Fixed
+
+- 0.2.0 regression: `compile()` dropped `encode()`'s texture check, so a program built in code with a fifth texture compiled and then sampled nothing in the editor and a native player
+
+### Changed
+
+- `sl.texture` and `sl.uniform` refuse past the caps where they are declared, in the parser's words
+- `onejs-sl/core` exports `UNIFORM_SLOTS` (16) and `TEXTURE_SLOTS` (4), which the parser and the builder both read
+- `MAX_TEXTURES` is a deprecated alias of `TEXTURE_SLOTS`, so 4 rather than 15
 - `VM_UNIFORMS` and `VM_TEXTURES` are the same numbers, and go with the VM
 - The parser's cap messages give OneJS's slots as the reason
 

@@ -43,10 +43,9 @@ export const SL_WIRE_VERSION = 2
  * (`SLProgramBridge.MaxUniforms`, the web frame's `sl_U`), and binds four
  * textures in the editor and a native player (`_Tex0` to `_Tex3`). A program
  * past either has something with no slot of its own, which one host would drop
- * and another would draw, so the text form refuses it at the declaration with a
- * file and a line. `Specs/SL_NEXT.md` section 8 proposes raising both.
- *
- * Not `MAX_TEXTURES`, which is how many textures the IR can record at all.
+ * and another would draw, so the parser and the builder both refuse it at the
+ * declaration, the parser with a file and a line. `Specs/SL_NEXT.md` section 8
+ * proposes raising both.
  */
 export const UNIFORM_SLOTS = 16
 export const TEXTURE_SLOTS = 4

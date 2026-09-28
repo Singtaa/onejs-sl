@@ -28,7 +28,7 @@
  * is refused with the reason.
  */
 
-import { DERIVED_INPUTS, INPUTS } from "../ir"
+import { DERIVED_INPUTS, INPUTS, tooManyTextures, tooManyUniforms } from "../ir"
 import { TEXTURE_SLOTS, UNIFORM_SLOTS } from "../ops"
 import { SL_GLSL_HINT } from "../ops"
 import { BUILTINS, NOT_YET } from "./builtins"
@@ -163,13 +163,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     attempt(() => {
         if (uniforms.size <= UNIFORM_SLOTS) return
         const over = unit.uniforms[UNIFORM_SLOTS]!
-        fail(
-            `this file declares ${uniforms.size} uniforms and a program may hold ${UNIFORM_SLOTS}. ` +
-            `OneJS keeps a program's uniforms in ${UNIFORM_SLOTS} slots, so this one would have no ` +
-            `slot of its own; it is refused here rather than drawn wrong. Pack related values into ` +
-            `a float4.`,
-            over.pos, over.name.length,
-        )
+        fail(tooManyUniforms(uniforms.size, "file"), over.pos, over.name.length)
     })
 
     for (const t of unit.textures) {
@@ -182,12 +176,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     attempt(() => {
         if (textures.size <= TEXTURE_SLOTS) return
         const over = unit.textures[TEXTURE_SLOTS]!
-        fail(
-            `this file declares ${textures.size} textures and a program may sample ${TEXTURE_SLOTS}. ` +
-            `OneJS binds ${TEXTURE_SLOTS} textures to a program in the editor and a native player, so ` +
-            `this one would sample nothing there while a browser drew it: two pictures from one file.`,
-            over.pos, over.name.length,
-        )
+        fail(tooManyTextures(textures.size, "file"), over.pos, over.name.length)
     })
 
     for (const c of unit.consts) {
