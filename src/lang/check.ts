@@ -49,11 +49,15 @@ const DERIVED_NAMES = new Set(Object.keys(DERIVED_INPUTS))
  * The GLSL spellings whose HLSL name means the same wherever it is written, so
  * the hint can be a one click fix (`Specs/SL_NEXT.md` 5, Decision 1 A). The
  * rest of `SL_GLSL_HINT` gets the hint alone: `mod` floors where `%` truncates,
- * `ivec2` truncates where `float2` does not, `atan` is `atan2` only with two
- * arguments (handled at the call), and `textureLod` names a builtin that is not
- * implemented yet.
+ * `ivec2` truncates where `float2` does not, and `atan` is `atan2` only with two
+ * arguments (handled at the call).
  */
-const GLSL_RENAMES = new Set(["mix", "fract", "texture", "vec2", "vec3", "vec4", "gl_FragCoord", "iTime", "iResolution"])
+const GLSL_RENAMES = new Set([
+    "mix", "fract", "texture", "textureLod", "vec2", "vec3", "vec4", "gl_FragCoord", "iTime", "iResolution",
+])
+
+/** The builtins whose first argument is a texture, which is not a value anywhere else. */
+const SAMPLES = new Set(["tex2D", "tex2Dlod"])
 
 const rename = (from: string, to: string): SLFix => ({ title: `Replace ${from} with ${to}`, replacement: to })
 
@@ -427,7 +431,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                 if (textures.has(e.name)) {
                     fail(
                         `"${e.name}" is a texture, and a texture is only ever the first argument of ` +
-                        `tex2D. Write \`tex2D(${e.name}, uv)\``,
+                        `tex2D or tex2Dlod. Write \`tex2D(${e.name}, uv)\``,
                         e.pos, e.name.length,
                     )
                 }
@@ -458,9 +462,9 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                 // Only reached while collecting: the call was refused, and its
                 // arguments are separate questions, so a mistake inside one is
                 // not hidden by the call's own. `fract(uv * wrap)` is two
-                // mistakes. tex2D's first argument is the texture, which is a
-                // value only there.
-                const tex = e.callee.k === "ident" && e.callee.name === "tex2D"
+                // mistakes. A sample's first argument is the texture, which is
+                // not a value.
+                const tex = e.callee.k === "ident" && SAMPLES.has(e.callee.name)
                 for (const a of tex ? e.args.slice(1) : e.args) attempt(() => checkExpr(fn, a, scope))
                 return
             }
@@ -529,13 +533,22 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
 
         const builtin = BUILTINS[n]
         if (builtin !== undefined) {
-            if (n === "tex2D") {
+            if (SAMPLES.has(n)) {
                 const [tex, ...rest] = e.args
+                // HLSL's own tex2Dlod packs the level into a float4 with the uv.
+                if (n === "tex2Dlod" && e.args.length === 2) {
+                    fail(
+                        "tex2Dlod takes the uv and the mip level separately, `tex2Dlod(t, uv, lod)`, " +
+                        "rather than HLSL's float4(uv, 0, lod)",
+                        e.pos,
+                    )
+                }
                 arity(e, n, builtin.min, builtin.max)
                 if (tex === undefined || tex.k !== "ident" || !textures.has(tex.name)) {
+                    const lod = n === "tex2Dlod" ? ", 0" : ""
                     fail(
-                        `tex2D samples a texture declared in this file, as in \`texture2D grain;\` ` +
-                        `then \`tex2D(grain, uv)\``,
+                        `${n} samples a texture declared in this file, as in \`texture2D grain;\` ` +
+                        `then \`${n}(grain, uv${lod})\``,
                         (tex ?? e).pos,
                     )
                 }

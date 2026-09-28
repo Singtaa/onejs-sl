@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `tex2Dlod(t, uv, lod)` samples a mip level; `sampleLevel` on `sl.texture`
+- `BodyTarget.sampleLevel` is required, for `tex2Dlod`
+- A program's IR version is the lowest that has its nodes, so IR 3 rehashes only programs that sample at a level
+- `fromGLSL` turns `textureLod` into `tex2Dlod`
+
 ## 0.3.0
 
 The VM is gone: every program is compiled, so there is no instruction buffer, wire version or VM limit left to import. A host on `compile` changes nothing; one still importing `onejs-sl/vm` or `onejs-sl/limits` moves to `onejs-sl/compile` and `onejs-sl/core`.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { sl } from "./index"
-import { SL_IR_VERSION, hashProgram } from "./ir"
+import { SL_IR_VERSION, hashProgram, programVersion } from "./ir"
 import { fromJSON, toJSON } from "./serial"
 
 const plasma = () => sl.program(({ uv, time }) => {
@@ -10,11 +10,27 @@ const plasma = () => sl.program(({ uv, time }) => {
 })
 
 describe("IR versions", () => {
-    it("stamp every program with the IR version, and put it in the hash", () => {
+    it("stamp every program with the lowest version that has its nodes, and put that in the hash", () => {
         const p = plasma()
-        expect(p.version).toBe(SL_IR_VERSION)
+        expect(p.version).toBe(2)
         expect(hashProgram(p.nodes, p.result, p.uniforms, p.textures)).toBe(p.hash)
         expect(p.hash).toMatch(/^[0-9a-f]{8}$/)
+        // Version 3 added SAMPLE_LOD: only a program holding one moves.
+        const lod = sl.program(({ uv }) => sl.texture("t").sampleLevel(uv, 1))
+        expect(lod.version).toBe(3)
+        expect(programVersion(lod.nodes)).toBe(3)
+        expect(fromJSON(JSON.parse(JSON.stringify(toJSON(lod)))).hash).toBe(lod.hash)
+    })
+
+    it("keep a version 2 program's hash across the bump to 3", () => {
+        // What 0.3.0 (IR version 2) printed for this program. A program that
+        // holds nothing version 3 added still finds the shader recorded for it.
+        expect(plasma().hash).toBe("49d87e29")
+    })
+
+    it("refuse a file whose nodes are newer than the version it states", () => {
+        const lod = sl.program(({ uv }) => sl.texture("t").sampleLevel(uv, 1))
+        expect(() => fromJSON({ ...toJSON(lod), v: 2 })).toThrow(/says IR version 2 and holds nodes version 3 added/)
     })
 
     it("round trip through JSON to an identical program", () => {
@@ -30,9 +46,9 @@ describe("IR versions", () => {
         expect(() => fromJSON(j)).toThrow(new RegExp(`version ${SL_IR_VERSION + 1}.*up to ${SL_IR_VERSION}`))
     })
 
-    it("read a missing version as 1", () => {
+    it("read a missing version as 1, and give the program the version its nodes need", () => {
         const { v: _, ...rest } = toJSON(plasma())
-        expect(fromJSON(rest).version).toBe(SL_IR_VERSION)
+        expect(fromJSON(rest).version).toBe(2)
     })
 
     it("refuse an edited graph whose hash no longer matches", () => {

@@ -624,14 +624,19 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             return construct(n as TypeName, e.args.map((a) => lowerExpr(a, scope)), e.pos)
         }
 
-        if (n === "tex2D") {
+        if (n === "tex2D" || n === "tex2Dlod") {
             const texName = (e.args[0] as Extract<Expr, { k: "ident" }>).name
             const tex = samplers.get(texName)!
             const uv = lowerExpr(e.args[1]!, scope)
             if (typeof uv === "number" || uv.width !== 2) {
-                fail("tex2D samples at a float2", e.args[1]!.pos)
+                fail(`${n} samples at a float2`, e.args[1]!.pos)
             }
-            return at(e.pos, () => tex.sample(uv as never) as unknown as Val)
+            if (n === "tex2D") return at(e.pos, () => tex.sample(uv as never) as unknown as Val)
+            const lod = lowerExpr(e.args[2]!, scope)
+            if (typeof lod !== "number" && lod.width !== 1) {
+                fail(`a mip level is one number, and this is a ${widthType(lod.width)}`, e.args[2]!.pos)
+            }
+            return at(e.pos, () => tex.sampleLevel(uv as never, lod) as unknown as Val)
         }
 
         if (n === "ramp") {

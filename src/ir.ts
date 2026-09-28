@@ -171,7 +171,10 @@ export interface TextureDecl {
 }
 
 export interface Program {
-    /** The `SL_IR_VERSION` this program's nodes mean what they mean under. */
+    /**
+     * The `SL_IR_VERSION` this program's nodes mean what they mean under: the
+     * lowest one that has every node it holds. See `programVersion`.
+     */
     version: number
     nodes: SLNode[]
     /** Must be VEC4: a program produces a colour. */
@@ -426,12 +429,15 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
     }
 
     // The IR version is in the hash, so a change to what an opcode means in the
-    // IR changes every hash and every cache keyed by one recompiles rather than
-    // serving the old maths. A change to the helper library alone (a noise's
-    // arithmetic, say) is not one: every host includes the library's text when
-    // it compiles, and none caches a compiled program by hash across a
-    // library update, so the new text reaches every shader without a bump.
-    const parts: string[] = [`v${SL_HASH_VERSION}:${SL_IR_VERSION}`, of(result)]
+    // IR changes the hash of every program using it, and every cache keyed by
+    // one recompiles rather than serving the old maths. It is the PROGRAM's
+    // version, the lowest that has its nodes, so a version that adds a node
+    // leaves every program without one on the hash it had. A change to the
+    // helper library alone (a noise's arithmetic, say) is not one: every host
+    // includes the library's text when it compiles, and none caches a compiled
+    // program by hash across a library update, so the new text reaches every
+    // shader without a bump.
+    const parts: string[] = [`v${SL_HASH_VERSION}:${programVersion(nodes)}`, of(result)]
     for (const u of uniforms) parts.push(`U:${u.name}:${u.type}:${u.value.map(fixed).join(",")}`)
     for (const t of textures) parts.push(`T:${t.name}:${t.slot}`)
     return fnv1a(parts.join("|"))
@@ -447,6 +453,31 @@ export function controlOf(c: UniformControl): UniformControl {
     if (c.label !== undefined) out.label = c.label
     if (c.hide === true) out.hide = true
     return out
+}
+
+/**
+ * The lowest `SL_IR_VERSION` that has every node here, and never below 2.
+ *
+ * A version that adds a node, or a form of one, raises only the programs that
+ * hold it. Everything else keeps the version, the hash and the JSON it had, so
+ * a program recorded before the bump still finds its shader, and a reader that
+ * predates the bump still reads it. Every node counts, used or not: the JSON
+ * carries them all, and an older reader has to refuse by the version rather
+ * than halfway through the nodes.
+ */
+export function programVersion(nodes: readonly SLNode[]): number {
+    let v = 2
+    for (const n of nodes) v = Math.max(v, nodeVersion(n))
+    return v
+}
+
+/** The version that added this node's form. */
+function nodeVersion(n: SLNode): number {
+    if (n.k !== "call") return 2
+    switch (n.op) {
+        case SLOP.SAMPLE_LOD: return 3
+        default: return 2
+    }
 }
 
 /** Bumped when the hashing scheme changes, which invalidates generated shaders. */
@@ -467,13 +498,15 @@ export const SL_HASH_VERSION = 1
  * records it again, for no gain.
  *
  * A reader accepts every version up to its own and refuses a newer one with a
- * message naming both, the rule the particle wire and fx follow. Part of the
- * hash, so a bump recompiles every cached shader.
+ * message naming both, the rule the particle wire and fx follow. A program's
+ * version is the lowest that has its nodes (`programVersion`), and that is what
+ * its hash carries, so a bump rehashes only the programs using what it added.
  *
  *   1  the first versioned IR
  *   2  an SDF call carries up to six shape parameters, not four (#129)
+ *   3  SAMPLE_LOD
  */
-export const SL_IR_VERSION = 2
+export const SL_IR_VERSION = 3
 
 function fnv1a(s: string): string {
     let h = 0x811c9dc5

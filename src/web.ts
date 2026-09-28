@@ -178,6 +178,13 @@ function emitWeb(p: Program, lang: WebLanguage): string {
                 sampled.add(slot)
                 return W ? `textureSample(sl_tex${slot}, sl_samp${slot}, ${a[0]})` : `texture(sl_Tex${slot}, ${a[0]})`
             }
+            case SLOP.SAMPLE_LOD: {
+                const slot = Math.round(imm[0] ?? 0)
+                sampled.add(slot)
+                return W
+                    ? `textureSampleLevel(sl_tex${slot}, sl_samp${slot}, ${a[0]}, ${a[1]})`
+                    : `textureLod(sl_Tex${slot}, ${a[0]}, ${a[1]})`
+            }
             default:
                 throw new SLError(
                     `the ${lang.toUpperCase()} emitter has no case for opcode ${n.op}. A program using it would ` +

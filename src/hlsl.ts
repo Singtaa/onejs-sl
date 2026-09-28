@@ -123,7 +123,7 @@ ${body}
 
 /**
  * The frame's side of the body: OneJS's names for the inputs, a uniform's
- * material property, and `tex2D` on the slot's sampler. `sl_toLinear` stays a
+ * material property, and `tex2D` and `tex2Dlod` on the slot's sampler. `sl_toLinear` stays a
  * call because `SLCommon.cginc` decides Gamma or Linear per project, at the
  * shader compile, so this target always emits it.
  */
@@ -148,6 +148,7 @@ function unityTarget(p: Program): BodyTarget {
         },
         uniform: (slot) => uniformProperty(p.uniforms[slot]!.name),
         sample: (slot, uv) => `tex2D(_Tex${slot}, ${uv})`,
+        sampleLevel: (slot, uv, lod) => `tex2Dlod(_Tex${slot}, float4(${uv}, 0.0, ${lod}))`,
         colour: "linear",
         indent: "                ",
     }

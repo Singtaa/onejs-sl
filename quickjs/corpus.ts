@@ -19,6 +19,7 @@ const TARGET: BodyTarget = {
     inputs: { uv: "SL_UV", fragCoord: "SL_FRAGCOORD", resolution: "SL_RES", time: "SL_TIME", aspect: "SL_ASPECT" },
     uniform: (slot) => `SL_U(${slot})`,
     sample: (slot, uv) => `SL_SAMPLE(${slot}, ${uv})`,
+    sampleLevel: (slot, uv, lod) => `SL_SAMPLE_LEVEL(${slot}, ${uv}, ${lod})`,
     colour: "linear",
     result: "c",
 }

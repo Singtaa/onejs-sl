@@ -52,6 +52,14 @@ export interface BodyTarget {
      */
     sample: (slot: number, uv: string) => string
     /**
+     * A float4 sample of the texture in `slot` at `uv` from mip level `lod`, a
+     * float expression: 0 is the full size texture, 1 half, and a fraction
+     * blends two levels where the texture's filter does. Otherwise the same
+     * contract as `sample`. `tex2Dlod` in a program; HLSL's
+     * `tex2Dlod(s, float4(uv, 0, lod))` and Metal's `sample(s, uv, level(lod))`.
+     */
+    sampleLevel: (slot: number, uv: string, lod: string) => string
+    /**
      * `linear`: `toLinear` calls `sl_toLinear`, for a host whose target holds
      * linear light. `gamma`: `toLinear` is the identity, decided here, so hex
      * colours and ramps stay as written. `sample` reads in the same space.
@@ -206,6 +214,11 @@ export function emitBody(p: Program, target: BodyTarget): Body {
                 const slot = Math.round(imm[0] ?? 0)
                 textures.add(slot)
                 return target.sample(slot, a[0]!)
+            }
+            case SLOP.SAMPLE_LOD: {
+                const slot = Math.round(imm[0] ?? 0)
+                textures.add(slot)
+                return target.sampleLevel(slot, a[0]!, a[1]!)
             }
 
             default:

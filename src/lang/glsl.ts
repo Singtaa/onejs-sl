@@ -75,7 +75,7 @@ const GLSL_TYPES = new Set(["float", "int", "uint", "bool", "vec2", "vec3", "vec
 /** A straight rename, the meaning unchanged. */
 const RENAME: Record<string, string> = {
     vec2: "float2", vec3: "float3", vec4: "float4", mix: "lerp", fract: "frac",
-    texture: "tex2D", texture2D: "tex2D", iTime: "time", iGlobalTime: "time", gl_FragCoord: "fragCoord",
+    texture: "tex2D", texture2D: "tex2D", textureLod: "tex2Dlod", iTime: "time", iGlobalTime: "time", gl_FragCoord: "fragCoord",
 }
 
 /** A rename that changes what the value can hold, so it is said. */
@@ -101,7 +101,6 @@ const MISSING: Record<string, string> = {
     iChannelTime: "a texture has no time of its own",
     iChannelResolution: "a texture's size cannot be read yet",
     iSampleRate: "there is no audio",
-    textureLod: "tex2Dlod is not implemented yet; tex2D samples with the texture's own filtering",
     texelFetch: "a texture cannot be read without filtering yet",
     textureSize: "a texture's size cannot be read yet",
     dFdx: "there are no derivatives", dFdy: "there are no derivatives", fwidth: "there are no derivatives",

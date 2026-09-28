@@ -51,7 +51,8 @@ only what it calls.
 HLSL and Metal shared subset (HLSL spelling, `fmod`, no `mul`, no `static`, no
 derivatives, no swizzle of a scalar, and every literal and scalar in an
 intrinsic at its exact type, since Metal overloads where HLSL converts). The `BodyTarget` says what differs between hosts: an expression
-for each input, the float4 holding a uniform slot, a texture sample, whether
+for each input, the float4 holding a uniform slot, a texture sample and a
+sample at a mip level (`sampleLevel`, for `tex2Dlod`), whether
 `toLinear` is real (`colour: "linear"`) or the identity (`"gamma"`), and
 optionally a local to assign the result to. It returns the uniform and texture
 slots the body uses and the library functions it calls. The sample's contract
@@ -131,9 +132,11 @@ what a WebGL player draws.
 
 `npm run goldens` draws it on WebGPU and WebGL2 in a Chrome with its own
 profile (set `CHROME` to choose one). The two backends must agree within 1/255
-over every pixel, and three anchors must match arithmetic, not each other:
+over every pixel, and four anchors must match arithmetic, not each other:
 `orient.sl` (orientation, and the linear to sRGB store), `hex.sl` (a hex colour
-stores as written) and `texture.sl` (a texture's orientation and sRGB decode).
+stores as written), `texture.sl` (a texture's orientation and sRGB decode) and
+`lod.sl` (each mip level `tex2Dlod` reads, the texture's smaller levels being
+solid colours).
 The whole translated library must also compile on both backends, including
 the functions no fixture reaches. The file describes the sampling grid, the
 times and the texture every sampled slot gets. A host imports it as
@@ -314,15 +317,17 @@ than for any cryptographic reason.
 Two numbers, with one rule: a reader accepts every version up to its own and
 refuses a newer one with a message naming both.
 
-- **`SL_IR_VERSION`** (`ir.ts`) is on every `Program` and in the hash, and is
-  bumped whenever an opcode, a shape or what one computes changes. Because it
-  is in the hash, a bump recompiles every cached shader. `toJSON` and
-  `fromJSON` (`serial.ts`) are the IR as JSON for a host that stores programs;
-  `fromJSON` checks everything an emitter relies on, refuses a newer version,
-  and migrates an older one.
+- **`SL_IR_VERSION`** (`ir.ts`) is bumped whenever an opcode, a shape or what
+  one computes changes. A program carries the lowest version that has all its
+  nodes (`programVersion`), and that is what its hash carries, so a bump
+  rehashes only the programs using what it added: every other program keeps
+  the hash its shader was recorded under. `toJSON` and `fromJSON`
+  (`serial.ts`) are the IR as JSON for a host that stores programs; `fromJSON`
+  checks everything an emitter relies on, refuses a newer version, and
+  migrates an older one.
 IR 2 came with #129. A shape takes as many parameters as it reads
 (`SL_SDF_PARAMS`, six at most, and never fewer than four accepted), where it
-used to take four and lose the rest.
+used to take four and lose the rest. IR 3 added `SAMPLE_LOD`.
 
 ## Control flow
 

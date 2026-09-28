@@ -282,7 +282,6 @@ export const SL_HLSL: Record<number, SLSurface> = {
  */
 export const SL_UNIMPLEMENTED: Record<number, string> = {
     [SLOP.RGB2HSV]: "no backend has a case for it yet",
-    [SLOP.SAMPLE_LOD]: "no backend samples at an explicit LOD yet; use tex2D",
     [SLOP.REMAP]: "the surface form is a macro over arithmetic, so the opcode is unused",
 }
 

@@ -9,7 +9,7 @@
  * older one is migrated to this one and rehashed under it.
  */
 import {
-    INPUTS, SLError, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, hashProgram,
+    INPUTS, SLError, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, hashProgram, programVersion,
     type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
 } from "./ir"
 import { SL_ARITY, SL_NAME } from "./ops"
@@ -48,14 +48,20 @@ export function fromJSON(json: unknown): Program {
     for (const n of nodes) {
         if (n.k === "uniform" && n.slot >= uniforms.length) fail(`a node reads uniform slot ${n.slot}, which is not declared`)
     }
+    // The lowest version that has these nodes, which is what the writer
+    // recorded unless the file predates version 2 (whose nodes version 2 reads
+    // as they are) or was edited. One that claims less than its nodes need
+    // holds something its version never had.
+    const version = programVersion(nodes)
+    if (v < version && v >= 2) fail(`it says IR version ${v} and holds nodes version ${version} added; it was changed after it was written`)
     const hash = hashProgram(nodes, result!, uniforms, textures)
     // Same version, so the same maths and the same hash; a different one means
     // the file was edited or damaged, and its cached shader belongs to
-    // something else. An older version is rehashed under this one on purpose.
-    if (v === SL_IR_VERSION && j.hash !== undefined && j.hash !== hash) {
+    // something else. A version 1 file is rehashed under version 2 on purpose.
+    if (v === version && j.hash !== undefined && j.hash !== hash) {
         fail(`its hash ${j.hash} does not match its nodes (${hash}); it was changed after it was written`)
     }
-    return { version: SL_IR_VERSION, nodes, result: result!, uniforms, textures, hash }
+    return { version, nodes, result: result!, uniforms, textures, hash }
 }
 
 function node(n: unknown, i: number): SLNode {

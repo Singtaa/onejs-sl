@@ -56,7 +56,8 @@ describe("parameter names", () => {
     it("names a library builtin after the helper it really lowers to", () => {
         const target: BodyTarget = {
             inputs: { uv: "uv", fragCoord: "fc", resolution: "res", time: "t", aspect: "asp" },
-            uniform: (slot) => `u${slot}`, sample: (slot, uv) => `s${slot}(${uv})`, colour: "linear", result: "c",
+            uniform: (slot) => `u${slot}`, sample: (slot, uv) => `s${slot}(${uv})`,
+            sampleLevel: (slot, uv, lod) => `s${slot}(${uv}, ${lod})`, colour: "linear", result: "c",
         }
         // A call to each, returning a float4 whatever the call returns.
         const program: Record<string, string> = {

@@ -26,8 +26,20 @@ const SLOTS = 16
  * The texture every sampled slot gets: 8 x 8, opaque, stored sRGB, and defined
  * in image rows from the TOP. It is uploaded bottom row first, as Unity uploads
  * a texture, so `uv` (0, 0) samples the image's bottom left on both backends.
+ *
+ * Its three smaller mip levels are each one solid colour, `MIPS[level - 1]`,
+ * so a sample that read the wrong level shows it. Sampled bilinear within a
+ * level and nearest between levels, as OneJS's web host samples a bilinear
+ * texture with mips.
  */
 const TEX = 8
+const MIPS = [[224, 64, 32], [32, 224, 64], [64, 32, 224]]
+function mipBytes(level) {
+    const size = TEX >> level
+    const out = new Uint8Array(size * size * 4)
+    for (let i = 0; i < size * size; i++) out.set([...MIPS[level - 1], 255], i * 4)
+    return out
+}
 function textureBytes() {
     const out = new Uint8Array(TEX * TEX * 4)
     for (let row = 0; row < TEX; row++) {
@@ -60,9 +72,13 @@ async function webgpu(fixtures, times) {
     const target = device.createTexture({ size: [SIZE, SIZE], format: "rgba8unorm-srgb", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC })
     const readback = device.createBuffer({ size: SIZE * SIZE * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ })
     const ubo = device.createBuffer({ size: (8 + SLOTS * 4) * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-    const tex = device.createTexture({ size: [TEX, TEX], format: "rgba8unorm-srgb", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST })
+    const tex = device.createTexture({ size: [TEX, TEX], mipLevelCount: MIPS.length + 1, format: "rgba8unorm-srgb", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST })
     device.queue.writeTexture({ texture: tex }, textureBytes(), { bytesPerRow: TEX * 4 }, [TEX, TEX])
-    const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" })
+    for (let level = 1; level <= MIPS.length; level++) {
+        const size = TEX >> level
+        device.queue.writeTexture({ texture: tex, mipLevel: level }, mipBytes(level), { bytesPerRow: size * 4 }, [size, size])
+    }
+    const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" })
 
     const out = {}
     for (const [name, fx] of Object.entries(fixtures)) {
@@ -119,7 +135,10 @@ async function webgl2(fixtures, times) {
     const tex = gl.createTexture()
     gl.bindTexture(gl.TEXTURE_2D, tex)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, TEX, TEX, 0, gl.RGBA, gl.UNSIGNED_BYTE, textureBytes())
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    for (let level = 1; level <= MIPS.length; level++) {
+        gl.texImage2D(gl.TEXTURE_2D, level, gl.SRGB8_ALPHA8, TEX >> level, TEX >> level, 0, gl.RGBA, gl.UNSIGNED_BYTE, mipBytes(level))
+    }
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
@@ -200,6 +219,7 @@ window.goldens = {
     size: SIZE,
     compiles,
     textureBytes: () => Array.from(textureBytes()),
+    mips: MIPS,
     async render(backend, fixtures, times) {
         document.getElementById("status").textContent = `rendering on ${backend}`
         const r = backend === "webgpu" ? await webgpu(fixtures, times) : await webgl2(fixtures, times)

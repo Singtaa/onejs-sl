@@ -152,13 +152,13 @@ one the local does not have, is refused.
 
 ## Not yet spellable
 
-Three things the EDSL or the opcode table has and a file cannot say. Each is a
+Two things the EDSL or the opcode table has and a file cannot say. Each is a
 recorded gap, not an oversight, and each has its own error message rather than
 "unknown identifier".
 
 | | Why |
 |---|---|
-| `rgb2hsv`, `tex2Dlod` | The opcodes are numbered and **no backend implements them**; every emitter throws on them. |
+| `rgb2hsv` | The opcode is numbered and **no backend implements it**; every emitter throws on it. |
 | `fbm`'s simplex base | `sl.fbm(p, octaves, "simplex")` picks the base with a string, and the language has no strings. `fbm(p, octaves)` is the value base, and `turbulence` and `ridged` are the simplex family. |
 
 A `.sl` file and the EDSL are held to the same caps, `UNIFORM_SLOTS` (16) and

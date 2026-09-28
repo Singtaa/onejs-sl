@@ -24,7 +24,7 @@
 
 import { parseColor as parseHex } from "./color"
 import {
-    Builder, INPUTS, SLError, SL_IR_VERSION, TYPE, hashProgram, widthName,
+    Builder, INPUTS, SLError, TYPE, hashProgram, programVersion, widthName,
     type InputName, type NodeRef, type Program, type SLNode, type SLType, type UniformControl,
 } from "./ir"
 import { SLOP, type SLOpCode } from "./ops"
@@ -288,7 +288,7 @@ export function program(fn: (inputs: ProgramInputs) => Vec4): Program {
         }
         const nodes: SLNode[] = b.nodes.slice()
         return {
-            version: SL_IR_VERSION,
+            version: programVersion(nodes),
             nodes,
             result: out.ref,
             uniforms: b.uniforms.slice(),
@@ -696,7 +696,14 @@ export const uniform = {
 }
 
 export interface Texture {
+    /** The colour at `uv`, filtered as the texture's own settings say. */
     sample(uv: Vec2): Vec4
+    /**
+     * The colour at `uv` from mip level `lod`: 0 is the full size texture, 1
+     * half, and a fraction blends two levels where the texture's filter does.
+     * A texture with no mips has only level 0.
+     */
+    sampleLevel(uv: Vec2, lod: Num): Vec4
 }
 
 export function texture(name: string): Texture {
@@ -706,6 +713,15 @@ export function texture(name: string): Texture {
         sample(uv: Vec2): Vec4 {
             if (uv.owner !== b) throw new SLError("a value from another program cannot be used in this one")
             return mk(b, b.call(SLOP.SAMPLE, TYPE.VEC4, [uv.ref], [slot]), TYPE.VEC4)
+        },
+        sampleLevel(uv: Vec2, lod: Num): Vec4 {
+            if (uv.owner !== b) throw new SLError("a value from another program cannot be used in this one")
+            const level = typeof lod === "number" ? b.constant([lod]) : lod
+            if (typeof level !== "number") {
+                if (level.owner !== b) throw new SLError("a value from another program cannot be used in this one")
+                if (level.width !== 1) throw new SLError(`a mip level is one number, and this is a ${widthName(level.width)}`)
+            }
+            return mk(b, b.call(SLOP.SAMPLE_LOD, TYPE.VEC4, [uv.ref, typeof level === "number" ? level : level.ref], [slot]), TYPE.VEC4)
         },
     }
 }

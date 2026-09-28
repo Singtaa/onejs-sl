@@ -130,6 +130,7 @@ for (const [backend, source] of [["webgpu", library.wgsl], ["webgl2", library.gl
     libraryErrors[backend] = await evaluate(`goldens.compiles(${JSON.stringify(backend)}, ${JSON.stringify(source)})`)
 }
 const textureBytes = await evaluate("goldens.textureBytes()")
+const mips = await evaluate("goldens.mips")
 const SIZE = await evaluate("goldens.size")
 ws.close()
 server.close()
@@ -182,6 +183,14 @@ const anchors = {
     // Filtering in linear light is to the GPU's own precision, hence 2.
     "texture.sl": { tolerance: 2, expect: (u, v) => [0, 1, 2].map((ch) => encode(bilinear(u, v, ch))).concat(255) },
     "probe-hash.sl": { tolerance: 0, expect: (u, v, x, y) => probeProgramPixel(x, y) },
+    // Four bands, each one mip level: the image, then the three solid levels.
+    "lod.sl": {
+        tolerance: 2,
+        expect: (u, v) => {
+            const level = Math.floor(u * 4)
+            return level === 0 ? [0, 1, 2].map((ch) => encode(bilinear(u, v, ch))).concat(255) : [...mips[level - 1], 255]
+        },
+    },
 }
 /** A fixture compared at 0/255, here and by `--check`, and marked `exact` in goldens.json for a host. */
 const exact = (name) => anchors[name]?.tolerance === 0
@@ -287,7 +296,9 @@ const out = {
     times: TIMES,
     samples: `a ${grid} x ${grid} grid at x = ${OFFSET} + ${STEP}i, y = ${OFFSET} + ${STEP}j, rows from the top, i fastest, RGBA each`,
     texture: "every sampled slot: 8 x 8, rgba8 sRGB, linear filter, clamp to edge; texel (x, y) with y from the top = " +
-        "(32x + 16, 32y + 16, (x + y) even ? 200 : 40, 255); uv (0, 0) is the image's bottom left",
+        "(32x + 16, 32y + 16, (x + y) even ? 200 : 40, 255); uv (0, 0) is the image's bottom left. Mip levels 1 to 3 " +
+        `(4 x 4, 2 x 2, 1 x 1) are each one colour, ${mips.map((c) => `(${c.join(", ")}, 255)`).join(", ")}, ` +
+        "sampled nearest between levels",
     uniforms: "each program's declared defaults; a colour uniform's default is sRGB as written",
     drawnOn: { webgpu: draw.webgpu.device, webgl2: draw.webgl2.device },
     backendsAgreeWithin: agreement,

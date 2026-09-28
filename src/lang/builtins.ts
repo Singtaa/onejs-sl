@@ -138,6 +138,7 @@ function point(fn: string, v: Num): Val {
 }
 
 special(SLOP.SAMPLE, 2, 2)
+special(SLOP.SAMPLE_LOD, 3, 3)
 special(SLOP.SDF, 1, 7)
 special(SLOP.RAMP, 3, 64)
 

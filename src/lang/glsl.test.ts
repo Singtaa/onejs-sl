@@ -128,6 +128,11 @@ describe("rewrites that keep the meaning", () => {
         expect(r.source).toContain("tex2D(iChannel0, fragCoord / resolution.xy)")
     })
 
+    it("reads a mip level with tex2Dlod, whose arguments are textureLod's", () => {
+        const r = compiles(image("fragColor = textureLod(iChannel0, fragCoord / iResolution.xy, 2.0);"))
+        expect(r.source).toContain("tex2Dlod(iChannel0, fragCoord / resolution.xy, 2.0)")
+    })
+
     it("keeps an int for-loop counter and says what an int elsewhere became", () => {
         const r = compiles(image("float s = 0.0; int n = 3; for (int i = 0; i < 3; i++) { s += 0.25; } fragColor = vec4(s);"))
         expect(r.source).toContain("for (int i = 0;")
@@ -163,7 +168,7 @@ describe("rewrites that keep the meaning", () => {
 describe("what cannot be carried over", () => {
     it.each([
         ["iFrame", "fragColor = vec4(float(iFrame));", "iFrame has no counterpart: there is no frame counter yet"],
-        ["textureLod", "fragColor = textureLod(iChannel0, fragCoord, 0.0);", "textureLod has no counterpart"],
+        ["texelFetch", "fragColor = texelFetch(iChannel0, ivec2(fragCoord), 0);", "texelFetch has no counterpart"],
         ["dFdx", "fragColor = vec4(dFdx(fragCoord.x));", "dFdx has no counterpart: there are no derivatives"],
     ])("says %s has no counterpart, and leaves it for the errors", (_, body, text) => {
         const r = convert(image(body))
