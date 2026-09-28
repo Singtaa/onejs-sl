@@ -23,9 +23,9 @@ describe("IR versions", () => {
     })
 
     it("keep a version 2 program's hash across the bump to 3", () => {
-        // What 0.3.0 (IR version 2) printed for this program. A program that
-        // holds nothing version 3 added still finds the shader recorded for it.
-        expect(plasma().hash).toBe("49d87e29")
+        // Under hash version 2, what IR version 2 gives this program. A program
+        // that holds nothing IR 3 added hashes the same as it did under IR 2.
+        expect(plasma().hash).toBe("2e6f1466")
     })
 
     it("refuse a file whose nodes are newer than the version it states", () => {

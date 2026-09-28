@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Every hash changes once: `a + b` and `b + a` share one, as do `8 * uv` and `uv * 8` (`SL_HASH_VERSION` 2)
 - `tex2Dlod(t, uv, lod)` samples a mip level; `sampleLevel` on `sl.texture`
 - `BodyTarget.sampleLevel` is required, for `tex2Dlod`
 - A program's IR version is the lowest that has its nodes, so IR 3 rehashes only programs that sample at a level

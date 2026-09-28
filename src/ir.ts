@@ -423,6 +423,13 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
     // digests, so two graphs that compute the same thing agree however they were
     // assembled. It also ignores nodes not reachable from the result, which is
     // correct: dead nodes generate no shader code.
+    //
+    // NORMALISED, so two ways of writing one computation agree (hash version 2).
+    // A commutative op's operands are digested in sorted order, so `a + b` is
+    // `b + a`; and a swizzle of a constant is digested as the constant it picks,
+    // so `8 * uv` (8 broadcast by a swizzle) is `uv * 8` (a float2 constant).
+    // Only where every backend computes the same bits either way: min and max
+    // are left out, since which of -0 and +0 they return depends on the order.
     const digest = new Map<NodeRef, string>()
 
     const of = (ref: NodeRef): string => {
@@ -438,8 +445,19 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
             // produce different shaders and must not share a hash. The names go
             // in separately below.
             case "uniform": body = `u:${n.slot}:${n.type}`; break
-            case "swizzle": body = `s:${of(n.src)}:${n.chans.join("")}`; break
-            case "call": body = `f:${n.op}:${n.args.map(of).join(",")}:${(n.imm ?? []).map(fixed).join(",")}`; break
+            case "swizzle": {
+                const src = nodes[n.src]!
+                body = src.k === "const"
+                    ? `c:${n.type}:${n.chans.map((c) => fixed(src.v[c]!)).join(",")}`
+                    : `s:${of(n.src)}:${n.chans.join("")}`
+                break
+            }
+            case "call": {
+                const args = n.args.map(of)
+                if (COMMUTATIVE.has(n.op)) args.sort()
+                body = `f:${n.op}:${args.join(",")}:${(n.imm ?? []).map(fixed).join(",")}`
+                break
+            }
         }
         const d = fnv1a(body + "|" + n.type)
         digest.set(ref, d)
@@ -534,8 +552,16 @@ export function formProblem(n: Extract<SLNode, { k: "call" }>, nodes: readonly S
     }
 }
 
-/** Bumped when the hashing scheme changes, which invalidates generated shaders. */
-export const SL_HASH_VERSION = 1
+/** The ops whose two operands the hash takes in either order: exact in IEEE arithmetic on every backend. */
+const COMMUTATIVE = new Set<number>([SLOP.ADD, SLOP.MUL, SLOP.DOT, SLOP.DISTANCE])
+
+/**
+ * Bumped when the hashing scheme changes, which invalidates generated shaders.
+ *
+ *   1  the Merkle hash over the reachable graph
+ *   2  normalised: commutative operands in either order, a swizzle of a constant as the constant
+ */
+export const SL_HASH_VERSION = 2
 
 /**
  * Bumped whenever the IR changes in a way a reader has to know about: a new

@@ -310,7 +310,11 @@ So it is a Merkle hash over the graph reachable from the result, not a walk of
 the node array. An earlier version hashed storage order, which meant hoisting a
 shared subexpression into a `const` changed the hash without changing what the
 program computed. Constants go through a fixed precision, so `0.1 + 0.2` and
-`0.3` do not produce different shaders. It is eight lowercase hex characters
+`0.3` do not produce different shaders. It is normalised, so two ways of
+writing one computation share a hash: `a + b` and `b + a` (and `*`, `dot`,
+`distance`), and `8 * uv`, whose 8 is a broadcast, and `uv * 8`, whose 8 is a
+float2. `min` and `max` keep their order, since which of -0 and +0 they return
+depends on it. It is eight lowercase hex characters
 from FNV-1a, chosen so a C# implementation can produce the same string rather
 than for any cryptographic reason.
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { sl } from "./index"
+import { parse, sl, type Float } from "./index"
 import { SLError, TYPE, hashProgram } from "./ir"
 import { SLOP } from "./ops"
 import { SL_SDF_SHAPES } from "./shapes"
@@ -127,6 +127,26 @@ describe("the hash is canonical", () => {
         const a = sl.program(({ uv }) => sl.vec4(uv.x.add(0.3), 0, 0, 1))
         const b = sl.program(({ uv }) => sl.vec4(uv.x.add(0.1 + 0.2), 0, 0, 1))
         expect(b.hash).toBe(a.hash)
+    })
+
+    it("takes a commutative op's operands in either order", () => {
+        const a = sl.program(({ uv, time }) => sl.vec4(uv.x.add(time), uv.y.mul(time), uv.dot(sl.vec2(time, 1)), 1))
+        const b = sl.program(({ uv, time }) => sl.vec4(time.add(uv.x), time.mul(uv.y), sl.vec2(time, 1).dot(uv), 1))
+        expect(b.hash).toBe(a.hash)
+    })
+
+    it("takes a broadcast constant as the wide constant it is, so 8 * uv is uv * 8", () => {
+        const a = parse("float4 main() { return float4(uv * 8, 0, 1); }")
+        const b = parse("float4 main() { return float4(8 * uv, 0, 1); }")
+        expect(b.hash).toBe(a.hash)
+    })
+
+    it("keeps order where it matters, and min and max, whose -0 and +0 depend on it", () => {
+        const sub = (f: (x: Float, y: Float) => Float) => sl.program(({ uv }) => sl.vec4(f(uv.x, uv.y), 0, 0, 1)).hash
+        expect(sub((x, y) => x.sub(y))).not.toBe(sub((x, y) => y.sub(x)))
+        expect(sub((x, y) => x.div(y))).not.toBe(sub((x, y) => y.div(x)))
+        expect(sub((x, y) => x.min(y))).not.toBe(sub((x, y) => y.min(x)))
+        expect(parse("float4 main() { return float4(uv.yx, 0, 1); }").hash).not.toBe(parse("float4 main() { return float4(uv, 0, 1); }").hash)
     })
 
     it("changes when the program changes", () => {
