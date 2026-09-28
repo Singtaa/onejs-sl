@@ -36,7 +36,7 @@ only what it calls.
 | Entry | Contents |
 |---|---|
 | `onejs-sl` | `parse` and `analyze`, `diagnose` (every error in a file, not just the first), `classify` (every token with its class, comments kept, never throws), `fromGLSL` (a pasted Shadertoy or WebGL shader as a `.sl` file, with notes on what did not carry over), the TypeScript form `sl`, the IR types, `SL_IR_VERSION`, `toJSON`/`fromJSON`, `SLParseError` (file, line, column, offset, length, the bare `text`, and a `fix` where one is certain) |
-| `onejs-sl/core` | the same without the parser: what a game needs at run time |
+| `onejs-sl/core` | the same without the parser: what a game needs at run time. Also the caps on one program, `UNIFORM_SLOTS` (16) and `TEXTURE_SLOTS` (4), which the parser enforces and a host can read |
 | `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`, `SL_KEYWORDS`, `SL_TYPES`, `TYPE_WIDTH`, `PRELUDE_NAMES`: what completion and highlighting read. `BUILTIN_PARAMS`, `SL_SDF_PARAM_NAMES` and `LIB_SIGNATURES` name every parameter, so an editor can show `lerp(x, y, s)`, and `BUILTIN_DOCS`, `INPUT_DOCS` and `PRELUDE_DOCS` give each a line for its tooltip |
 | `onejs-sl/compile` | `compile(program)`: what a host draws a program with. Its hash, its uniform and texture names in slot order, their defaults, and `hlsl`, `wgsl` and `glsl` as lazy getters. No budget |
 | `onejs-sl/limits` | `vmFit(program)`: whether the VM runs it, and why not. The VM's, until it is deleted |

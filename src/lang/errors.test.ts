@@ -176,18 +176,20 @@ describe("names", () => {
     })
 })
 
-describe("budgets", () => {
+describe("caps", () => {
     it("reports too many uniforms at the one that went over", () => {
         const decls = Array.from({ length: 17 }, (_, i) => `uniform float u${i} = 0;`).join("\n")
         const e = refuse(`${decls}\nfloat4 main() { return float4(u0, 0, 0, 1); }`)
         expect(e.message).toContain("a program may hold 16")
+        expect(e.message).not.toMatch(/\bVM\b/)
         expect(e.line).toBe(17)
     })
 
     it("reports too many textures, and why a fifth cannot work", () => {
         const decls = Array.from({ length: 5 }, (_, i) => `texture2D t${i};`).join("\n")
         const e = refuse(`${decls}\nfloat4 main() { return tex2D(t0, uv); }`)
-        expect(e.message).toContain("two different pictures from one file")
+        expect(e.message).toContain("two pictures from one file")
+        expect(e.message).not.toMatch(/\bVM\b/)
         expect(e.line).toBe(5)
     })
 })

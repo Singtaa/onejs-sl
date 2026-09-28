@@ -20,8 +20,9 @@ describe("entry points", () => {
     it("core is a program without the parser", () => {
         expect(names(core)).toEqual([
             "CONTROL_FIELDS", "INPUTS", "INPUT_ID", "MAX_NODES", "MAX_TEXTURES", "SLError", "SLOP", "SL_ARITY",
-            "SL_IR_VERSION", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_SHAPES", "TYPE", "controlProblem", "fromJSON",
-            "hashProgram", "inputsUsed", "isSampling", "parseColor", "sl", "toJSON", "widthName",
+            "SL_IR_VERSION", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_SHAPES", "TEXTURE_SLOTS", "TYPE", "UNIFORM_SLOTS",
+            "controlProblem", "fromJSON", "hashProgram", "inputsUsed", "isSampling", "parseColor", "sl", "toJSON",
+            "widthName",
         ])
     })
 

@@ -16,7 +16,7 @@ export {
 export type {
     SLType, InputName, NodeRef, SLNode, Program, UniformDecl, UniformControl, TextureDecl,
 } from "./ir"
-export { SLOP, SL_ARITY, SL_NAME, INPUT_ID, isSampling } from "./ops"
+export { SLOP, SL_ARITY, SL_NAME, INPUT_ID, isSampling, UNIFORM_SLOTS, TEXTURE_SLOTS } from "./ops"
 export type { SLOpCode } from "./ops"
 export { SL_SDF_SHAPES, SL_SDF_PARAMS } from "./shapes"
 export type { SlSdfKind } from "./shapes"

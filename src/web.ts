@@ -29,12 +29,12 @@ import { SLError, TYPE, type Program, type SLNode, type SLType } from "./ir"
 import { libClosure, libIndex, LIB_FUNCTIONS, SDF_CALLS } from "./lib"
 import { LIB_GLSL } from "./lib/glsl"
 import { LIB_WGSL } from "./lib/wgsl"
-import { INPUT_ID, SLOP, VM_UNIFORMS } from "./ops"
+import { INPUT_ID, SLOP, UNIFORM_SLOTS } from "./ops"
 
 export type WebLanguage = "glsl" | "wgsl"
 
 /** Uniform slots the host always provides, so every program shares one layout. */
-export const WEB_UNIFORM_SLOTS = VM_UNIFORMS
+export const WEB_UNIFORM_SLOTS = UNIFORM_SLOTS
 
 export function emitGLSL(p: Program): string {
     return emitWeb(p, "glsl")

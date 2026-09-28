@@ -29,7 +29,7 @@
  */
 
 import { DERIVED_INPUTS, INPUTS } from "../ir"
-import { VM_TEXTURES, VM_UNIFORMS } from "../ops"
+import { TEXTURE_SLOTS, UNIFORM_SLOTS } from "../ops"
 import { SL_GLSL_HINT } from "../ops"
 import { BUILTINS, NOT_YET } from "./builtins"
 import { SL_SDF_SHAPES } from "../shapes"
@@ -161,12 +161,12 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         if (!uniforms.has(u.name)) uniforms.set(u.name, u)
     }
     attempt(() => {
-        if (uniforms.size <= VM_UNIFORMS) return
-        const over = unit.uniforms[VM_UNIFORMS]!
+        if (uniforms.size <= UNIFORM_SLOTS) return
+        const over = unit.uniforms[UNIFORM_SLOTS]!
         fail(
-            `this file declares ${uniforms.size} uniforms and a program may hold ${VM_UNIFORMS}. ` +
-            `That is the size of the VM's uniform array; past it a slot reads the last one instead ` +
-            `of its own, so it is refused here rather than rendered wrong. Pack related values into ` +
+            `this file declares ${uniforms.size} uniforms and a program may hold ${UNIFORM_SLOTS}. ` +
+            `OneJS keeps a program's uniforms in ${UNIFORM_SLOTS} slots, so this one would have no ` +
+            `slot of its own; it is refused here rather than drawn wrong. Pack related values into ` +
             `a float4.`,
             over.pos, over.name.length,
         )
@@ -180,12 +180,12 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         if (!textures.has(t.name)) textures.set(t.name, t)
     }
     attempt(() => {
-        if (textures.size <= VM_TEXTURES) return
-        const over = unit.textures[VM_TEXTURES]!
+        if (textures.size <= TEXTURE_SLOTS) return
+        const over = unit.textures[TEXTURE_SLOTS]!
         fail(
-            `this file declares ${textures.size} textures and a program may sample ${VM_TEXTURES}. ` +
-            `The VM shader declares four samplers; a fifth would sample the fourth in the browser ` +
-            `and its own after an eject, which is two different pictures from one file.`,
+            `this file declares ${textures.size} textures and a program may sample ${TEXTURE_SLOTS}. ` +
+            `OneJS binds ${TEXTURE_SLOTS} textures to a program in the editor and a native player, so ` +
+            `this one would sample nothing there while a browser drew it: two pictures from one file.`,
             over.pos, over.name.length,
         )
     })

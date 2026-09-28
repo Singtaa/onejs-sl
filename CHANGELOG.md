@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+A host can read how many uniforms and textures one program may declare, and the parser's refusal of a seventeenth uniform or a fifth texture says why without naming the VM. Nothing draws differently.
+
+- `onejs-sl/core` exports `UNIFORM_SLOTS` (16) and `TEXTURE_SLOTS` (4)
+- `VM_UNIFORMS` and `VM_TEXTURES` are the same numbers, and go with the VM
+- The parser's cap messages give OneJS's slots as the reason
+
 ## 0.2.0
 
 `compile()` replaces `encode()` for every host that draws compiled: it gives a program's hash, names, defaults and sources with no VM buffer and no budget, so a long program or one with many values at once compiles. Program hashes do not change.

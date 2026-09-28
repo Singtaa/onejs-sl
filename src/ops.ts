@@ -35,17 +35,25 @@
 export const SL_WIRE_VERSION = 2
 
 /**
- * What the VM shader actually declares, and therefore what a program may use.
+ * How many uniforms and textures one program may declare: the language's caps,
+ * for a host to read.
  *
- * `FxProgram.shader` has `float4 _Uniforms[16]` and four `sampler2D`s, and
- * `SLProgramBridge.cs` fills exactly those. Past either ceiling the VM does not
- * fail, it clamps: uniform 17 reads slot 15 and texture slot 4 samples `_Tex3`,
- * while the generated HLSL would declare both correctly. That is a silent
- * disagreement between the backends, so the text form reports it at the
- * declaration with a file and a line. See `Specs/SL_TEXT.md` 3.7.
+ * They are what OneJS draws a program with. It keeps a program's uniforms in
+ * 16 slots in the editor, a native player and a browser alike
+ * (`SLProgramBridge.MaxUniforms`, the web frame's `sl_U`), and binds four
+ * textures in the editor and a native player (`_Tex0` to `_Tex3`). A program
+ * past either has something with no slot of its own, which one host would drop
+ * and another would draw, so the text form refuses it at the declaration with a
+ * file and a line. `Specs/SL_NEXT.md` section 8 proposes raising both.
+ *
+ * Not `MAX_TEXTURES`, which is how many textures the IR can record at all.
  */
-export const VM_UNIFORMS = 16
-export const VM_TEXTURES = 4
+export const UNIFORM_SLOTS = 16
+export const TEXTURE_SLOTS = 4
+
+/** The VM's names for the same two caps, which go when the VM does. */
+export const VM_UNIFORMS = UNIFORM_SLOTS
+export const VM_TEXTURES = TEXTURE_SLOTS
 
 /** Input ids, fixed here because the shader switches on them. */
 export const INPUT_ID: Record<string, number> = {
