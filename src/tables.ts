@@ -13,7 +13,8 @@ export {
     SLOP, SL_ARITY, SL_NAME, SL_HLSL, SL_CALL_NAMES, SL_GLSL_HINT, SL_UNIMPLEMENTED,
 } from "./ops"
 export type { SLSurface } from "./ops"
-export { INPUTS } from "./ir"
+export { DERIVED_INPUTS, INPUTS, SOURCE_INPUTS } from "./ir"
+export type { DerivedInputName, InputName, SourceInputName } from "./ir"
 export { SL_SDF_SHAPES, SL_SDF_PARAMS } from "./shapes"
 export { BUILTIN_DOCS, BUILTIN_PARAMS, INPUT_DOCS, LIB_SIGNATURES, SL_SDF_PARAM_NAMES } from "./params"
 export { PRELUDE_DOCS, PRELUDE_NAMES } from "./lang/prelude-source"

@@ -28,7 +28,7 @@
  * is refused with the reason.
  */
 
-import { INPUTS } from "../ir"
+import { DERIVED_INPUTS, INPUTS } from "../ir"
 import { VM_TEXTURES, VM_UNIFORMS } from "../ops"
 import { SL_GLSL_HINT } from "../ops"
 import { BUILTINS, NOT_YET } from "./builtins"
@@ -37,6 +37,12 @@ import type { Expr, FuncDecl, Stmt, Unit } from "./ast"
 import { SLParseError, type Pos, type SLFix } from "./lexer"
 
 const INPUT_NAMES = new Set(Object.keys(INPUTS))
+/**
+ * Inputs built from the others (`texel`, `centered`). A declaration may take
+ * one's name, as it may a builtin's, because programs wrote their own `texel`
+ * long before the language had one, and that must keep compiling.
+ */
+const DERIVED_NAMES = new Set(Object.keys(DERIVED_INPUTS))
 
 /**
  * The GLSL spellings whose HLSL name means the same wherever it is written, so
@@ -133,13 +139,14 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         if (uniforms.has(n)) return "a uniform"
         if (textures.has(n)) return "a texture"
         if (consts.has(n)) return "a const"
+        if (DERIVED_NAMES.has(n)) return "a derived input"
         return null
     }
 
     /** What a value may not be called: anything spoken for, except a builtin's or a prelude function's name. */
     const valueClash = (n: string): string | null => {
         const why = taken(n)
-        if (why !== null && why !== "a builtin") return why
+        if (why !== null && why !== "a builtin" && why !== "a derived input") return why
         const fn = funcs.get(n)
         return fn !== undefined && !fn.prelude ? "a function" : null
     }
@@ -220,7 +227,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         if (main.params.length > 0) {
             fail(
                 "main takes no parameters: what a program is given are the free identifiers uv, " +
-                "fragCoord, resolution, time and aspect",
+                "fragCoord, resolution, time, aspect, texel and centered",
                 main.params[0]!.pos,
             )
         }
@@ -365,7 +372,9 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                     }
                     if (target.k !== "ident") fail("only a local can be assigned to", target.pos)
                     const n = target.name
-                    const why = taken(n)
+                    // A local shadows what it is named after, a builtin or a
+                    // derived input, so it is assignable like any other local.
+                    const why = scope.has(n) ? null : taken(n)
                     if (why !== null) fail(`"${n}" is ${why} and cannot be assigned to`, target.pos, n.length)
                     if (counters.has(n)) {
                         fail(
@@ -423,7 +432,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
             case "hex":
                 return
             case "ident": {
-                if (scope.has(e.name) || INPUT_NAMES.has(e.name) || uniforms.has(e.name) || consts.has(e.name)) return
+                if (scope.has(e.name) || INPUT_NAMES.has(e.name) || DERIVED_NAMES.has(e.name) || uniforms.has(e.name) || consts.has(e.name)) return
                 if (textures.has(e.name)) {
                     fail(
                         `"${e.name}" is a texture, and a texture is only ever the first argument of ` +
@@ -581,7 +590,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     /** Refuses a name nothing declares, offering the nearest one spelled almost like it. */
     function unknown(n: string, scope: Set<string>, pos: Pos): never {
         const near = nearest(n, [
-            ...scope, ...INPUT_NAMES, ...uniforms.keys(), ...textures.keys(), ...consts.keys(),
+            ...scope, ...INPUT_NAMES, ...DERIVED_NAMES, ...uniforms.keys(), ...textures.keys(), ...consts.keys(),
             ...funcs.keys(), ...Object.keys(BUILTINS),
         ])
         if (near === null) fail(`"${n}" is not declared`, pos, n.length)

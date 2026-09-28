@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.9
+
+Two inputs built from the others (`Specs/SL_NEXT.md` 6), and a converter that carries more of a pasted shader over. A program that names neither input compiles to exactly what it did.
+
+- `texel` is one pixel in uv, and `centered` is uv with 0 at the centre and x scaled by aspect
+- A local, parameter or uniform named `texel` or `centered` keeps working
+- A local named after a builtin can be assigned to
+- `fromGLSL` reads `u_time` and `u_resolution` as the inputs, and drops their declarations
+- `fromGLSL` turns a mat2 rotation into `rotate()`, and points any other mat2 at it
+- `INPUT_DOCS` say `uv` and `fragCoord` are the centre of the pixel
+
 ## 0.1.8
 
 A pasted GLSL shader becomes a `.sl` file (`Specs/SL_NEXT.md` 5). Nothing a program compiles to changes.

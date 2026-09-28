@@ -20,7 +20,7 @@ import { BUILTINS } from "./lang/builtins"
 import { LIB_FUNCTIONS, SDF_CALLS } from "./lib/table"
 import { LIB_PARAM_NAMES } from "./lib/names"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
-import type { InputName } from "./ir"
+import type { SourceInputName } from "./ir"
 
 /** One function of the helper library, as its source declares it. */
 export interface LibSignature {
@@ -169,10 +169,12 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
  * the output is a UI element in OneJS and an image on a Magerie board, and the
  * clock is whichever one the host runs.
  */
-export const INPUT_DOCS: Readonly<Record<InputName, string>> = {
-    uv: "Where this pixel is in the output, 0 to 1 on each axis, with y up.",
-    fragCoord: "Where this pixel is in the output, in pixels, with y up.",
+export const INPUT_DOCS: Readonly<Record<SourceInputName, string>> = {
+    uv: "The centre of this pixel in the output, 0 to 1 on each axis, with y up.",
+    fragCoord: "The centre of this pixel in the output, in pixels, with y up: the first column is at 0.5.",
     resolution: "The output's size in pixels.",
     time: "The clock, in seconds.",
     aspect: "The output's width divided by its height.",
+    texel: "One pixel, in uv: 1 / resolution. Step by it to read a neighbouring pixel.",
+    centered: "uv with 0 at the centre and x scaled by aspect, so a circle drawn in it stays round.",
 }

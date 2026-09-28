@@ -107,6 +107,83 @@ const MISSING: Record<string, string> = {
     dFdx: "there are no derivatives", dFdy: "there are no derivatives", fwidth: "there are no derivatives",
 }
 
+/**
+ * Uniforms other hosts declare for what is an input here: the Book of Shaders'
+ * and glslCanvas's `u_time`, glslsandbox's `time`, and Shadertoy's own when a
+ * tool declares them. The declaration goes and every use reads the input, so a
+ * pasted shader does not arrive frozen on a uniform nothing sets.
+ */
+const HOST_UNIFORMS: Record<string, string> = {
+    u_time: "time", u_resolution: "resolution", time: "time", resolution: "resolution",
+    iTime: "time", iGlobalTime: "time", iResolution: "resolution", iMouse: "mouse",
+}
+
+const QUALIFIERS = new Set(["highp", "mediump", "lowp"])
+/** Words that take a bracket without being called. */
+const CONTROL = new Set(["if", "for", "while", "switch", "return"])
+
+/**
+ * Whether a `mat2(...)`, given its four arguments as words, is a rotation, and
+ * which way: +1 for `mat2(c, s, -s, c)`, the matrix R(a), and -1 for
+ * `mat2(c, -s, s, c)`, which is R(-a) since GLSL fills a matrix by columns.
+ * `cos` and `sin` are the words that stand for the cosine and sine.
+ */
+function rotationSign(matArgs: string[], cos: string[], sin: string[]): 1 | -1 | null {
+    const kind = (w: string) => cos.includes(w) ? "C" : sin.includes(w) ? "S"
+        : w.startsWith("- ") && sin.includes(w.slice(2)) ? "-S" : "?"
+    const k = matArgs.map(kind).join(",")
+    return k === "C,S,-S,C" ? 1 : k === "C,-S,S,C" ? -1 : null
+}
+
+/** Words split at the commas outside any bracket. */
+function splitTop(words: string[]): string[] {
+    const out: string[] = []
+    let depth = 0
+    let cur: string[] = []
+    for (const w of words) {
+        if (w === "(" || w === "[") depth++
+        else if (w === ")" || w === "]") depth--
+        if (w === "," && depth === 0) { out.push(cur.join(" ")); cur = [] } else cur.push(w)
+    }
+    out.push(cur.join(" "))
+    return out
+}
+
+/** The arguments of `mat2 ( ... )` as words, when `words` is exactly that, in any number of brackets. */
+function mat2Args(words: string[]): string[] | null {
+    while (words[0] === "(" && words[words.length - 1] === ")") words = words.slice(1, -1)
+    if (words[0] !== "mat2" || words[1] !== "(" || words[words.length - 1] !== ")") return null
+    const inner = words.slice(2, -1)
+    let depth = 0
+    for (const w of inner) { if (w === "(") depth++; else if (w === ")" && --depth < 0) return null }
+    return splitTop(inner)
+}
+
+/**
+ * The sign of a function body that returns a rotation of its parameter:
+ * `return mat2(cos(a), -sin(a), sin(a), cos(a));`, or the same after
+ * `float c = cos(a), s = sin(a);`. Null for anything else.
+ */
+function rotationBody(words: string[], param: string): 1 | -1 | null {
+    const cos = [`cos ( ${param} )`]
+    const sin = [`sin ( ${param} )`]
+    const statements = words.join(" ").split(/\s*;\s*/).filter((x) => x !== "")
+    const last = statements.pop()
+    const binding = new RegExp(`^(\\w+) = (cos|sin) \\( ${param} \\)$`)
+    for (const st of statements) {
+        const parts = splitTop(st.replace(/^float /, "").split(" "))
+        for (const part of parts) {
+            const m = binding.exec(part)
+            if (m === null) return null
+            if (m[2] === "cos") cos.push(m[1]!)
+            else sin.push(m[1]!)
+        }
+    }
+    if (last === undefined || !last.startsWith("return ")) return null
+    const a = mat2Args(last.slice("return ".length).split(" "))
+    return a === null || a.length !== 4 ? null : rotationSign(a, cos, sin)
+}
+
 /** Names a pasted value or function cannot keep, because the language already means something by them. */
 function taken(name: string, isFunction: boolean): boolean {
     if (name in INPUTS || (SL_KEYWORDS as readonly string[]).includes(name) || (SL_TYPES as readonly string[]).includes(name)) return true
@@ -141,6 +218,61 @@ export function fromGLSL(glsl: string, options: { file?: string } = {}): FromGLS
         }
         return toks.length
     }
+    /** The index of the bracket opening the one at `close`, or -1. */
+    const opening = (close: number): number => {
+        const [o, c] = toks[close]!.text === ")" ? ["(", ")"] : ["[", "]"]
+        let depth = 0
+        for (let i = close; i >= 0; i--) {
+            if (toks[i]!.kind !== "punct") continue
+            if (toks[i]!.text === c) depth++
+            else if (toks[i]!.text === o && --depth === 0) return i
+        }
+        return -1
+    }
+    /** Words for tokens `from` to `to`: no layout, no comments, one space between. */
+    const words = (from: number, to: number) =>
+        toks.slice(from, to).filter((t) => t.kind !== "ws" && t.kind !== "comment").map((t) => t.text)
+    /**
+     * The last token of the operand starting at `i`: a name, a number, a call
+     * or a bracket, then any members and indexes. -1 when it is none of those.
+     */
+    const operandAfter = (i: number): number => {
+        const t = toks[i]
+        let j: number
+        if (t === undefined) return -1
+        if (t.kind === "number") j = i
+        else if (is(i, "(")) j = closing(i)
+        else if (t.kind === "ident") { const n = skip(i + 1); j = is(n, "(") ? closing(n) : i }
+        else return -1
+        for (;;) {
+            if (j >= toks.length) return -1
+            const n = skip(j + 1)
+            if (is(n, ".") && toks[skip(n + 1)]?.kind === "ident") j = skip(n + 1)
+            else if (is(n, "[")) j = closing(n)
+            else return j
+        }
+    }
+    /** The first token of the operand ending at `j`, the same shapes read backwards. -1 when there is none. */
+    const operandBefore = (j: number): number => {
+        let i = j
+        for (;;) {
+            if (is(i, "]")) { const o = opening(i); if (o < 0) return -1; i = back(o - 1); continue }
+            let start: number
+            if (is(i, ")")) {
+                const o = opening(i)
+                if (o < 0) return -1
+                const p = back(o - 1)
+                start = toks[p]?.kind === "ident" && !CONTROL.has(toks[p]!.text) ? p : o
+            } else if (toks[i]?.kind === "ident" || toks[i]?.kind === "number") {
+                start = i
+            } else {
+                return -1
+            }
+            const p = back(start - 1)
+            if (!is(p, ".")) return start
+            i = back(p - 1)
+        }
+    }
     /** A call's arguments, as token ranges, for the call whose "(" is at `open`. */
     const args = (open: number, close: number): Array<[number, number]> => {
         const out: Array<[number, number]> = []
@@ -171,6 +303,142 @@ export function fromGLSL(glsl: string, options: { file?: string } = {}): FromGLS
         if (isFunction) functions.add(name)
         if (name === "mainImage" || name === "main") continue
         if (taken(name, isFunction)) clashes.set(name, name + "_")
+    }
+
+    // ---------- what other hosts declare ----------
+
+    /**
+     * Token ranges written as something else, keyed by their first token: a
+     * declaration that goes, a rotation that becomes a call. They nest, and
+     * never cross.
+     */
+    const spans = new Map<number, { end: number; render: (inEntry: boolean) => string }>()
+    const crosses = (start: number, end: number) =>
+        [...spans].some(([s, v]) => (s < start && start <= v.end && v.end < end) || (start < s && s <= end && end < v.end))
+    /** A range and the whitespace after it, gone. */
+    const drop = (start: number, end: number) => {
+        spans.set(start, { end: toks[end + 1]?.kind === "ws" ? end + 1 : end, render: () => "" })
+    }
+
+    const hostUniforms = new Set<string>()
+    for (let i = 0; i < toks.length; i++) {
+        if (!is(i, "uniform")) continue
+        let t = skip(i + 1)
+        while (QUALIFIERS.has(toks[t]?.text ?? "")) t = skip(t + 1)
+        const n = skip(t + 1)
+        const name = toks[n]?.text ?? ""
+        const semi = skip(n + 1)
+        if (toks[n]?.kind !== "ident" || HOST_UNIFORMS[name] === undefined || !is(semi, ";")) continue
+        hostUniforms.add(name)
+        // Its name is the input, not a clash with it.
+        clashes.delete(name)
+        const input = HOST_UNIFORMS[name]!
+        noteOnce("host:" + name, toks[i]!.line, `the uniform ${name} is the input ${input}, so its declaration is dropped`)
+        drop(i, semi)
+    }
+
+    // ---------- rotations ----------
+
+    /**
+     * There are no matrices, and the matrix a shader almost always has is a
+     * rotation: `mat2 rot(float a)` returning `mat2(c, -s, s, c)`, the same as
+     * a macro, or written in place. Each use that multiplies a vector becomes
+     * `rotate(p, angle)`, the angle's sign set by the matrix and by which side
+     * the vector is on, since GLSL's `p * M` is M transposed times p. A
+     * function or macro whose every use is converted goes. Anything else keeps
+     * its `mat2`, which `errors` then points at, with a note naming rotate().
+     */
+    const rotations = new Map<string, { sign: 1 | -1; def: [number, number]; line: number; uses: number; converted: number }>()
+    for (let i = 0; i < toks.length; i++) {
+        const t = toks[i]!
+        if (t.kind === "directive") {
+            const m = /^#\s*define\s+([A-Za-z_]\w*)\(\s*([A-Za-z_]\w*)\s*\)(.*)$/s.exec(t.text)
+            if (m === null) continue
+            const body = tokenize(m[3]!.replace(/\\\n/g, " ")).filter((x) => x.kind !== "ws" && x.kind !== "comment").map((x) => x.text)
+            const a = mat2Args(body)
+            const sign = a === null || a.length !== 4 ? null : rotationSign(a, [`cos ( ${m[2]} )`], [`sin ( ${m[2]} )`])
+            if (sign !== null) rotations.set(m[1]!, { sign, def: [i, i], line: t.line, uses: 0, converted: 0 })
+            continue
+        }
+        if (!is(i, "mat2")) continue
+        const n = skip(i + 1)
+        const open = skip(n + 1)
+        if (toks[n]?.kind !== "ident" || !is(open, "(")) continue
+        const close = closing(open)
+        const params = words(open + 1, close).filter((w) => w !== "in")
+        const body = skip(close + 1)
+        if (params.length !== 2 || params[0] !== "float" || !is(body, "{")) continue
+        const end = closing(body)
+        const sign = rotationBody(words(body + 1, end), params[1]!)
+        if (sign !== null) rotations.set(toks[n]!.text, { sign, def: [i, end], line: t.line, uses: 0, converted: 0 })
+    }
+    // A file with a rotate of its own would have the calls written here call it.
+    const ownRotate = toks.some((t, i) => t.text === "rotate" && t.kind === "ident" && GLSL_TYPES.has(toks[back(i - 1)]?.text ?? "") &&
+        !(rotations.has("rotate") && toks[back(i - 1)]!.text === "mat2"))
+
+    /** The angle, negated when `sign` is -1, as text. */
+    const angle = (range: [number, number], sign: 1 | -1, inEntry: boolean) => {
+        const a = emit(range[0], range[1], inEntry).trim()
+        if (sign === 1) return a
+        if (/^-[\w.]+$/.test(a)) return a.slice(1)
+        return /^[\w.]+$/.test(a) ? `-${a}` : `-(${a})`
+    }
+    for (let i = 0; i < toks.length && !ownRotate; i++) {
+        if (toks[i]!.kind !== "ident" || is(back(i - 1), ".")) continue
+        const open = skip(i + 1)
+        if (!is(open, "(")) continue
+        const close = closing(open)
+        const a = args(open, close)
+        const fn = rotations.get(toks[i]!.text)
+        let sign: 1 | -1 | null = null
+        let range: [number, number] | null = null
+        if (fn !== undefined && (i < fn.def[0] || i > fn.def[1])) {
+            fn.uses++
+            if (a.length === 1) { sign = fn.sign; range = a[0]! }
+        } else if (is(i, "mat2") && a.length === 4) {
+            // In place: the angle is whatever cos() is given.
+            const first = skip(a[0]![0])
+            const inner = skip(first + 1)
+            if (is(first, "cos") && is(inner, "(") && closing(inner) === back(a[0]![1] - 1)) {
+                const x = words(inner + 1, closing(inner)).join(" ")
+                sign = rotationSign(a.map(([x0, x1]) => words(x0, x1).join(" ")), [`cos ( ${x} )`], [`sin ( ${x} )`])
+                range = [inner + 1, closing(inner)]
+            }
+        }
+        if (sign === null || range === null) continue
+        const r = range
+        const s = sign
+        const before = back(i - 1)
+        const after = skip(close + 1)
+        let span: [number, number, (inEntry: boolean) => string] | null = null
+        if (is(before, "=") && is(before - 1, "*") && is(after, ";")) {
+            // p *= M is p = p * M.
+            const lhsEnd = back(before - 2)
+            const lhs = operandBefore(lhsEnd)
+            if (lhs >= 0) span = [lhs, close, (e) => { const p = emit(lhs, lhsEnd + 1, e).trim(); return `${p} = rotate(${p}, ${angle(r, -s as 1 | -1, e)})` }]
+        } else if (is(after, "*") && !is(after + 1, "=") && !["/", "%", "*"].includes(toks[before]?.text ?? "")) {
+            // M * p.
+            const x = skip(after + 1)
+            const xEnd = operandAfter(x)
+            if (xEnd >= 0) span = [i, xEnd, (e) => `rotate(${emit(x, xEnd + 1, e).trim()}, ${angle(r, s, e)})`]
+        } else if (is(before, "*") && !is(after, "*")) {
+            // p * M.
+            const xEnd = back(before - 1)
+            const x = operandBefore(xEnd)
+            if (x >= 0 && !["/", "%"].includes(toks[back(x - 1)]?.text ?? "")) {
+                span = [x, close, (e) => `rotate(${emit(x, xEnd + 1, e).trim()}, ${angle(r, -s as 1 | -1, e)})`]
+            }
+        }
+        if (span === null || crosses(span[0], span[1]) || spans.has(span[0])) continue
+        const [start, end, render] = span
+        spans.set(start, { end, render })
+        noteOnce("rotation", toks[i]!.line, "a mat2 rotation is rotate(p, angle) here, since there are no matrices; the angle's sign follows which side p was multiplied on")
+        if (fn !== undefined) fn.converted++
+    }
+    for (const [name, fn] of rotations) {
+        if (ownRotate || fn.converted !== fn.uses) continue
+        drop(fn.def[0], fn.def[1])
+        note(fn.line, `${name} built a rotation matrix, and each use of it is rotate() now, so it is removed`)
     }
 
     // ---------- the entry point ----------
@@ -231,6 +499,8 @@ export function fromGLSL(glsl: string, options: { file?: string } = {}): FromGLS
         let out = ""
         for (let i = from; i < to; i++) {
             const t = toks[i]!
+            const span = spans.get(i)
+            if (span !== undefined && span.end < to) { out += span.render(inEntry); i = span.end; continue }
             if (t.kind === "directive") { out += directive(t); continue }
             if (t.kind === "number") { out += t.text.replace(/[uU]$/, ""); continue }
             if (t.kind !== "ident") { out += t.text; continue }
@@ -285,6 +555,16 @@ export function fromGLSL(glsl: string, options: { file?: string } = {}): FromGLS
                 noteOnce("narrow:" + name, t.line, why)
                 out += to2
                 continue
+            }
+            if (hostUniforms.has(name) && (name === "u_time" || name === "u_resolution")) { out += HOST_UNIFORMS[name]; continue }
+            if (name === "mat2") {
+                noteOnce("mat2", t.line, "there are no matrices here; a mat2 rotation is rotate(p, angle): p *= mat2(c, -s, s, c) is rotate(p, a), and mat2(c, -s, s, c) * p is rotate(p, -a)")
+                out += name
+                continue
+            }
+            const unconverted = rotations.get(name)
+            if (unconverted !== undefined && called && (i < unconverted.def[0] || i > unconverted.def[1])) {
+                noteOnce("rot:" + t.line + name, t.line, `${name} builds a rotation matrix, and this use of it was not converted; write it as rotate(p, angle)`)
             }
             if (/^iChannel\d$/.test(name)) { textures.add(name); out += name; continue }
             if (name === "iMouse") {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { emitBody, type BodyTarget } from "./emit/hlsl-body"
 import { parse } from "./index"
-import { INPUTS } from "./ir"
+import { SOURCE_INPUTS } from "./ir"
 import { BUILTINS } from "./lang/builtins"
 import { preludeFunctions } from "./lang/prelude"
 import { PRELUDE_DOCS, PRELUDE_NAMES } from "./lang/prelude-source"
@@ -89,8 +89,8 @@ describe("descriptions", () => {
     })
 
     it("describes every input", () => {
-        for (const name of Object.keys(INPUTS) as (keyof typeof INPUTS)[]) line(name, INPUT_DOCS[name])
-        expect(Object.keys(INPUT_DOCS).sort()).toEqual(Object.keys(INPUTS).sort())
+        for (const name of Object.keys(SOURCE_INPUTS) as (keyof typeof SOURCE_INPUTS)[]) line(name, INPUT_DOCS[name])
+        expect(Object.keys(INPUT_DOCS).sort()).toEqual(Object.keys(SOURCE_INPUTS).sort())
     })
 
     it("describes every prelude function, from the comment above it", () => {

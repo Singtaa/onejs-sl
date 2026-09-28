@@ -254,6 +254,10 @@ export interface ProgramInputs {
     resolution: Vec2
     time: Float
     aspect: Float
+    /** One pixel, in uv: `1 / resolution`. Recorded only if read. */
+    texel: Vec2
+    /** `(uv - 0.5) * vec2(aspect, 1)`: 0 at the centre, and a circle stays round. Recorded only if read. */
+    centered: Vec2
 }
 
 /**
@@ -271,6 +275,12 @@ export function program(fn: (inputs: ProgramInputs) => Vec4): Program {
             const ref = b.add({ k: "input", type: width as SLType, name: name as InputName })
             ;(inputs as any)[name] = mk(b, ref, width as SLType)
         }
+        // Getters, so a program that never reads one records nothing for it
+        // (DERIVED_INPUTS in ir.ts). A second read is hash consed to the first.
+        Object.defineProperties(inputs, {
+            texel: { enumerable: true, get: () => vec2(1, 1).div(inputs.resolution) },
+            centered: { enumerable: true, get: () => inputs.uv.sub(0.5).mul(vec2(inputs.aspect, 1)) },
+        })
         const out = fn(inputs)
         if (!(out instanceof Val)) throw new SLError("a program must return an sl value, not " + typeof out)
         if (out.width !== TYPE.VEC4) {

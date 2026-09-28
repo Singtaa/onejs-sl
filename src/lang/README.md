@@ -234,7 +234,18 @@ where they were, so the result reads as the shader it came from. What it does:
   same. Shadertoy's `uv = fragCoord / iResolution.xy` line is dropped, since
   that is the input `uv`.
 - `iResolution`, `iMouse`, `iChannel0` to `3` and `uniform sampler2D` become
-  `resolution`, a `mouse` uniform and declared textures. `#define NAME value`
+  `resolution`, a `mouse` uniform and declared textures. The Book of Shaders'
+  `u_time` and `u_resolution`, glslsandbox's `time` and `resolution`, and
+  Shadertoy's own inputs where a tool declares them are the inputs: their
+  `uniform` declarations go, so the shader does not arrive frozen.
+- A mat2 rotation becomes `rotate(p, angle)`: a function or macro returning
+  `mat2(c, -s, s, c)` or `mat2(c, s, -s, c)` of one angle, or the same written
+  in place, wherever a vector is multiplied by it (`p *= rot(a)`,
+  `rot(a) * p`, `p * rot(a)`). The sign of the angle comes from the matrix and
+  from which side the vector is on, since GLSL fills a matrix by columns. The
+  function or macro goes once every use is converted; otherwise it stays, and
+  the notes point at `rotate()`. A file with a `rotate` of its own is left
+  alone, since the calls would reach it. `#define NAME value`
   becomes a const; any other directive is kept as a comment, with a note.
 - A name the language already means something by gets a `_` suffix, and an
   `int` becomes a float (a for-loop counter stays an int), each with a note.

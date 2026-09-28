@@ -34,10 +34,10 @@ describe("entry points", () => {
 
     it("the others", () => {
         expect(names(tables)).toEqual([
-            "BUILTINS", "BUILTIN_DOCS", "BUILTIN_PARAMS", "INPUTS", "INPUT_DOCS", "LIB_SIGNATURES", "NOT_YET",
-            "PRELUDE_DOCS", "PRELUDE_NAMES", "SLOP", "SL_ARITY", "SL_CALL_NAMES", "SL_GLSL_HINT", "SL_HLSL",
+            "BUILTINS", "BUILTIN_DOCS", "BUILTIN_PARAMS", "DERIVED_INPUTS", "INPUTS", "INPUT_DOCS", "LIB_SIGNATURES",
+            "NOT_YET", "PRELUDE_DOCS", "PRELUDE_NAMES", "SLOP", "SL_ARITY", "SL_CALL_NAMES", "SL_GLSL_HINT", "SL_HLSL",
             "SL_KEYWORDS", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_PARAM_NAMES", "SL_SDF_SHAPES", "SL_TYPES",
-            "SL_UNIMPLEMENTED", "TYPE_WIDTH",
+            "SL_UNIMPLEMENTED", "SOURCE_INPUTS", "TYPE_WIDTH",
         ])
         expect(names(limits)).toEqual(["MAX_INSTRUCTIONS", "REGISTERS", "VM_TEXTURES", "VM_UNIFORMS", "vmFit"])
         expect(names(vm)).toEqual([

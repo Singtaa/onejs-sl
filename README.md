@@ -345,8 +345,18 @@ reset takes the whole page's device, Unity's included.
 ## What a program is given
 
 `uv`, `fragCoord`, `resolution`, `time` and `aspect`, and the last three are the
-**target's**, not the window's. A program is drawn with `Graphics.Blit` into the
-element's own render texture, and Unity sets `_ScreenParams` per camera and
+**target's**, not the window's. `uv` and `fragCoord` are the centre of the pixel
+being drawn, so the first column's `fragCoord.x` is 0.5 on both backends.
+
+Two more are built from those: `texel`, one pixel in uv (`1 / resolution`), and
+`centered`, uv with 0 at the centre and x scaled by `aspect`, so a circle drawn
+in it stays round. They are recorded only when a program names them, so every
+program that does not compiles to the bytes it always did, and a program with a
+`texel` of its own keeps it: a local, a parameter or a uniform of that name
+shadows the input.
+
+Why `resolution` and `aspect` are the target's: a program is drawn with
+`Graphics.Blit` into the element's own render texture, and Unity sets `_ScreenParams` per camera and
 leaves it alone for a blit: reading it from a 64x256 target answers with the
 game view's size. Both backends read the same wrong thing, so they agreed with
 each other and the eject test, which compares them, saw nothing. What saw it was

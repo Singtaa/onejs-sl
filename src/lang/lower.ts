@@ -33,7 +33,7 @@
  * than an optimisation.
  */
 
-import { INPUTS, type Program, type SLType } from "../ir"
+import { DERIVED_INPUTS, INPUTS, type Program, type SLType } from "../ir"
 import type { SlSdfKind } from "../shapes"
 import * as sl from "../sl"
 import type { Num, Val } from "../sl"
@@ -160,6 +160,17 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         return sl.program((inputs) => {
             for (const [name, width] of Object.entries(INPUTS)) {
                 global.declare(name, { width: width as SLType, value: (inputs as never)[name] })
+            }
+            // Read through, so a program that never names one records nothing
+            // for it. The setter only serves a refused assignment, which the
+            // checker has already reported and lowering carries on past.
+            for (const [name, width] of Object.entries(DERIVED_INPUTS)) {
+                let value: LV | undefined
+                global.declare(name, {
+                    width: width as SLType,
+                    get value() { return value ??= (inputs as never)[name] },
+                    set value(v: LV) { value = v },
+                })
             }
 
             // Uniforms and textures take their slots in DECLARATION order, before

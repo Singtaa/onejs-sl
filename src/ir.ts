@@ -42,6 +42,27 @@ export const INPUTS = {
 } as const
 export type InputName = keyof typeof INPUTS
 
+/**
+ * Inputs a program can name that are built from the ones above rather than
+ * handed over by the host (`Specs/SL_NEXT.md` 6). Each read records the same
+ * few nodes a program would if it wrote the expression out, and the builder's
+ * hash consing makes every later read the same node. So there is no new
+ * instruction, no VM or host change, and a program that never names one holds
+ * no extra node, compiling to the bytes it always did.
+ *
+ *   texel     1 / resolution: one pixel, in uv
+ *   centered  (uv - 0.5) * float2(aspect, 1): 0 at the centre, circles stay round
+ */
+export const DERIVED_INPUTS = {
+    texel: TYPE.VEC2,
+    centered: TYPE.VEC2,
+} as const
+export type DerivedInputName = keyof typeof DERIVED_INPUTS
+
+/** Every input a program can name: the host's, then the derived ones. */
+export type SourceInputName = InputName | DerivedInputName
+export const SOURCE_INPUTS: Readonly<Record<SourceInputName, SLType>> = { ...INPUTS, ...DERIVED_INPUTS }
+
 /** Index into `Program.nodes`. Always refers backwards. */
 export type NodeRef = number
 

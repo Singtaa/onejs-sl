@@ -188,3 +188,120 @@ describe("what cannot be carried over", () => {
         expect(r.notes.some((n) => n.includes("inout parameters do not exist here"))).toBe(true)
     })
 })
+
+describe("the uniforms other hosts declare", () => {
+    it("reads the Book of Shaders' u_time and u_resolution as the inputs", () => {
+        const r = compiles([
+            "#ifdef GL_ES",
+            "precision mediump float;",
+            "#endif",
+            "",
+            "uniform vec2 u_resolution;",
+            "uniform float u_time;",
+            "",
+            "void main() {",
+            "    vec2 st = gl_FragCoord.xy / u_resolution.xy;",
+            "    gl_FragColor = vec4(st.x, st.y, abs(sin(u_time)), 1.0);",
+            "}",
+        ].join("\n"))
+        expect(r.source).not.toMatch(/u_time|u_resolution|uniform/)
+        expect(r.source).toContain("float2 st = fragCoord.xy / resolution.xy;")
+        expect(r.source).toContain("abs(sin(time))")
+        expect(r.notes).toEqual([
+            "line 5: the uniform u_resolution is the input resolution, so its declaration is dropped",
+            "line 6: the uniform u_time is the input time, so its declaration is dropped",
+        ])
+    })
+
+    it("keeps glslsandbox's time and resolution the inputs rather than renaming them", () => {
+        const r = compiles("uniform float time;\nuniform vec2 resolution;\nvoid main() { gl_FragColor = vec4(gl_FragCoord.xy / resolution, sin(time), 1.0); }")
+        expect(r.source).toContain("float4(fragCoord.xy / resolution, sin(time), 1.0)")
+        expect(r.notes.some((n) => n.includes("renamed"))).toBe(false)
+    })
+
+    it("drops Shadertoy's inputs where a tool declares them", () => {
+        const r = compiles(image("fragColor = vec4(iMouse.xy / iResolution.xy, sin(iTime), 1);", "uniform vec3 iResolution;\nuniform float iTime;\nuniform vec4 iMouse;"))
+        expect(r.source.match(/uniform/g)).toEqual(["uniform"])
+        expect(r.source.startsWith("uniform float4 mouse;\n")).toBe(true)
+    })
+
+    it("leaves a uniform of the shader's own alone", () => {
+        expect(compiles(image("fragColor = vec4(u_speed);", "uniform float u_speed;")).source).toContain("uniform float u_speed;")
+    })
+})
+
+describe("a mat2 rotation", () => {
+    const ROT = "mat2 rot(float a) {\n    float c = cos(a), s = sin(a);\n    return mat2(c, -s, s, c);\n}"
+
+    // GLSL fills a mat2 by columns: M * v and v * M, computed the way GLSL
+    // does, against the prelude's rotate(), written out the way it is.
+    const mat = (m: number[], v: number[], vectorFirst: boolean) => vectorFirst
+        ? [v[0]! * m[0]! + v[1]! * m[1]!, v[0]! * m[2]! + v[1]! * m[3]!]
+        : [m[0]! * v[0]! + m[2]! * v[1]!, m[1]! * v[0]! + m[3]! * v[1]!]
+    const rotate = (p: number[], a: number) => [p[0]! * Math.cos(a) - p[1]! * Math.sin(a), p[0]! * Math.sin(a) + p[1]! * Math.cos(a)]
+
+    it.each([
+        ["mat2(c, -s, s, c)", (c: number, s: number) => [c, -s, s, c]],
+        ["mat2(c, s, -s, c)", (c: number, s: number) => [c, s, -s, c]],
+    ])("turns %s the way GLSL does, whichever side the vector is on", (written, entries) => {
+        const a = 0.7
+        const p = [0.3, 0.8]
+        const m = entries(Math.cos(a), Math.sin(a))
+        for (const [line, vectorFirst] of [["p *= rot(a);", true], ["p = rot(a) * p;", false], ["p = p * rot(a);", true]] as const) {
+            const r = compiles(image(`vec2 p = vec2(0.3, 0.8); float a = 0.7; ${line} fragColor = vec4(p, 0, 1);`,
+                `mat2 rot(float a) { float c = cos(a), s = sin(a); return ${written}; }`))
+            const sign = /p = rotate\(p, (-?)a\);/.exec(r.source)
+            expect(sign, r.source).not.toBeNull()
+            const got = rotate(p, sign![1] === "-" ? -a : a)
+            const want = mat(m, p, vectorFirst)
+            expect(got[0]).toBeCloseTo(want[0]!, 12)
+            expect(got[1]).toBeCloseTo(want[1]!, 12)
+        }
+    })
+
+    it("converts every use, removes the function and says so", () => {
+        const r = compiles(image("vec2 p = fragCoord / iResolution.y;\n    p *= rot(iTime);\n    vec2 q = rot(iTime * 0.5) * p;\n    fragColor = vec4(p, q);", ROT))
+        expect(r.source).not.toMatch(/mat2|rot\(/)
+        expect(r.source).toContain("p = rotate(p, time);")
+        expect(r.source).toContain("float2 q = rotate(p, -(time * 0.5));")
+        expect(r.notes).toContain("line 1: rot built a rotation matrix, and each use of it is rotate() now, so it is removed")
+    })
+
+    it("converts a macro, and one written in place", () => {
+        const r = compiles(image("vec2 p = fragCoord;\n    p *= R(iTime);\n    p = mat2(cos(1.5), -sin(1.5), sin(1.5), cos(1.5)) * p;\n    fragColor = vec4(p, 0, 1);",
+            "#define R(a) mat2(cos(a), sin(a), -sin(a), cos(a))"))
+        expect(r.source).not.toContain("#define")
+        expect(r.source).toContain("p = rotate(p, -time);")
+        expect(r.source).toContain("p = rotate(p, -1.5);")
+    })
+
+    it("converts a swizzle, the usual 3D raymarcher's p.xz *= rot(t)", () => {
+        const r = compiles(image("vec3 p = vec3(fragCoord, 1.0);\n    p.xz *= rot(iTime);\n    fragColor = vec4(p, 1);", ROT))
+        expect(r.source).toContain("p.xz = rotate(p.xz, time);")
+    })
+
+    it("keeps the function, and points at rotate(), where one use is not a vector times it", () => {
+        const r = convert(image("vec2 p = fragCoord;\n    mat2 m = rot(1.0);\n    p *= rot(iTime);\n    fragColor = vec4(p, 0, 1);", ROT))
+        expect(r.source).toContain("mat2 rot(float a)")
+        expect(r.source).toContain("p = rotate(p, time);")
+        expect(r.notes).toContain("line 7: rot builds a rotation matrix, and this use of it was not converted; write it as rotate(p, angle)")
+        expect(r.notes.some((n) => n.startsWith("line 1: there are no matrices here; a mat2 rotation is rotate(p, angle)"))).toBe(true)
+        expect(r.errors.length).toBeGreaterThan(0)
+    })
+
+    it("leaves a vector divided before it is turned, which rotate() of the divisor would get wrong", () => {
+        const r = convert(image("vec2 p = fragCoord;\n    p = 1.0 / p * rot(iTime);\n    fragColor = vec4(p, 0, 1);", ROT))
+        expect(r.source).toContain("1.0 / p * rot(time)")
+    })
+
+    it("converts nothing when the file has a rotate of its own, which the calls would call", () => {
+        const r = convert(image("vec2 p = fragCoord;\n    p *= rot(iTime);\n    fragColor = vec4(rotate(p, 1.0), 0, 1);",
+            ROT + "\nvec2 rotate(vec2 v, float a) { return v; }"))
+        expect(r.source).toContain("p *= rot(time);")
+    })
+
+    it("points any other mat2 at rotate()", () => {
+        const r = convert(image("vec2 p = mat2(1.0, 2.0, 3.0, 4.0) * fragCoord;\n    fragColor = vec4(p, 0, 1);"))
+        expect(r.notes.some((n) => n.includes("there are no matrices here; a mat2 rotation is rotate(p, angle)"))).toBe(true)
+    })
+})
