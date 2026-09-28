@@ -134,4 +134,56 @@ describe("the library translator", () => {
         refuses(`float f(float x) { return 1.0; }\nfloat f(float y) { return 2.0; }`, /defined 2 times/)
         refuses(`static float k = 1.0;`, /top level declaration must be a function/)
     })
+
+    describe("uint, for integer hashing", () => {
+        const pcg = `uint2 f(uint2 v) {
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y * 1664525u;
+    v = v ^ (v >> 16u);
+    return v;
+}
+float g(float2 p) { uint2 v = f(uint2((uint)(int)p.x, (uint)(int)p.y)); return (float)(v.x >> 8u) * 5.9604644775390625e-8; }`
+
+        it("prints the types, the literals and the casts in each language", () => {
+            const glsl = print(pcg, "glsl")
+            expect(glsl).toContain("uvec2 f(uvec2 v) {")
+            expect(glsl).toContain("v = v * uvec2(1664525u) + uvec2(1013904223u);")
+            expect(glsl).toContain("uvec2 v = f(uvec2(uint(int(p.x)), uint(int(p.y))));")
+            expect(glsl).toContain("return float(v.x >> 8u) * 5.9604644775390625e-8;")
+            const hlsl = print(pcg, "hlsl")
+            expect(hlsl).toContain("uint2 f(uint2 v) {")
+            expect(hlsl).toContain("v = v * uint2(1664525u, 1664525u) + uint2(1013904223u, 1013904223u);")
+            expect(hlsl).toContain("uint2 v = f(uint2((uint)(int)p.x, (uint)(int)p.y));")
+            expect(hlsl).toContain("return (float)(v.x >> 8u) * 5.9604644775390625e-8;")
+        })
+
+        it("gives WGSL the same type on both sides and a vector amount for a vector shift", () => {
+            const wgsl = print(pcg, "wgsl")
+            expect(wgsl).toContain("fn f(vIn: vec2u) -> vec2u {")
+            expect(wgsl).toContain("v = v * vec2u(1664525u) + vec2u(1013904223u);")
+            expect(wgsl).toContain("v.x += v.y * 1664525u;")
+            expect(wgsl).toContain("v = v ^ (v >> vec2u(16u));")
+            expect(wgsl).toContain("let v: vec2u = f(vec2u(u32(i32(p.x)), u32(i32(p.y))));")
+            expect(wgsl).toContain("return f32(v.x >> 8u) * 5.9604644775390625e-8;")
+        })
+
+        it("keeps C's precedence, and parenthesises for WGSL where C would not", () => {
+            const src = `uint f(uint a, uint b, uint c) { return a ^ b >> 3u & c | a * b + c; }`
+            // C: ((a ^ ((b >> 3) & c)) | ((a * b) + c))
+            expect(print(src, "hlsl")).toContain("return a ^ b >> 3u & c | a * b + c;")
+            expect(print(src, "wgsl")).toContain("return (a ^ ((b >> 3u) & c)) | (a * b + c);")
+            expect(print(`uint f(uint a, uint b) { return a ^ b ^ a; }`, "wgsl")).toContain("return a ^ b ^ a;")
+        })
+
+        it("converts nothing to or from a uint silently", () => {
+            refuses(`uint f(int i) { return i; }`, /Nothing converts to or from a uint silently/)
+            refuses(`float f(uint u) { return u; }`, /Nothing converts to or from a uint silently/)
+            refuses(`uint f(uint u) { return u + 1; }`, /a uint meets only another uint/)
+            refuses(`int f(int a) { return a ^ a; }`, /a uint meets only another uint/)
+            refuses(`float2 f(uint u) { return float2(u, u); }`, /a uint2 is made of uints/)
+            refuses(`uint f(uint u) { return max(u, u); }`, /no intrinsic takes a uint/)
+            refuses(`uint f(uint u) { return u / 2u; }`, /"\/" on a uint is outside the subset/)
+            refuses(`float f(float x) { return 2.0f * x; }`, /write the plain number, or 16u for a uint/)
+        })
+    })
 })

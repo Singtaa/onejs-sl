@@ -547,10 +547,34 @@ float sdCircleWave(float2 p, float tb, float ra) {
 }
 `,
     `
+uint2 onejsPcg2d(uint2 v) {
+    v = v * uint2(1664525u, 1664525u) + uint2(1013904223u, 1013904223u);
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v = v ^ (v >> uint2(16u, 16u));
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v = v ^ (v >> uint2(16u, 16u));
+    return v;
+}
+`,
+    `
+uint2 onejsHashKey(float2 cell, float seed) {
+    float2 c = clamp(cell, float2(-2147483648.0, -2147483648.0), float2(2147483520.0, 2147483520.0));
+    float s = clamp(seed, -2147483648.0, 2147483520.0);
+    float whole = floor(s);
+    uint2 key = uint2((uint)(int)whole, (uint)(int)((s - whole) * 65536.0));
+    return uint2((uint)(int)c.x, (uint)(int)c.y) + key * uint2(2654435769u, 2246822507u);
+}
+`,
+    `
+float onejsHashUnit(uint2 key) {
+    return (float)(onejsPcg2d(key).x >> 8u) * 5.9604644775390625e-8;
+}
+`,
+    `
 float onejsHash21(float2 p, float seed) {
-    p = frac(frac(p * float2(123.34, 456.21)) + frac(seed * 0.1731));
-    p += dot(p, p + 45.32);
-    return frac(p.x * p.y);
+    return onejsHashUnit(onejsHashKey(p, seed));
 }
 `,
     `
@@ -558,10 +582,11 @@ float onejsVNoise(float2 p, float seed) {
     float2 i = floor(p);
     float2 f = frac(p);
     f = f * f * (3.0 - 2.0 * f);
-    float a = onejsHash21(i, seed);
-    float b = onejsHash21(i + float2(1.0, 0.0), seed);
-    float c = onejsHash21(i + float2(0.0, 1.0), seed);
-    float d = onejsHash21(i + float2(1.0, 1.0), seed);
+    uint2 k = onejsHashKey(i, seed);
+    float a = onejsHashUnit(k);
+    float b = onejsHashUnit(k + uint2(1u, 0u));
+    float c = onejsHashUnit(k + uint2(0u, 1u));
+    float d = onejsHashUnit(k + uint2(1u, 1u));
     return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
 }
 `,
@@ -695,15 +720,9 @@ float onejsFbmKind(int kind, float2 p, float seed, int octaves, float lacunarity
 }
 `,
     `
-float sl_hash21(float2 p) {
-    p = frac(p * float2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return frac(p.x * p.y);
-}
-`,
-    `
 float2 sl_hash22(float2 p) {
-    return float2(sl_hash21(p), sl_hash21(p + 37.7));
+    uint2 v = onejsPcg2d(onejsHashKey(p, 0.0) + uint2(1759714724u, 3002137945u));
+    return float2((float)(v.x >> 8u), (float)(v.y >> 8u)) * 5.9604644775390625e-8;
 }
 `,
     `

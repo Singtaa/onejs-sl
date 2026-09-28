@@ -16,8 +16,14 @@
  *     the four compound assignments, onto a variable or a swizzle of one;
  *   - `if`/`else`, `for (int i = a; cond; i++)` with an optional `[unroll]`,
  *     `break`, `return`, and `switch` whose cases end in `return` or `break`;
- *   - arithmetic, comparison, `&&`/`||`/`!`, the ternary, `(int)` casts,
+ *   - arithmetic, comparison, `&&`/`||`/`!`, the ternary, scalar casts,
  *     constructors, swizzles, and the intrinsics in `BUILTINS`;
+ *   - `uint` and `uint2`, for integer hashing: literals written `16u`, `+`,
+ *     `-` and `*` (which wrap), `^`, `&`, `|`, `<<` and `>>`, swizzles, and
+ *     explicit casts to and from them. Nothing converts to or from a uint
+ *     silently, and no intrinsic takes one. The four targets agree on 32 bit
+ *     unsigned arithmetic exactly, which is the reason to use it; the shader
+ *     language itself has no uint, so it stays inside the library;
  *   - `mul(v, float2x2(a, b, c, d))`, the row vector rotation, and no other
  *     use of a matrix;
  *   - one piece of preprocessor, `#ifdef UNITY_COLORSPACE_GAMMA` / `#else` /
@@ -32,7 +38,7 @@
  */
 
 export type Lang = "glsl" | "wgsl" | "hlsl"
-export type Ty = "float" | "float2" | "float3" | "float4" | "int" | "bool"
+export type Ty = "float" | "float2" | "float3" | "float4" | "int" | "uint" | "uint2" | "bool"
 export type Colour = "gamma" | "linear"
 
 export class TranslateError extends Error {}
@@ -41,7 +47,7 @@ export class TranslateError extends Error {}
 
 interface Tok { t: "id" | "num" | "p" | "pp" | "eof"; v: string; line: number }
 
-const PUNCT = ["++", "--", "+=", "-=", "*=", "/=", "==", "!=", "<=", ">=", "&&", "||"]
+const PUNCT = ["++", "--", "+=", "-=", "*=", "/=", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>"]
 
 function lex(src: string, file: string): Tok[] {
     const out: Tok[] = []
@@ -82,14 +88,20 @@ function lex(src: string, file: string): Tok[] {
         if (/[0-9]/.test(c) || (c === "." && /[0-9]/.test(src[i + 1] ?? "") && !afterValue)) {
             const m = /^(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?/.exec(src.slice(i))!
             const after = src[i + m[0].length] ?? ""
-            if (/[A-Za-z_]/.test(after)) fail(`a literal suffix (${m[0]}${after}) is outside the subset: write the plain number`)
+            // 16u, a uint: the one suffix, on a whole number only.
+            if (after === "u" && /^[0-9]+$/.test(m[0]) && !/[A-Za-z0-9_]/.test(src[i + m[0].length + 1] ?? "")) {
+                out.push({ t: "num", v: `${m[0]}u`, line })
+                i += m[0].length + 1
+                continue
+            }
+            if (/[A-Za-z_]/.test(after)) fail(`a literal suffix (${m[0]}${after}) is outside the subset: write the plain number, or 16u for a uint`)
             out.push({ t: "num", v: m[0], line })
             i += m[0].length
             continue
         }
         const two = src.slice(i, i + 2)
         if (PUNCT.includes(two)) { out.push({ t: "p", v: two, line }); i += 2; continue }
-        if ("+-*/<>=!?:;,.(){}[]%".includes(c)) { out.push({ t: "p", v: c, line }); i++; continue }
+        if ("+-*/<>=!?:;,.(){}[]%^&|".includes(c)) { out.push({ t: "p", v: c, line }); i++; continue }
         fail(`unexpected character "${c}"`)
     }
     out.push({ t: "eof", v: "", line })
@@ -99,7 +111,7 @@ function lex(src: string, file: string): Tok[] {
 // MARK: syntax tree
 
 export type Expr =
-    | { k: "num"; text: string; int: boolean; line: number; ty?: Ty }
+    | { k: "num"; text: string; int: boolean; uint?: boolean; line: number; ty?: Ty }
     | { k: "id"; name: string; line: number; ty?: Ty }
     | { k: "member"; obj: Expr; field: string; line: number; ty?: Ty }
     | { k: "call"; name: string; args: Expr[]; line: number; ty?: Ty; fn?: number; ctor?: boolean }
@@ -133,9 +145,12 @@ export interface Fn {
     line: number
 }
 
-const VALUE_TYPES = new Set(["float", "float2", "float3", "float4", "int"])
-const WIDTH: Record<Ty, number> = { float: 1, float2: 2, float3: 3, float4: 4, int: 1, bool: 1 }
+const VALUE_TYPES = new Set(["float", "float2", "float3", "float4", "int", "uint", "uint2"])
+const WIDTH: Record<Ty, number> = { float: 1, float2: 2, float3: 3, float4: 4, int: 1, uint: 1, uint2: 2, bool: 1 }
 const floatOf = (w: number): Ty => (w === 1 ? "float" : (`float${w}` as Ty))
+const isUint = (t: Ty | undefined): boolean => t === "uint" || t === "uint2"
+/** The operators that take uints only. */
+const BITWISE = new Set(["^", "&", "|", "<<", ">>"])
 
 // MARK: parser
 
@@ -179,7 +194,7 @@ class Parser {
     private fn(colour: Colour | undefined): Fn {
         const line = this.tok.line
         const ret = this.ident()
-        if (!VALUE_TYPES.has(ret)) this.fail(`a top level declaration must be a function returning float, float2..4 or int, not "${ret}"`, line)
+        if (!VALUE_TYPES.has(ret)) this.fail(`a top level declaration must be a function returning float, float2..4, int, uint or uint2, not "${ret}"`, line)
         const name = this.ident()
         this.eat("(")
         const params: Param[] = []
@@ -188,7 +203,7 @@ class Parser {
             if (this.is("out") || this.is("inout")) this.fail(`"${this.tok.v}" parameters are outside the subset`)
             if (this.is("in")) this.i++
             const ty = this.ident()
-            if (!VALUE_TYPES.has(ty)) this.fail(`a parameter must be float, float2..4 or int, not "${ty}"`)
+            if (!VALUE_TYPES.has(ty)) this.fail(`a parameter must be float, float2..4, int, uint or uint2, not "${ty}"`)
             params.push({ name: this.ident(), ty: ty as Ty, assigned: false })
         }
         this.eat(")")
@@ -311,8 +326,10 @@ class Parser {
         return { k: "ternary", c, t, f: this.expr(), line }
     }
 
+    /** C's precedence, which HLSL, GLSL and Metal share. */
     private static PREC: Record<string, number> = {
-        "||": 1, "&&": 2, "==": 3, "!=": 3, "<": 4, ">": 4, "<=": 4, ">=": 4, "+": 5, "-": 5, "*": 6, "/": 6, "%": 6,
+        "||": 1, "&&": 2, "|": 3, "^": 4, "&": 5, "==": 6, "!=": 6, "<": 7, ">": 7, "<=": 7, ">=": 7,
+        "<<": 8, ">>": 8, "+": 9, "-": 9, "*": 10, "/": 10, "%": 10,
     }
 
     private binary(min: number): Expr {
@@ -356,7 +373,11 @@ class Parser {
     private primary(): Expr {
         const tok = this.tok
         const line = tok.line
-        if (tok.t === "num") { this.i++; return { k: "num", text: tok.v, int: /^[0-9]+$/.test(tok.v), line } }
+        if (tok.t === "num") {
+            this.i++
+            if (tok.v.endsWith("u")) return { k: "num", text: tok.v, int: false, uint: true, line }
+            return { k: "num", text: tok.v, int: /^[0-9]+$/.test(tok.v), line }
+        }
         if (this.is("(")) { this.i++; const e = this.expr(); this.eat(")"); return { k: "paren", e, line } }
         if (tok.t === "id") {
             this.i++
@@ -481,6 +502,10 @@ export function check(fns: Fn[]): Checked {
             const have = e.ty!
             if (have === want) return e
             if (have === "int" && want === "float") return { k: "conv", e, line, ty: "float" }
+            if (have === "uint" && want === "uint2") return { k: "conv", e, line, ty: "uint2" }
+            if (isUint(have) || isUint(want)) {
+                return fail(line, `${what}: a ${have} where a ${want} is needed. Nothing converts to or from a uint silently: cast it, as (uint)x or (float)u`)
+            }
             if ((have === "float" || have === "int") && want !== "int" && want !== "bool" && WIDTH[want] > 1) {
                 return { k: "conv", e: to(e, "float", line, what), line, ty: want }
             }
@@ -489,18 +514,20 @@ export function check(fns: Fn[]): Checked {
 
         const expr = (e: Expr): Expr => {
             switch (e.k) {
-                case "num": e.ty = e.int ? "int" : "float"; return e
+                case "num": e.ty = e.uint === true ? "uint" : e.int ? "int" : "float"; return e
                 case "id": e.ty = lookup(e.name, e.line).ty; return e
                 case "paren": e.e = expr(e.e); e.ty = e.e.ty; return e
                 case "conv": return e
                 case "member": {
                     e.obj = expr(e.obj)
                     const w = WIDTH[e.obj.ty!]
-                    if (!e.obj.ty!.startsWith("float") || w === 1) fail(e.line, `a swizzle of a ${e.obj.ty} is outside the subset`)
+                    const uint = e.obj.ty === "uint2"
+                    if ((!e.obj.ty!.startsWith("float") && !uint) || w === 1) fail(e.line, `a swizzle of a ${e.obj.ty} is outside the subset`)
                     const set = /^[xyzw]+$/.test(e.field) ? "xyzw" : /^[rgba]+$/.test(e.field) ? "rgba" : ""
                     if (set === "" || e.field.length > 4) fail(e.line, `".${e.field}" is not a swizzle`)
                     for (const c of e.field) if (set.indexOf(c) >= w) fail(e.line, `".${e.field}" reads past the end of a ${e.obj.ty}`)
-                    e.ty = floatOf(e.field.length)
+                    if (uint && e.field.length > 2) fail(e.line, `".${e.field}" would make a uint${e.field.length}, which is outside the subset`)
+                    e.ty = uint ? (e.field.length === 1 ? "uint" : "uint2") : floatOf(e.field.length)
                     return e
                 }
                 case "cast": {
@@ -526,6 +553,7 @@ export function check(fns: Fn[]): Checked {
                     }
                     if (l === "bool" || r === "bool") fail(e.line, `"${e.op}" on a condition`)
                     if (e.op === "%") fail(e.line, `"%" is outside the subset: HLSL's truncates and GLSL's mod floors. Write glslMod or the formula`)
+                    if (BITWISE.has(e.op) || isUint(l) || isUint(r)) return uintBinary(e)
                     const comparison = ["<", ">", "<=", ">=", "==", "!="].includes(e.op)
                     if (l !== r && l === "int") e.l = to(e.l, "float", e.line, `the left of "${e.op}"`)
                     if (l !== r && r === "int") e.r = to(e.r, "float", e.line, `the right of "${e.op}"`)
@@ -558,6 +586,26 @@ export function check(fns: Fn[]): Checked {
             }
         }
 
+        /**
+         * An operation on uints. Both sides are uints, and a scalar beside a
+         * uint2 is widened to one explicitly, since WGSL wants the same type on
+         * both sides of a bitwise operator and a vector amount for a vector shift.
+         */
+        const uintBinary = (e: Extract<Expr, { k: "binary" }>): Expr => {
+            const [l, r] = [e.l.ty!, e.r.ty!]
+            if (!isUint(l) || !isUint(r)) fail(e.line, `"${e.op}" between a ${l} and a ${r}: a uint meets only another uint. Cast one, as (uint)x`)
+            if (["<", ">", "<=", ">=", "==", "!="].includes(e.op)) {
+                if (l !== "uint" || r !== "uint") fail(e.line, `"${e.op}" compares scalars only in the subset`)
+                e.ty = "bool"
+                return e
+            }
+            if (!["+", "-", "*", ...BITWISE].includes(e.op)) fail(e.line, `"${e.op}" on a uint is outside the subset`)
+            if (l === "uint2" && r === "uint") e.r = to(e.r, "uint2", e.line, `the right of "${e.op}"`)
+            if (l === "uint" && r === "uint2") e.l = to(e.l, "uint2", e.line, `the left of "${e.op}"`)
+            e.ty = l === "uint2" || r === "uint2" ? "uint2" : "uint"
+            return e
+        }
+
         const call = (e: Extract<Expr, { k: "call" }>): Expr => {
             if (e.name === "mul") return mul(e)
             if (e.name === "float2x2") fail(e.line, "a float2x2 is in the subset only as mul's second argument")
@@ -572,6 +620,9 @@ export function check(fns: Fn[]): Checked {
                 if (w === 1) {
                     if (e.args.length !== 1 || WIDTH[e.args[0]!.ty!] !== 1) fail(e.line, `${e.name}(...) takes one scalar`)
                     return e
+                }
+                if (e.args.some((a) => isUint(a.ty)) !== isUint(e.ty) || (isUint(e.ty) && !e.args.every((a) => isUint(a.ty)))) {
+                    fail(e.line, `${e.name}(...) of ${e.args.map((a) => `a ${a.ty}`).join(", ")}: a uint2 is made of uints, and a float vector of none. Cast each one`)
                 }
                 let n = 0
                 e.args = e.args.map((a) => {
@@ -612,6 +663,7 @@ export function check(fns: Fn[]): Checked {
             const arity = { unary: 1, binary: 2, ternary: 3, length: 1, distance: 2, dot: 2 }[b.kind]
             if (e.args.length !== arity) fail(e.line, `${e.name} takes ${arity} arguments`)
             for (const a of e.args) if (a.ty === "bool") fail(e.line, `${e.name} of a condition`)
+            for (const a of e.args) if (isUint(a.ty)) fail(e.line, `${e.name} of a ${a.ty}: no intrinsic takes a uint in the subset`)
             if (b.kind === "length" || b.kind === "distance" || b.kind === "dot") {
                 const w = WIDTH[e.args[0]!.ty!]
                 if (w === 1 || e.args.some((a) => a.ty !== e.args[0]!.ty)) fail(e.line, `${e.name} takes vectors of one width`)
@@ -732,13 +784,13 @@ export function check(fns: Fn[]): Checked {
 
 // MARK: printers
 
-const TYPE_NAME: Record<Lang, Record<Ty, string>> = {
-    glsl: { float: "float", float2: "vec2", float3: "vec3", float4: "vec4", int: "int", bool: "bool" },
-    wgsl: { float: "f32", float2: "vec2f", float3: "vec3f", float4: "vec4f", int: "i32", bool: "bool" },
-    hlsl: { float: "float", float2: "float2", float3: "float3", float4: "float4", int: "int", bool: "bool" },
+export const TYPE_NAME: Record<Lang, Record<Ty, string>> = {
+    glsl: { float: "float", float2: "vec2", float3: "vec3", float4: "vec4", int: "int", uint: "uint", uint2: "uvec2", bool: "bool" },
+    wgsl: { float: "f32", float2: "vec2f", float3: "vec3f", float4: "vec4f", int: "i32", uint: "u32", uint2: "vec2u", bool: "bool" },
+    hlsl: { float: "float", float2: "float2", float3: "float3", float4: "float4", int: "int", uint: "uint", uint2: "uint2", bool: "bool" },
 }
 
-const TYPE_CODE: Record<Ty, string> = { float: "f", float2: "f2", float3: "f3", float4: "f4", int: "i", bool: "b" }
+const TYPE_CODE: Record<Ty, string> = { float: "f", float2: "f2", float3: "f3", float4: "f4", int: "i", uint: "u", uint2: "u2", bool: "b" }
 
 /** The name a function is printed under: WGSL has no overloading, so an overloaded name carries its signature. */
 export function printedName(c: Checked, i: number, lang: Lang): string {
@@ -753,16 +805,19 @@ export interface PrintOptions {
 }
 
 const PREC: Record<string, number> = {
-    "||": 2, "&&": 3, "==": 4, "!=": 4, "<": 5, ">": 5, "<=": 5, ">=": 5, "+": 6, "-": 6, "*": 7, "/": 7,
+    "||": 2, "&&": 3, "|": 4, "^": 5, "&": 6, "==": 7, "!=": 7, "<": 8, ">": 8, "<=": 8, ">=": 8,
+    "<<": 9, ">>": 9, "+": 10, "-": 10, "*": 11, "/": 11,
 }
+const UNARY = 12
+const PRIMARY = 13
 
 function prec(e: Expr, lang: Lang): number {
     switch (e.k) {
-        case "ternary": return lang === "wgsl" ? 9 : 1
+        case "ternary": return lang === "wgsl" ? PRIMARY : 1
         case "binary": return PREC[e.op]!
-        case "unary": return 8
-        case "cast": return lang === "hlsl" ? 8 : 9
-        default: return 9
+        case "unary": return UNARY
+        case "cast": return lang === "hlsl" ? UNARY : PRIMARY
+        default: return PRIMARY
     }
 }
 
@@ -782,19 +837,23 @@ export class Printer {
             case "num": return e.text
             case "id": return e.name
             case "paren": return `(${this.expr(e.e)})`
-            case "member": return `${this.expr(e.obj, 9)}.${e.field}`
-            case "cast": return L === "hlsl" ? `(${e.to})${this.expr(e.e, 8)}` : `${this.T[e.to]}(${this.expr(e.e)})`
-            case "unary": return `${e.op}${this.expr(e.e, e.e.k === "unary" ? 9 : 8)}`
+            case "member": return `${this.expr(e.obj, PRIMARY)}.${e.field}`
+            // A function style cast brings its own parentheses, so the source's are not repeated.
+            case "cast": return L === "hlsl" ? `(${e.to})${this.expr(e.e, UNARY)}` : `${this.T[e.to]}(${this.expr(e.e.k === "paren" ? e.e.e : e.e)})`
+            case "unary": return `${e.op}${this.expr(e.e, e.e.k === "unary" ? PRIMARY : UNARY)}`
             case "binary": {
                 const p = PREC[e.op]!
                 const logical = e.op === "&&" || e.op === "||"
-                // WGSL refuses `a || b && c` without parentheses.
+                // WGSL refuses `a || b && c` without parentheses, and takes
+                // only a unary expression on either side of a bitwise operator
+                // or a shift, except a chain of one bitwise operator.
                 // A unary on the right is parenthesised, so `a - -b` never prints.
-                const side = (x: Expr, m: number) =>
-                    L === "wgsl" && logical && x.k === "binary" && (x.op === "&&" || x.op === "||") && x.op !== e.op
-                        ? `(${this.expr(x)})`
-                        : this.expr(x, m)
-                return `${side(e.l, p)} ${e.op} ${side(e.r, e.r.k === "unary" ? 9 : p + 1)}`
+                const wgslParens = (x: Expr, left: boolean) => L === "wgsl" && x.k === "binary" && (
+                    (logical && (x.op === "&&" || x.op === "||") && x.op !== e.op) ||
+                    (BITWISE.has(e.op) && !(left && x.op === e.op && e.op !== "<<" && e.op !== ">>")) ||
+                    (BITWISE.has(x.op) && !BITWISE.has(e.op)))
+                const side = (x: Expr, m: number, left: boolean) => wgslParens(x, left) ? `(${this.expr(x)})` : this.expr(x, m)
+                return `${side(e.l, p, true)} ${e.op} ${side(e.r, e.r.k === "unary" ? PRIMARY : p + 1, false)}`
             }
             case "ternary":
                 if (L === "wgsl") return `select(${this.expr(e.f)}, ${this.expr(e.t)}, ${this.expr(e.c)})`

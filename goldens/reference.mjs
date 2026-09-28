@@ -3,35 +3,53 @@
  *
  * `goldens/run.mjs` compares the probes (`probes.hlsl`, and `probe-hash.sl` in
  * the corpus) with these, pixel for pixel and allowing nothing, on every
- * backend it draws on. These are the float hashes, evaluated the way IEEE 754
- * single precision says, every operation rounded on its own: `Math.fround`
- * after each one, and no two fused into a single rounding.
+ * backend it draws on. The hashes are 32 bit unsigned integer arithmetic,
+ * which every target does exactly (`lib/noise2d.hlsl` says why): `Math.imul`
+ * and `>>> 0` here are the same wrapping multiply and add. The only floats are
+ * the conversions in and out, and `Math.fround` rounds those as a GPU does.
  */
 
 const f = Math.fround
-const frac = (x) => f(x - Math.floor(x))
-const K = [f(123.34), f(456.21)]
-const SEED = f(0.1731)
-const DOT = f(45.32)
-const JITTER = f(37.7)
+const MIN = -2147483648
+const MAX = 2147483520
+const clamp = (x) => Math.min(Math.max(x, MIN), MAX)
+const u32 = (x) => x >>> 0
+const mul = (a, b) => Math.imul(a, b) >>> 0
 
-function mix(px, py) {
-    const d = f(f(px * f(px + DOT)) + f(py * f(py + DOT)))
-    const x = f(px + d), y = f(py + d)
-    return frac(f(x * y))
+/** pcg2d, as onejsPcg2d. */
+export function pcg2d(x, y) {
+    x = u32(mul(x, 1664525) + 1013904223)
+    y = u32(mul(y, 1664525) + 1013904223)
+    x = u32(x + mul(y, 1664525))
+    y = u32(y + mul(x, 1664525))
+    x = u32(x ^ (x >>> 16))
+    y = u32(y ^ (y >>> 16))
+    x = u32(x + mul(y, 1664525))
+    y = u32(y + mul(x, 1664525))
+    x = u32(x ^ (x >>> 16))
+    y = u32(y ^ (y >>> 16))
+    return [x, y]
 }
+
+/** onejsHashKey: a float to int conversion truncates, and wraps into a uint. */
+export function hashKey(cx, cy, seed) {
+    const s = clamp(f(seed))
+    const whole = Math.floor(s)
+    const kx = u32(Math.trunc(whole)), ky = u32(Math.trunc(f(f(s - whole) * 65536)))
+    return [u32(u32(Math.trunc(clamp(f(cx)))) + mul(kx, 2654435769)), u32(u32(Math.trunc(clamp(f(cy)))) + mul(ky, 2246822507))]
+}
+
+const unit = (word) => (word >>> 8) * 2 ** -24
 
 /** onejsHash21: the value noise hash. */
 export function hash21(x, y, seed) {
-    const s = frac(f(f(seed) * SEED))
-    return mix(frac(f(frac(f(f(x) * K[0])) + s)), frac(f(frac(f(f(y) * K[1])) + s)))
+    return unit(pcg2d(...hashKey(x, y, seed))[0])
 }
-
-const slHash21 = (x, y) => mix(frac(f(f(x) * K[0])), frac(f(f(y) * K[1])))
 
 /** sl_hash22: voronoi's jitter. */
 export function hash22(x, y) {
-    return [slHash21(x, y), slHash21(f(f(x) + JITTER), f(f(y) + JITTER))]
+    const [kx, ky] = hashKey(x, y, 0)
+    return pcg2d(u32(kx + 1759714724), u32(ky + 3002137945)).map(unit)
 }
 
 // MARK: probes

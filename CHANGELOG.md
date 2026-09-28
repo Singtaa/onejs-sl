@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.12
+
+The noise hashes are integer arithmetic, so every GPU draws the same bits. Value noise and voronoi look different, seed 0 included; program hashes do not change.
+
+- `noise`, `fbm`, `voronoi` and value `fx.noise` fields look different; simplex, turbulence and ridged do not
+- Seeds closer than 1/65536 draw the same field, and cells past 2^31 draw the edge cell
+- A 4 octave fbm costs about 14% more (3840 x 2160: 0.50 to 0.57 ms on an M4 Pro, WebGPU)
+- goldens.json ships bit exact hash probes for a host's compiler, and marks exact fixtures
+- `npm run goldens -- --check` compares a machine's drawing with goldens.json
+
 ## 0.1.11
 
 The value noise hash no longer rounds differently from one GPU to the next. Seeded value noise looks different, with the same character; program hashes do not change.

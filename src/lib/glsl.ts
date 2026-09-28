@@ -547,10 +547,34 @@ float sdCircleWave(vec2 p, float tb, float ra) {
 }
 `,
     `
+uvec2 onejsPcg2d(uvec2 v) {
+    v = v * uvec2(1664525u) + uvec2(1013904223u);
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v = v ^ (v >> uvec2(16u));
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v = v ^ (v >> uvec2(16u));
+    return v;
+}
+`,
+    `
+uvec2 onejsHashKey(vec2 cell, float seed) {
+    vec2 c = clamp(cell, vec2(-2147483648.0, -2147483648.0), vec2(2147483520.0, 2147483520.0));
+    float s = clamp(seed, -2147483648.0, 2147483520.0);
+    float whole = floor(s);
+    uvec2 key = uvec2(uint(int(whole)), uint(int((s - whole) * 65536.0)));
+    return uvec2(uint(int(c.x)), uint(int(c.y))) + key * uvec2(2654435769u, 2246822507u);
+}
+`,
+    `
+float onejsHashUnit(uvec2 key) {
+    return float(onejsPcg2d(key).x >> 8u) * 5.9604644775390625e-8;
+}
+`,
+    `
 float onejsHash21(vec2 p, float seed) {
-    p = fract(fract(p * vec2(123.34, 456.21)) + fract(seed * 0.1731));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
+    return onejsHashUnit(onejsHashKey(p, seed));
 }
 `,
     `
@@ -558,10 +582,11 @@ float onejsVNoise(vec2 p, float seed) {
     vec2 i = floor(p);
     vec2 f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
-    float a = onejsHash21(i, seed);
-    float b = onejsHash21(i + vec2(1.0, 0.0), seed);
-    float c = onejsHash21(i + vec2(0.0, 1.0), seed);
-    float d = onejsHash21(i + vec2(1.0, 1.0), seed);
+    uvec2 k = onejsHashKey(i, seed);
+    float a = onejsHashUnit(k);
+    float b = onejsHashUnit(k + uvec2(1u, 0u));
+    float c = onejsHashUnit(k + uvec2(0u, 1u));
+    float d = onejsHashUnit(k + uvec2(1u, 1u));
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 `,
@@ -695,15 +720,9 @@ float onejsFbmKind(int kind, vec2 p, float seed, int octaves, float lacunarity, 
 }
 `,
     `
-float sl_hash21(vec2 p) {
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-}
-`,
-    `
 vec2 sl_hash22(vec2 p) {
-    return vec2(sl_hash21(p), sl_hash21(p + 37.7));
+    uvec2 v = onejsPcg2d(onejsHashKey(p, 0.0) + uvec2(1759714724u, 3002137945u));
+    return vec2(float(v.x >> 8u), float(v.y >> 8u)) * 5.9604644775390625e-8;
 }
 `,
     `

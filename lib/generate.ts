@@ -6,7 +6,7 @@
  * `lib/write.mjs` (which writes them) run exactly the same code.
  */
 
-import { check, keyOf, parseLibrary, Printer, printedName, TranslateError, type Checked, type Expr, type Fn, type Lang } from "./translate"
+import { check, keyOf, parseLibrary, Printer, printedName, TranslateError, TYPE_NAME, type Checked, type Expr, type Fn, type Lang } from "./translate"
 
 export interface LibFile {
     /** Under `lib/`. */
@@ -141,9 +141,7 @@ ${items.join("\n")}
 /** A function that asks the web frame's colour switch which branch to run. */
 function dispatcher(c: Checked, model: number, name: string, lang: "glsl" | "wgsl"): string {
     const fn = c.fns[model]!
-    const T = lang === "wgsl"
-        ? { float: "f32", float2: "vec2f", float3: "vec3f", float4: "vec4f", int: "i32", bool: "bool" }
-        : { float: "float", float2: "vec2", float3: "vec3", float4: "vec4", int: "int", bool: "bool" }
+    const T = TYPE_NAME[lang]
     const params = fn.params.map((p) => (lang === "wgsl" ? `${p.name}: ${T[p.ty]}` : `${T[p.ty]} ${p.name}`)).join(", ")
     const args = fn.params.map((p) => p.name).join(", ")
     const head = lang === "wgsl" ? `fn ${name}(${params}) -> ${T[fn.ret]} {` : `${T[fn.ret]} ${name}(${params}) {`

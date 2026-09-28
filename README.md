@@ -101,8 +101,9 @@ by `npm run lib`, and nobody edits the copies:
 
 `lib/translate.ts` does the printing, at build time only. It reads a subset of
 HLSL, listed at its top (functions, locals, `if`, bounded `for`, `switch`,
-intrinsics, `mul(v, float2x2(...))`, and one preprocessor switch,
-`UNITY_COLORSPACE_GAMMA`, which becomes the target's colour), and anything
+intrinsics, `mul(v, float2x2(...))`, `uint` and `uint2` for the hashes, and one
+preprocessor switch, `UNITY_COLORSPACE_GAMMA`, which becomes the target's
+colour), and anything
 outside it is an error with a file and line rather than a guess. HLSL converts
 where GLSL, WGSL and Metal refuse, so it makes every conversion explicit first;
 the printers then differ in spelling, plus what WGSL lacks (overloading,
@@ -136,7 +137,21 @@ stores as written) and `texture.sl` (a texture's orientation and sRGB decode).
 The whole translated library must also compile on both backends, including
 the functions no fixture reaches. The file describes the sampling grid, the
 times and the texture every sampled slot gets. A host imports it as
-`onejs-sl/goldens.json`. No CI runner here has a GPU, so `src/goldens.test.ts` checks instead
+`onejs-sl/goldens.json`.
+
+The hashes are held to the bit, not to 1/255: two backends that happen to round
+alike prove nothing about a third. `goldens/probes.hlsl` draws each of the
+library's hashes (`hash21`, the value noise's, and `hash22`, voronoi's) as three
+bits per pixel, and `corpus/probe-hash.sl` does the same through a program;
+every pixel must match `goldens/reference.mjs`, which computes the hashes in
+JavaScript. goldens.json ships each probe under its name, as HLSL, WGSL and
+GLSL ES and with the bits it must draw, for a host to run on its own compiler,
+and marks the fixtures compared at 0/255 `exact`.
+
+`npm run goldens -- --check` draws everything again and compares it with
+goldens.json instead of writing it: within 1/255, and exact fixtures and probes
+to the byte. It is how a machine that did not write the file checks its own
+GPU and compilers. No CI runner here has a GPU, so `src/goldens.test.ts` checks instead
 that the file still covers the corpus at today's hashes; a change that moves a
 hash fails there until the goldens are drawn again.
 
@@ -169,7 +184,11 @@ Before the tag:
    `PlaySite/`. It is a private repo, so no workflow here can. When `diagnose`
    or an error's fix changed, also run `node Tools/editor-sl-smoke/editor-sl-smoke.mjs`
    from the container root, which drives the Play editor in real Monaco.
-4. Push `main` and wait for CI, whose `consumers` job runs onejs-unity's
+4. Run `npm run goldens -- --check` on Windows, whose WebGPU compiles through
+   a different shader compiler from the Mac's that writes goldens.json. A
+   compiler that rounds the library differently shows here first, and nowhere
+   in CI, which has no GPU.
+5. Push `main` and wait for CI, whose `consumers` job runs onejs-unity's
    and onejs-play's typecheck and tests against the commit (`consumers.yml`). `publish.yml`
    runs the same job and publishes nothing if it fails. When a consumer has to
    follow a change, land it here, fix the consumer, then re-run and tag.
@@ -407,3 +426,9 @@ a simplex here is the simplex there. Octaves are 1 to 4. A program has no seed;
 offset the input for a different field. `sl.simplex` used to be value noise on
 a rotated lattice, and `sl.fbm` had its own value noise; both changed on
 2026-09-06 when the fields were unified.
+
+The lattice hash under value noise and voronoi is integer arithmetic (pcg2d),
+so every GPU draws the same bits: `lib/noise2d.hlsl` says why a float hash
+cannot promise that. A cell is converted to an integer, so a point past
+-2^31 or 2^31 lands in the edge cell, and a NaN in an undefined one. `fx.noise`
+seeds are read to 1/65536: two seeds closer than that draw the same field.

@@ -587,11 +587,35 @@ fn sdCircleWave(pIn: vec2f, tbIn: f32, ra: f32) -> f32 {
 }
 `,
     `
-fn onejsHash21(pIn: vec2f, seed: f32) -> f32 {
-    var p: vec2f = pIn;
-    p = fract(fract(p * vec2f(123.34, 456.21)) + fract(seed * 0.1731));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
+fn onejsPcg2d(vIn: vec2u) -> vec2u {
+    var v: vec2u = vIn;
+    v = v * vec2u(1664525u) + vec2u(1013904223u);
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v = v ^ (v >> vec2u(16u));
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v = v ^ (v >> vec2u(16u));
+    return v;
+}
+`,
+    `
+fn onejsHashKey(cell: vec2f, seed: f32) -> vec2u {
+    let c: vec2f = clamp(cell, vec2f(-2147483648.0, -2147483648.0), vec2f(2147483520.0, 2147483520.0));
+    let s: f32 = clamp(seed, -2147483648.0, 2147483520.0);
+    let whole: f32 = floor(s);
+    let key: vec2u = vec2u(u32(i32(whole)), u32(i32((s - whole) * 65536.0)));
+    return vec2u(u32(i32(c.x)), u32(i32(c.y))) + key * vec2u(2654435769u, 2246822507u);
+}
+`,
+    `
+fn onejsHashUnit(key: vec2u) -> f32 {
+    return f32(onejsPcg2d(key).x >> 8u) * 5.9604644775390625e-8;
+}
+`,
+    `
+fn onejsHash21(p: vec2f, seed: f32) -> f32 {
+    return onejsHashUnit(onejsHashKey(p, seed));
 }
 `,
     `
@@ -599,10 +623,11 @@ fn onejsVNoise(p: vec2f, seed: f32) -> f32 {
     let i: vec2f = floor(p);
     var f: vec2f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
-    let a: f32 = onejsHash21(i, seed);
-    let b: f32 = onejsHash21(i + vec2f(1.0, 0.0), seed);
-    let c: f32 = onejsHash21(i + vec2f(0.0, 1.0), seed);
-    let d: f32 = onejsHash21(i + vec2f(1.0, 1.0), seed);
+    let k: vec2u = onejsHashKey(i, seed);
+    let a: f32 = onejsHashUnit(k);
+    let b: f32 = onejsHashUnit(k + vec2u(1u, 0u));
+    let c: f32 = onejsHashUnit(k + vec2u(0u, 1u));
+    let d: f32 = onejsHashUnit(k + vec2u(1u, 1u));
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 `,
@@ -746,16 +771,9 @@ fn onejsFbmKind(kind: i32, p: vec2f, seed: f32, octaves: i32, lacunarity: f32, g
 }
 `,
     `
-fn sl_hash21(pIn: vec2f) -> f32 {
-    var p: vec2f = pIn;
-    p = fract(p * vec2f(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-}
-`,
-    `
 fn sl_hash22(p: vec2f) -> vec2f {
-    return vec2f(sl_hash21(p), sl_hash21(p + 37.7));
+    let v: vec2u = onejsPcg2d(onejsHashKey(p, 0.0) + vec2u(1759714724u, 3002137945u));
+    return vec2f(f32(v.x >> 8u), f32(v.y >> 8u)) * 5.9604644775390625e-8;
 }
 `,
     `
