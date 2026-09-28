@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { parse, sl, type Float } from "./index"
-import { SLError, TYPE, hashProgram, type SLNode } from "./ir"
+import { SLError, TYPE, hashProgram, valueAt, type SLNode, type ValueNode } from "./ir"
 import { SLOP } from "./ops"
 import { SL_SDF_SHAPES } from "./shapes"
 import { compile } from "./compile"
@@ -52,7 +52,7 @@ describe("nodes are topologically ordered", () => {
 
     it("every node carries its own type", () => {
         const p = trivial()
-        for (const n of p.nodes) expect([1, 2, 3, 4]).toContain(n.type)
+        for (const i of p.nodes.keys()) expect([1, 2, 3, 4]).toContain(valueAt(p.nodes, i).type)
     })
 })
 
@@ -84,7 +84,7 @@ describe("types are checked at the call site", () => {
             const c = sl.vec4(1, 2, 3, 4)
             return c.swz("wzyx")
         })
-        expect(p.nodes[p.result].type).toBe(TYPE.VEC4)
+        expect(valueAt(p.nodes, p.result).type).toBe(TYPE.VEC4)
     })
 
     it("insists a program returns a vec4", () => {
@@ -100,7 +100,7 @@ describe("types are checked at the call site", () => {
             const lum = sl.luminance(c)
             return sl.vec4(lum, lum, lum, 1)
         })
-        const lum = p.nodes.find((n) => n.k === "call" && n.op === SLOP.LUMINANCE)
+        const lum = p.nodes.find((n): n is ValueNode => n.k === "call" && n.op === SLOP.LUMINANCE)
         expect(lum?.type).toBe(TYPE.FLOAT)
     })
 
@@ -428,7 +428,7 @@ describe("hsv2rgb", () => {
             const rgb = sl.hsv2rgb(sl.vec3(uv.x, 1, 1))
             return sl.vec4(rgb, 1)
         })
-        const n = p.nodes.find((x) => x.k === "call" && x.op === SLOP.HSV2RGB)
+        const n = p.nodes.find((x): x is ValueNode => x.k === "call" && x.op === SLOP.HSV2RGB)
         expect(n?.type).toBe(TYPE.VEC3)
     })
 })
@@ -439,7 +439,7 @@ describe("sdf and voronoi", () => {
             const d = sl.sdf("hexagon", uv.sub(0.5), [0.3])
             return sl.vec4(d, d, d, 1)
         })
-        const n = p.nodes.find((x) => x.k === "call" && x.op === SLOP.SDF)
+        const n = p.nodes.find((x): x is ValueNode => x.k === "call" && x.op === SLOP.SDF)
         expect(n?.type).toBe(TYPE.FLOAT)
         expect((n as any).imm[0]).toBe(SL_SDF_SHAPES.hexagon)
     })
@@ -492,7 +492,7 @@ describe("sdf and voronoi", () => {
             const v = sl.voronoi(uv.mul(6))
             return sl.vec4(v, v, v, 1)
         })
-        const n = p.nodes.find((x) => x.k === "call" && x.op === SLOP.VORONOI)
+        const n = p.nodes.find((x): x is ValueNode => x.k === "call" && x.op === SLOP.VORONOI)
         expect(n?.type).toBe(TYPE.FLOAT)
     })
 })

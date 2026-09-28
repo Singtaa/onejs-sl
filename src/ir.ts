@@ -64,12 +64,61 @@ export const SOURCE_INPUTS: Readonly<Record<SourceInputName, SLType>> = { ...INP
 /** Index into `Program.nodes`. Always refers backwards. */
 export type NodeRef = number
 
-export type SLNode =
-    | { k: "const"; type: SLType; v: number[] }
-    | { k: "input"; type: SLType; name: InputName }
-    | { k: "uniform"; type: SLType; slot: number }
-    | { k: "swizzle"; type: SLType; src: NodeRef; chans: number[] }
-    | { k: "call"; type: SLType; op: SLOpCode; args: NodeRef[]; imm?: number[] }
+/**
+ * What a value holds, beside its width. A node without one holds floats, which
+ * is every node before IR 4, so a program of floats is the graph and the hash
+ * it always was.
+ */
+export type SLKind = "int" | "uint" | "bool"
+
+/**
+ * A node that is a value. `param` is a loop's carried value at the top of an
+ * iteration, `proj` one result of an `if` or a `loop`.
+ */
+export type ValueNode =
+    | { k: "const"; type: SLType; kind?: SLKind; v: number[] }
+    | { k: "input"; type: SLType; kind?: undefined; name: InputName }
+    | { k: "uniform"; type: SLType; kind?: undefined; slot: number }
+    | { k: "swizzle"; type: SLType; kind?: SLKind; src: NodeRef; chans: number[] }
+    | { k: "call"; type: SLType; kind?: SLKind; op: SLOpCode; args: NodeRef[]; imm?: number[] }
+    | { k: "param"; type: SLType; kind?: SLKind; loop: number; index: number }
+    | { k: "proj"; type: SLType; kind?: SLKind; src: NodeRef; index: number }
+
+/**
+ * Structured control flow (IR 4), as regions of the one graph rather than as
+ * statements: the graph stays a pure DAG, hash consed and hashed as before, and
+ * an emitter places each node in the innermost region that uses it
+ * (`structure.ts`), which is what makes a branch skip what only it needs.
+ *
+ *   if    `then` or `else` are the results, per the bool `cond`; its `proj`s read them
+ *   loop  the `param`s of loop `id` start as `init`; while `cond` holds and fewer
+ *         than `max` turns have run, they become `next`. Its `proj`s are the params
+ *         when it stops. `cond` and `next` are computed from the params.
+ */
+export type ControlNode =
+    | { k: "if"; cond: NodeRef; then: NodeRef[]; else: NodeRef[] }
+    | { k: "loop"; id: number; init: NodeRef[]; cond: NodeRef; next: NodeRef[]; max: number }
+
+export type SLNode = ValueNode | ControlNode
+
+/** The value node at `ref`. A control node is only ever read through its projs. */
+export function valueAt(nodes: readonly SLNode[], ref: NodeRef): ValueNode {
+    const n = nodes[ref]
+    if (n === undefined || n.k === "if" || n.k === "loop") throw new SLError(`node ${ref} is not a value`)
+    return n
+}
+
+/** The refs a node reads, in order. */
+export function operands(n: SLNode): NodeRef[] {
+    switch (n.k) {
+        case "swizzle": return [n.src]
+        case "call": return n.args
+        case "proj": return [n.src]
+        case "if": return [n.cond, ...n.then, ...n.else]
+        case "loop": return [...n.init, n.cond, ...n.next]
+        default: return []
+    }
+}
 
 /**
  * How a host presents a uniform: a slider, a checkbox, a dropdown, a heading
@@ -254,6 +303,10 @@ export class Builder {
     readonly textures: TextureDecl[] = []
     private readonly interned = new Map<string, NodeRef>()
 
+    /** The next loop's id: unique within the program, so two loops' params never intern to one node. */
+    private loops = 0
+    newLoop(): number { return this.loops++ }
+
     add(node: SLNode): NodeRef {
         if (this.nodes.length >= MAX_NODES) {
             throw new SLError(`a program may hold at most ${MAX_NODES} operations`)
@@ -266,7 +319,7 @@ export class Builder {
         return ref
     }
 
-    call(op: SLOpCode, type: SLType, args: NodeRef[], imm?: number[]): NodeRef {
+    call(op: SLOpCode, type: SLType, args: NodeRef[], imm?: number[], kind?: SLKind): NodeRef {
         const arity = SL_ARITY[op]
         if (arity >= 0 && args.length !== arity) {
             throw new SLError(`${SL_NAME[op]} takes ${arity} argument(s), got ${args.length}`)
@@ -276,14 +329,18 @@ export class Builder {
                 throw new SLError(`${SL_NAME[op]} refers to a node that does not exist yet`)
             }
         }
-        return this.add(imm === undefined ? { k: "call", type, op, args } : { k: "call", type, op, args, imm })
+        const node: SLNode = imm === undefined ? { k: "call", type, op, args } : { k: "call", type, op, args, imm }
+        if (kind !== undefined) node.kind = kind
+        return this.add(node)
     }
 
-    constant(v: number[]): NodeRef {
+    constant(v: number[], kind?: SLKind): NodeRef {
         for (const n of v) {
             if (!Number.isFinite(n)) throw new SLError(`a constant must be finite, got ${n}`)
         }
-        return this.add({ k: "const", type: v.length as SLType, v: v.slice() })
+        const node: SLNode = { k: "const", type: v.length as SLType, v: v.slice() }
+        if (kind !== undefined) node.kind = kind
+        return this.add(node)
     }
 
     uniform(name: string, type: SLType, value: number[], colour = false, control: UniformControl = {}): NodeRef {
@@ -348,9 +405,7 @@ export function reachable(nodes: SLNode[], result: NodeRef): NodeRef[] {
         const ref = stack.pop()!
         if (keep.has(ref)) continue
         keep.add(ref)
-        const n = nodes[ref]
-        if (n.k === "swizzle") stack.push(n.src)
-        else if (n.k === "call") for (const a of n.args) stack.push(a)
+        for (const a of operands(nodes[ref]!)) stack.push(a)
     }
     // Ascending, which is still topological because a node only refers backwards.
     return [...keep].sort((x, y) => x - y)
@@ -372,12 +427,17 @@ export function inputsUsed(p: Program): InputName[] {
 
 /** Structural key for hash consing. Order matters and is fixed by the node shape. */
 function keyOf(n: SLNode): string {
+    const kind = "kind" in n && n.kind !== undefined ? `@${n.kind}` : ""
     switch (n.k) {
-        case "const": return `c:${n.type}:${n.v.map(fixed).join(",")}`
+        case "const": return `c:${n.type}:${n.v.map(fixed).join(",")}${kind}`
         case "input": return `i:${n.name}`
         case "uniform": return `u:${n.slot}`
-        case "swizzle": return `s:${n.src}:${n.chans.join("")}`
-        case "call": return `f:${n.op}:${n.args.join(",")}:${(n.imm ?? []).map(fixed).join(",")}`
+        case "swizzle": return `s:${n.src}:${n.chans.join("")}${kind}`
+        case "call": return `f:${n.op}:${n.args.join(",")}:${(n.imm ?? []).map(fixed).join(",")}${kind}`
+        case "param": return `p:${n.loop}:${n.index}`
+        case "proj": return `j:${n.src}:${n.index}`
+        case "if": return `?:${n.cond}:${n.then.join(",")}:${n.else.join(",")}`
+        case "loop": return `L:${n.max}:${n.init.join(",")}:${n.cond}:${n.next.join(",")}`
     }
 }
 
@@ -431,13 +491,32 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
     // Only where every backend computes the same bits either way: min and max
     // are left out, since which of -0 and +0 they return depends on the order.
     const digest = new Map<NodeRef, string>()
+    const depth = loopDepths(nodes, result)
 
     const of = (ref: NodeRef): string => {
         const seen = digest.get(ref)
         if (seen !== undefined) return seen
-        const n = nodes[ref]
+        const n = nodes[ref]!
         let body: string
         switch (n.k) {
+            // Control nodes have no type of their own: their projs carry it.
+            case "if": {
+                body = `?:${of(n.cond)}:${n.then.map(of).join(",")}:${n.else.map(of).join(",")}`
+                const d = fnv1a(body)
+                digest.set(ref, d)
+                return d
+            }
+            case "loop": {
+                body = `L:${n.max}:${n.init.map(of).join(",")}:${of(n.cond)}:${n.next.map(of).join(",")}`
+                const d = fnv1a(body)
+                digest.set(ref, d)
+                return d
+            }
+            // By nesting depth, not by id: two programs that nest the same
+            // loops the same way agree however their ids were handed out, and
+            // two loops nested in one another never share a digest for a param.
+            case "param": body = `p:${depth.get(n.loop) ?? 1}:${n.index}`; break
+            case "proj": body = `j:${of(n.src)}:${n.index}`; break
             case "const": body = `c:${n.type}:${n.v.map(fixed).join(",")}`; break
             case "input": body = `i:${n.name}`; break
             // By slot rather than by name: the slot is what the generated shader
@@ -447,7 +526,7 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
             case "uniform": body = `u:${n.slot}:${n.type}`; break
             case "swizzle": {
                 const src = nodes[n.src]!
-                body = src.k === "const"
+                body = src.k === "const" && src.kind === n.kind
                     ? `c:${n.type}:${n.chans.map((c) => fixed(src.v[c]!)).join(",")}`
                     : `s:${of(n.src)}:${n.chans.join("")}`
                 break
@@ -459,7 +538,7 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
                 break
             }
         }
-        const d = fnv1a(body + "|" + n.type)
+        const d = fnv1a(body + "|" + n.type + (n.kind === undefined ? "" : n.kind))
         digest.set(ref, d)
         return d
     }
@@ -473,10 +552,42 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
     // includes the library's text when it compiles, and none caches a compiled
     // program by hash across a library update, so the new text reaches every
     // shader without a bump.
-    const parts: string[] = [`v${SL_HASH_VERSION}:${programVersion(nodes)}`, of(result)]
+    const parts: string[] = [`v${SL_HASH_VERSION}:${programVersion(nodes, result)}`, of(result)]
     for (const u of uniforms) parts.push(`U:${u.name}:${u.type}:${u.value.map(fixed).join(",")}`)
     for (const t of textures) parts.push(`T:${t.name}:${t.slot}`)
     return fnv1a(parts.join("|"))
+}
+
+/**
+ * Each reachable loop's nesting depth, 1 for a loop inside no other: 1 more than
+ * the deepest loop whose params it reads. Read from the graph, so it does not
+ * depend on the order anything was built or walked in.
+ */
+function loopDepths(nodes: readonly SLNode[], result: NodeRef): Map<number, number> {
+    const free = new Map<NodeRef, Set<number>>()
+    const loops = new Map<number, Extract<SLNode, { k: "loop" }>>()
+    const freeOf = (ref: NodeRef): Set<number> => free.get(ref) ?? new Set()
+    for (const ref of reachable(nodes as SLNode[], result)) {
+        const n = nodes[ref]!
+        const out = new Set<number>()
+        if (n.k === "param") out.add(n.loop)
+        for (const a of operands(n)) for (const l of freeOf(a)) out.add(l)
+        if (n.k === "loop") { out.delete(n.id); loops.set(n.id, n) }
+        free.set(ref, out)
+    }
+    const loopFree = new Map<number, Set<number>>()
+    for (const [ref, n] of nodes.entries()) if (n.k === "loop" && free.has(ref)) loopFree.set(n.id, free.get(ref)!)
+    const depth = new Map<number, number>()
+    const of = (id: number): number => {
+        const seen = depth.get(id)
+        if (seen !== undefined) return seen
+        let d = 1
+        for (const outer of loopFree.get(id) ?? []) d = Math.max(d, of(outer) + 1)
+        depth.set(id, d)
+        return d
+    }
+    for (const id of loops.keys()) of(id)
+    return depth
 }
 
 /** The control fields of `c` that are set, copied, in `CONTROL_FIELDS` order. */
@@ -500,12 +611,22 @@ export function controlOf(c: UniformControl): UniformControl {
  * predates the bump still reads it. Every node counts, used or not: the JSON
  * carries them all, and an older reader has to refuse by the version rather
  * than halfway through the nodes.
+ *
+ * Only the nodes the result reads count: lowering leaves dead nodes behind (an
+ * int constant a fold used up, say), and they draw nothing. `toJSON` writes
+ * only the live ones, so an older reader never meets a dead newer node.
  */
-export function programVersion(nodes: readonly SLNode[]): number {
+export function programVersion(nodes: readonly SLNode[], result: NodeRef): number {
     let v = 2
-    for (const n of nodes) v = Math.max(v, nodeVersion(n))
+    for (const ref of reachable(nodes as SLNode[], result)) v = Math.max(v, nodeVersion(nodes[ref]!))
     return v
 }
+
+/** The ops IR 4 added. */
+const IR4_OPS = new Set<number>([
+    SLOP.CAST, SLOP.LT, SLOP.LE, SLOP.GT, SLOP.GE, SLOP.EQ, SLOP.NE, SLOP.AND, SLOP.OR, SLOP.NOT,
+    SLOP.BIT_AND, SLOP.BIT_OR, SLOP.BIT_XOR, SLOP.BIT_NOT, SLOP.SHL, SLOP.SHR, SLOP.CHOOSE,
+])
 
 /**
  * The version that added this node's form. An sdf or octave call with one
@@ -513,7 +634,9 @@ export function programVersion(nodes: readonly SLNode[]): number {
  * holds, and `fromJSON` moves it to the form IR 3 has.
  */
 function nodeVersion(n: SLNode): number {
+    if (n.k === "if" || n.k === "loop" || n.k === "param" || n.k === "proj" || n.kind !== undefined) return 4
     if (n.k !== "call") return 2
+    if (IR4_OPS.has(n.op)) return 4
     switch (n.op) {
         case SLOP.SAMPLE_LOD: return 3
         case SLOP.SDF:
@@ -537,7 +660,7 @@ function nodeVersion(n: SLNode): number {
  *        one immediate
  */
 export function formProblem(n: Extract<SLNode, { k: "call" }>, nodes: readonly SLNode[]): string | null {
-    const widths = n.args.map((a) => nodes[a]!.type).join(",")
+    const widths = n.args.map((a) => { const v = nodes[a]!; return v.k === "if" || v.k === "loop" ? "control" : v.type }).join(",")
     switch (n.op) {
         case SLOP.SDF:
             if (widths === "2,4,2" && n.imm?.length === 1) return null
@@ -588,8 +711,9 @@ export const SL_HASH_VERSION = 2
  *   2  an SDF call carries up to six shape parameters, not four (#129)
  *   3  SAMPLE_LOD; an SDF's shape parameters and a noise's octave count are
  *      operands, where they were immediates
+ *   4  control flow (if, loop, their params and projs), ints, uints and bools
  */
-export const SL_IR_VERSION = 3
+export const SL_IR_VERSION = 4
 
 function fnv1a(s: string): string {
     let h = 0x811c9dc5

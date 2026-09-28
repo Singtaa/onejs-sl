@@ -18,7 +18,7 @@ describe("IR versions", () => {
         // Version 3 added SAMPLE_LOD: only a program holding one moves.
         const lod = sl.program(({ uv }) => sl.texture("t").sampleLevel(uv, 1))
         expect(lod.version).toBe(3)
-        expect(programVersion(lod.nodes)).toBe(3)
+        expect(programVersion(lod.nodes, lod.result)).toBe(3)
         expect(fromJSON(JSON.parse(JSON.stringify(toJSON(lod)))).hash).toBe(lod.hash)
     })
 
@@ -66,7 +66,7 @@ describe("IR versions", () => {
         bad([{ k: "call", type: 1, op: 16, args: [0] }], /earlier node/)
         bad([{ k: "const", type: 2, v: [1] }], /2 constant with 1 values/)
         bad([{ k: "input", type: 1, name: "uv" }], /does not exist at that width/)
-        bad([{ k: "loop", type: 1 }], /not a kind of node/)
+        bad([{ k: "block", type: 1 }], /not a kind of node/)
         expect(() => fromJSON({ ...j, result: j.nodes.length })).toThrow(/not a node/)
     })
 })

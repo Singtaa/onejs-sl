@@ -21,10 +21,11 @@
  * gives common subexpression elimination for free.
  */
 
-import { SLError, TYPE, type InputName, type Program, type SLNode, type SLType } from "./ir"
+import { SLError, TYPE, valueAt, type InputName, type NodeRef, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
 import { libClosure, LIB_FUNCTIONS } from "./lib"
 import { LIB_HLSL } from "./lib/hlsl"
 import { SLOP } from "./ops"
+import { inVaryingFlow, local, printBody, structure, type Syntax } from "./structure"
 
 export interface BodyTarget {
     /** An expression for each input, e.g. `{ uv: "SL_UV", time: "SL_TIME", ... }`. */
@@ -67,6 +68,12 @@ export interface BodyTarget {
     colour: "gamma" | "linear"
     /** Assign the result to this local instead of returning it. */
     result?: string
+    /**
+     * Put before every loop the body prints: `[loop]` for HLSL, so a compiler
+     * does not try to unroll a loop whose turns are capped only by a counter.
+     * Nothing for Metal, which has no such attribute.
+     */
+    loopAttribute?: string
     /** Put in front of every line. Default four spaces. */
     indent?: string
 }
@@ -85,6 +92,22 @@ export interface Body {
 
 const HLSL_TYPE: Record<SLType, string> = { 1: "float", 2: "float2", 3: "float3", 4: "float4" }
 
+/** A value's HLSL type, which Metal spells the same through a host's defines. */
+function typeName(n: { type: SLType; kind?: SLKind }): string {
+    if (n.kind === undefined) return HLSL_TYPE[n.type]
+    return n.type === 1 ? n.kind : `${n.kind}${n.type}`
+}
+
+/** An int, uint or bool constant as a literal. */
+function kindLit(kind: SLKind, v: number): string {
+    if (kind === "bool") return v !== 0 ? "true" : "false"
+    if (kind === "uint") return `${v >>> 0}u`
+    return v < 0 ? `(${v})` : String(v)
+}
+
+/** The int range a float is held to on its way to an int, so every backend truncates the same. */
+export const INT_LIMITS = { int: ["-2147483648.0", "2147483520.0"], uint: ["0.0", "4294967040.0"] } as const
+
 /** A literal that survives a float32 round trip and never reads as an int. */
 export function lit(n: number): string {
     if (!Number.isFinite(n)) throw new SLError(`cannot emit ${n} as a shader literal`)
@@ -100,9 +123,8 @@ const SWZ = "xyzw"
 
 export function emitBody(p: Program, target: BodyTarget): Body {
     const indent = target.indent ?? "    "
-    const lines: string[] = []
-    const name = (ref: number) => `n${ref}`
-    const emitted = new Set<number>()
+    const name = local
+    const shape = structure(p)
     const uniforms = new Set<number>()
     const textures = new Set<number>()
     const helpers = new Set<string>()
@@ -113,11 +135,13 @@ export function emitBody(p: Program, target: BodyTarget): Body {
         const c = p.nodes[ref]!
         return c.k === "const" ? c.v : null
     }
-    const splat = (ref: number, w: SLType) => (p.nodes[ref]!.type === TYPE.FLOAT && w > 1 ? ctor(w, Array(w).fill(name(ref))) : name(ref))
+    const splat = (ref: number, w: SLType) => (valueAt(p.nodes, ref).type === TYPE.FLOAT && w > 1 ? ctor(w, Array(w).fill(name(ref))) : name(ref))
 
-    const expr = (n: SLNode): string => {
+    const expr = (ref: NodeRef): string => {
+        const n = valueAt(p.nodes, ref)
         switch (n.k) {
             case "const":
+                if (n.kind !== undefined) return n.type === 1 ? kindLit(n.kind, n.v[0]!) : `${typeName(n)}(${n.v.map((v) => kindLit(n.kind!, v)).join(", ")})`
                 return ctor(n.type, n.v.map(lit))
             case "input":
                 return target.inputs[n.name]
@@ -130,14 +154,18 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             }
             case "swizzle":
                 // Metal has no swizzle of a scalar, so a scalar widens by constructor.
-                if (p.nodes[n.src]!.type === TYPE.FLOAT) return ctor(n.type, n.chans.map(() => name(n.src)))
+                if (valueAt(p.nodes, n.src).type === TYPE.FLOAT) {
+                    return n.type === 1 ? name(n.src) : `${typeName(n)}(${n.chans.map(() => name(n.src)).join(", ")})`
+                }
                 return `${name(n.src)}.${n.chans.map((c) => SWZ[c]).join("")}`
             case "call":
-                return call(n)
+                return call(n, ref)
+            default:
+                throw new SLError(`the HLSL emitter reached a ${n.k} as an expression`)
         }
     }
 
-    const call = (n: Extract<SLNode, { k: "call" }>): string => {
+    const call = (n: Extract<ValueNode, { k: "call" }>, ref: NodeRef): string => {
         const a = n.args.map(name)
         const t = n.type
         // Every argument of an element wise intrinsic at the result's width,
@@ -146,10 +174,54 @@ export function emitBody(p: Program, target: BodyTarget): Body {
         // max(float, 0) is ambiguous, so the shared subset spells both out.
         const s = n.args.map((r) => splat(r, t))
         const k = (v: number, w: SLType) => ctor(w, Array(w).fill(lit(v)))
-        const w0 = n.args.length > 0 ? p.nodes[n.args[0]!]!.type : TYPE.FLOAT
+        const w0 = n.args.length > 0 ? valueAt(p.nodes, n.args[0]!).type : TYPE.FLOAT
         const imm = n.imm ?? []
+        const argKind = n.args.length > 0 ? valueAt(p.nodes, n.args[0]!).kind : undefined
+        // IR 4: the ops that take ints, uints and bools, by the kinds involved.
+        if (n.kind !== undefined || argKind !== undefined) {
+            const zero = kindLit(n.kind ?? "int", 0)
+            switch (n.op) {
+                case SLOP.ADD: return `(${a[0]} + ${a[1]})`
+                case SLOP.SUB: return `(${a[0]} - ${a[1]})`
+                case SLOP.MUL: return `(${a[0]} * ${a[1]})`
+                // Truncating, and 0 for a zero divisor, which HLSL leaves undefined.
+                case SLOP.DIV: return `(${a[1]} == ${zero} ? ${zero} : ${a[0]} / ${a[1]})`
+                case SLOP.MOD: return `(${a[1]} == ${zero} ? ${zero} : ${a[0]} % ${a[1]})`
+                case SLOP.NEG: return `(-${a[0]})`
+                case SLOP.MIN: return `min(${a[0]}, ${a[1]})`
+                case SLOP.MAX: return `max(${a[0]}, ${a[1]})`
+                case SLOP.ABS: return `abs(${a[0]})`
+                case SLOP.CLAMP: return `clamp(${a[0]}, ${a[1]}, ${a[2]})`
+            }
+        }
         switch (n.op) {
-            case SLOP.COMPOSE: return ctor(n.type, a)
+            case SLOP.COMPOSE: return n.kind === undefined ? ctor(n.type, a) : `${typeName(n)}(${a.join(", ")})`
+            case SLOP.CAST: {
+                const from = valueAt(p.nodes, n.args[0]!).kind
+                if (n.kind === undefined) return `${typeName(n)}(${a[0]})`
+                if (n.kind === "bool") return `(${a[0]} != ${from === undefined ? "0.0" : kindLit(from, 0)})`
+                if (from === undefined) {
+                    const [lo, hi] = INT_LIMITS[n.kind]
+                    return `${n.kind}(clamp(${a[0]}, ${lo}, ${hi}))`
+                }
+                return `${n.kind}(${a[0]})`
+            }
+            case SLOP.LT: return `(${a[0]} < ${a[1]})`
+            case SLOP.LE: return `(${a[0]} <= ${a[1]})`
+            case SLOP.GT: return `(${a[0]} > ${a[1]})`
+            case SLOP.GE: return `(${a[0]} >= ${a[1]})`
+            case SLOP.EQ: return `(${a[0]} == ${a[1]})`
+            case SLOP.NE: return `(${a[0]} != ${a[1]})`
+            case SLOP.AND: return `(${a[0]} && ${a[1]})`
+            case SLOP.OR: return `(${a[0]} || ${a[1]})`
+            case SLOP.NOT: return `(!${a[0]})`
+            case SLOP.BIT_AND: return `(${a[0]} & ${a[1]})`
+            case SLOP.BIT_OR: return `(${a[0]} | ${a[1]})`
+            case SLOP.BIT_XOR: return `(${a[0]} ^ ${a[1]})`
+            case SLOP.BIT_NOT: return `(~${a[0]})`
+            case SLOP.SHL: return `(${a[0]} << ${a[1]})`
+            case SLOP.SHR: return `(${a[0]} >> ${a[1]})`
+            case SLOP.CHOOSE: return `(${a[0]} ? ${a[1]} : ${a[2]})`
 
             case SLOP.ADD: return `(${a[0]} + ${a[1]})`
             case SLOP.SUB: return `(${a[0]} - ${a[1]})`
@@ -223,7 +295,9 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.SAMPLE: {
                 const slot = Math.round(imm[0] ?? 0)
                 textures.add(slot)
-                return target.sample(slot, a[0]!)
+                // Where pixels part ways there are no neighbours to take a mip
+                // level from, so every backend samples level 0 there (`structure.ts`).
+                return inVaryingFlow(shape, ref) ? target.sampleLevel(slot, a[0]!, "0.0") : target.sample(slot, a[0]!)
             }
             case SLOP.SAMPLE_LOD: {
                 const slot = Math.round(imm[0] ?? 0)
@@ -240,15 +314,20 @@ export function emitBody(p: Program, target: BodyTarget): Body {
         }
     }
 
-    const walk = (ref: number): void => {
-        if (emitted.has(ref)) return
-        const n = p.nodes[ref]
-        const deps = n.k === "swizzle" ? [n.src] : n.k === "call" ? n.args : []
-        for (const d of deps) walk(d)
-        emitted.add(ref)
-        lines.push(`${indent}${HLSL_TYPE[n.type]} ${name(ref)} = ${expr(n)};`)
+    const typeOf = (ref: NodeRef) => typeName(valueAt(p.nodes, ref))
+    const syntax: Syntax = {
+        value: (ref, e) => `${typeOf(ref)} ${name(ref)} = ${e};`,
+        mutable: (n, like, init) => `${typeOf(like)} ${n}${init === undefined ? "" : ` = ${init}`};`,
+        counter: (n) => `int ${n} = 0;`,
+        assign: (n, v) => `${n} = ${v};`,
+        increment: (n) => `${n}++;`,
+        ifOpen: (c) => `if (${c}) {`,
+        elseOpen: "} else {",
+        close: "}",
+        loopOpen: `${target.loopAttribute === undefined ? "" : target.loopAttribute + " "}for (;;) {`,
+        breakUnless: (c, turns, max) => `if (!(${c}) || ${turns} >= ${max}) break;`,
     }
-    walk(p.result)
+    const lines = printBody(p, shape, syntax, expr, indent)
     lines.push(target.result === undefined
         ? `${indent}return ${name(p.result)};`
         : `${indent}${target.result} = ${name(p.result)};`)
