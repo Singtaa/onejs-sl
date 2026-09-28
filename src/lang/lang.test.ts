@@ -54,6 +54,30 @@ describe("sdf", () => {
     })
 })
 
+describe("noise", () => {
+    it("takes an octave count that is a value as an operand, rounded and held to 1 to 4 where it is read", () => {
+        const p = parse(`
+            [Range(1, 4, 1)] uniform float detail = 3;
+            float4 main() { return float4(fbm(uv * 4, detail), turbulence(uv * 4, detail), ridged(uv * 4, detail + 1), 1); }
+        `)
+        expect(p.version).toBe(3)
+        const calls = p.nodes.filter((n) => n.k === "call" && [SLOP.FBM, SLOP.TURBULENCE, SLOP.RIDGED].includes(n.op as never))
+        expect(calls.map((n) => n.k === "call" && [n.args.length, n.imm ?? []])).toEqual([[2, [0]], [2, []], [2, []]])
+        const e = compile(p)
+        expect(e.glsl).toMatch(/onejsFbm\(n\d+, 0\.0, clamp\(int\(floor\(n\d+ \+ 0\.5\)\), 1, 4\), 2\.0, 0\.5\)/)
+        expect(e.wgsl).toMatch(/clamp\(i32\(floor\(n\d+ \+ 0\.5\)\), 1, 4\)/)
+        expect(e.hlsl).toMatch(/sl_fbm\(n\d+, int\(floor\(n\d+ \+ 0\.5\)\), 3\)/)
+    })
+
+    it("keeps a constant octave count an immediate, so the program is the one it was", () => {
+        const p = parse("float4 main() { return float4(fbm(uv * 4, 2), 0, 0, 1); }")
+        expect(p.version).toBe(2)
+        const call = p.nodes.find((n) => n.k === "call" && n.op === SLOP.FBM)!
+        expect(call.k === "call" && [call.args.length, call.imm]).toEqual([1, [2, 0]])
+        expect(() => parse("float4 main() { return float4(fbm(uv, 5), 0, 0, 1); }")).toThrow(/whole number from 1 to 4, got 5/)
+    })
+})
+
 describe("declarations", () => {
     it("uniforms take slots in declaration order, used or not", () => {
         const p = parse(`

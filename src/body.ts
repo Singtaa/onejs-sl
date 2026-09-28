@@ -200,9 +200,16 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.HSV2RGB: return `${helper("sl_hsv2rgb")}(${a[0]})`
             case SLOP.NOISE: return `${helper("sl_valueNoise")}(${a[0]})`
             case SLOP.SIMPLEX: return `${helper("sl_simplex")}(${a[0]})`
-            case SLOP.FBM: return `${helper("sl_fbm")}(${a[0]}, ${Math.round(imm[0] ?? 3)}, ${Math.round(imm[1] ?? 0)})`
-            case SLOP.TURBULENCE: return `${helper("sl_fbm")}(${a[0]}, ${Math.round(imm[0] ?? 3)}, 2)`
-            case SLOP.RIDGED: return `${helper("sl_fbm")}(${a[0]}, ${Math.round(imm[0] ?? 3)}, 3)`
+            case SLOP.FBM:
+            case SLOP.TURBULENCE:
+            case SLOP.RIDGED: {
+                // The count as an operand (IR 3), rounded here and held to 1 to 4
+                // by sl_fbm, or as the first immediate, fbm's kind after it.
+                const operand = n.args.length > 1
+                const count = operand ? `int(floor(${a[1]} + 0.5))` : String(Math.round(imm[0] ?? 3))
+                const kind = n.op === SLOP.TURBULENCE ? 2 : n.op === SLOP.RIDGED ? 3 : Math.round((operand ? imm[0] : imm[1]) ?? 0)
+                return `${helper("sl_fbm")}(${a[0]}, ${count}, ${kind})`
+            }
             case SLOP.SDF: {
                 const id = Math.round(imm[0] ?? 0)
                 // The parameters as operands (IR 3), or as the immediates after the id.

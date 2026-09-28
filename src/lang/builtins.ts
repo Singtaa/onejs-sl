@@ -125,12 +125,10 @@ value(SLOP.LUMINANCE, 1, 1, (a) => sl.luminance(colourOperand("luminance", a[0]!
 value(SLOP.NOISE, 1, 1, (a) => sl.noise(point("noise", a[0]!) as never))
 value(SLOP.SIMPLEX, 1, 1, (a) => sl.simplex(point("simplex", a[0]!) as never))
 value(SLOP.VORONOI, 1, 1, (a) => sl.voronoi(point("voronoi", a[0]!) as never))
-// The octave count is an immediate, so it has to be a number at parse time.
-// `lower.ts` folds constants before it gets here and rejects anything else with
-// a message that says why, rather than letting this cast be the error.
-value(SLOP.FBM, 1, 2, (a) => sl.fbm(point("fbm", a[0]!) as never, octaves("fbm", a[1])))
-value(SLOP.TURBULENCE, 1, 2, (a) => sl.turbulence(point("turbulence", a[0]!) as never, octaves("turbulence", a[1])))
-value(SLOP.RIDGED, 1, 2, (a) => sl.ridged(point("ridged", a[0]!) as never, octaves("ridged", a[1])))
+// The octave count is 3 when left out, and may be a value (`sl.fbm` says how).
+value(SLOP.FBM, 1, 2, (a) => sl.fbm(point("fbm", a[0]!) as never, a[1] ?? 3))
+value(SLOP.TURBULENCE, 1, 2, (a) => sl.turbulence(point("turbulence", a[0]!) as never, a[1] ?? 3))
+value(SLOP.RIDGED, 1, 2, (a) => sl.ridged(point("ridged", a[0]!) as never, a[1] ?? 3))
 
 /** Every field is sampled at a float2. */
 function point(fn: string, v: Num): Val {
@@ -141,17 +139,6 @@ special(SLOP.SAMPLE, 2, 2)
 special(SLOP.SAMPLE_LOD, 3, 3)
 special(SLOP.SDF, 1, 7)
 special(SLOP.RAMP, 3, 64)
-
-function octaves(fn: string, v: Num | undefined): number {
-    if (v === undefined) return 3
-    if (typeof v !== "number") {
-        throw new SLError(
-            `${fn}'s octave count is part of the operation, so it has to be a constant. ` +
-            `A uniform or a computed value cannot change how many octaves the shader runs.`,
-        )
-    }
-    return v
-}
 
 export const BUILTINS: Readonly<Record<string, Builtin>> = table
 

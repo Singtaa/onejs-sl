@@ -183,6 +183,8 @@ const anchors = {
     // Filtering in linear light is to the GPU's own precision, hence 2.
     "texture.sl": { tolerance: 2, expect: (u, v) => [0, 1, 2].map((ch) => encode(bilinear(u, v, ch))).concat(255) },
     "probe-hash.sl": { tolerance: 0, expect: (u, v, x, y) => probeProgramPixel(x, y) },
+    // Noise with its octave count as a value and as a constant, black where they agree.
+    "fbm-values.sl": { tolerance: 0, expect: () => [0, 0, 0, 255] },
     // Shapes measured with value parameters and with constants, black where they agree.
     "sdf-values.sl": { tolerance: 0, expect: () => [0, 0, 0, 255] },
     // Four bands, each one mip level: the image, then the three solid levels.

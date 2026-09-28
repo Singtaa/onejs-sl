@@ -132,11 +132,12 @@ what a WebGL player draws.
 
 `npm run goldens` draws it on WebGPU and WebGL2 in a Chrome with its own
 profile (set `CHROME` to choose one). The two backends must agree within 1/255
-over every pixel, and four anchors must match arithmetic, not each other:
+over every pixel, and six anchors must match arithmetic, not each other:
 `orient.sl` (orientation, and the linear to sRGB store), `hex.sl` (a hex colour
 stores as written), `texture.sl` (a texture's orientation and sRGB decode) and
 `lod.sl` (each mip level `tex2Dlod` reads, the texture's smaller levels being
-solid colours).
+solid colours). `sdf-values.sl` and `fbm-values.sl` are black unless a shape or
+a noise draws differently with its parameters as values than as constants.
 The whole translated library must also compile on both backends, including
 the functions no fixture reaches. The file describes the sampling grid, the
 times and the texture every sampled slot gets. A host imports it as
@@ -328,7 +329,8 @@ refuses a newer one with a message naming both.
 IR 2 came with #129. A shape takes as many parameters as it reads
 (`SL_SDF_PARAMS`, six at most, and never fewer than four accepted), where it
 used to take four and lose the rest. IR 3 added `SAMPLE_LOD`, and an SDF
-whose shape parameters are values rather than constants.
+whose shape parameters, or a noise whose octave count, are values rather than
+constants.
 
 ## Control flow
 
@@ -344,8 +346,8 @@ shaders loop for. A loop with a runtime count is `Specs/SL_NEXT.md` proposal
 does; `corpus/long.sl` is over a thousand operations.
 
 Every loop that reaches a GPU is therefore bounded by a constant: `repeat` is
-unrolled, fbm's octaves are a constant 1 to 4, the helper loops in the noise
-and Voronoi functions have fixed trip counts. No program can hang a GPU today,
+unrolled, fbm's octaves are held to 1 to 4 even when the count is a value, the
+helper loops in the noise and Voronoi functions have fixed trip counts. No program can hang a GPU today,
 so the compiled backends carry no loop cap. A data dependent loop (the
 raymarching tier) would need one emitted into every loop it prints, since a GPU
 reset takes the whole page's device, Unity's included.

@@ -168,9 +168,9 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             case SLOP.HSV2RGB: return `${lib("sl_hsv2rgb")}(${a[0]})`
             case SLOP.NOISE: return `${lib("sl_valueNoise")}(${a[0]})`
             case SLOP.SIMPLEX: return `${lib("sl_simplex")}(${a[0]})`
-            case SLOP.FBM: return octaveCall(Math.round(imm[1] ?? 0), a[0], imm[0])
-            case SLOP.TURBULENCE: return octaveCall(2, a[0], imm[0])
-            case SLOP.RIDGED: return octaveCall(3, a[0], imm[0])
+            case SLOP.FBM: return octaveCall(Math.round((n.args.length > 1 ? imm[0] : imm[1]) ?? 0), a[0])
+            case SLOP.TURBULENCE: return octaveCall(2, a[0])
+            case SLOP.RIDGED: return octaveCall(3, a[0])
             case SLOP.VORONOI: return `${lib("sl_voronoi")}(${a[0]})`
             case SLOP.SDF: return sdfCall(Math.round(imm[0] ?? 0), a[0], sdfParams())
             case SLOP.SAMPLE: {
@@ -195,10 +195,14 @@ function emitWeb(p: Program, lang: WebLanguage): string {
         /**
          * The library's onejsFbmKind, resolved here since the kind is a
          * constant: calling the dispatcher would print a WGSL `select` that
-         * runs two of the four fields to keep one.
+         * runs two of the four fields to keep one. The count is a literal when
+         * it is an immediate, and an operand rounded and held to 1 to 4 as
+         * `sl_fbm` holds it when it is a value.
          */
-        function octaveCall(kind: number, pt: string, octaves: number | undefined): string {
-            const o = Math.min(4, Math.max(1, Math.round(octaves ?? 3)))
+        function octaveCall(kind: number, pt: string): string {
+            const o = n.args.length > 1
+                ? `clamp(${W ? "i32" : "int"}(floor(${a[1]} + 0.5)), 1, 4)`
+                : String(Math.min(4, Math.max(1, Math.round(imm[0] ?? 3))))
             const fn = kind === 2 ? "onejsTurbulence" : kind === 3 ? "onejsRidged" : kind === 1 ? "onejsFbmSimplex" : "onejsFbm"
             return `${lib(fn, ["float2", "float", "int", "float", "float"])}(${pt}, 0.0, ${o}, 2.0, 0.5)`
         }

@@ -476,7 +476,11 @@ function nodeVersion(n: SLNode): number {
     if (n.k !== "call") return 2
     switch (n.op) {
         case SLOP.SAMPLE_LOD: return 3
-        case SLOP.SDF: return n.args.length > 1 ? 3 : 2
+        case SLOP.SDF:
+        case SLOP.FBM:
+        case SLOP.TURBULENCE:
+        case SLOP.RIDGED:
+            return n.args.length > 1 ? 3 : 2
         default: return 2
     }
 }
@@ -488,6 +492,9 @@ function nodeVersion(n: SLNode): number {
  *
  *   SDF  the point, its shape parameters immediates after the shape id; or the
  *        point, a float4 and a float2 holding them, the id the one immediate
+ *   FBM, TURBULENCE, RIDGED  the point, the octave count the first immediate
+ *        (FBM's kind the second); or the point and the count, FBM's kind the
+ *        one immediate
  */
 export function formProblem(n: Extract<SLNode, { k: "call" }>, nodes: readonly SLNode[]): string | null {
     const widths = n.args.map((a) => nodes[a]!.type).join(",")
@@ -496,6 +503,14 @@ export function formProblem(n: Extract<SLNode, { k: "call" }>, nodes: readonly S
             if (widths === "2" && (n.imm?.length ?? 0) >= 5) return null
             if (widths === "2,4,2" && n.imm?.length === 1) return null
             return "an sdf takes a float2 and its parameters as immediates, or a float2, a float4 and a float2 and the shape alone"
+        case SLOP.FBM:
+        case SLOP.TURBULENCE:
+        case SLOP.RIDGED: {
+            const rest = n.op === SLOP.FBM ? 1 : 0
+            if (widths === "2" && n.imm?.length === rest + 1) return null
+            if (widths === "2,1" && (n.imm?.length ?? 0) === rest) return null
+            return `${SL_NAME[n.op]} takes a float2 and its octave count as an immediate, or a float2 and a float`
+        }
         default:
             return null
     }
@@ -525,7 +540,7 @@ export const SL_HASH_VERSION = 1
  *
  *   1  the first versioned IR
  *   2  an SDF call carries up to six shape parameters, not four (#129)
- *   3  SAMPLE_LOD; an SDF's shape parameters as operands
+ *   3  SAMPLE_LOD; an SDF's shape parameters and a noise's octave count as operands
  */
 export const SL_IR_VERSION = 3
 

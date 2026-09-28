@@ -183,7 +183,6 @@ describe("no message names the VM", () => {
         "a while loop": "float4 main() { while (1) { } return #fff; }",
         "a long loop": "float4 main() { float v = 0; for (int i = 0; i < 500; i++) { v = v + uv.x; } return float4(v, 0, 0, 1); }",
         "a computed bound": "uniform float n = 3;\nfloat4 main() { float v = 0; for (int i = 0; i < n; i++) { v = v + uv.x; } return float4(v, 0, 0, 1); }",
-        "a computed octave count": "uniform float o = 3;\nfloat4 main() { return float4(fbm(uv, o), 0, 0, 1); }",
     }
     for (const [what, source] of Object.entries(cases)) {
         it(`for ${what}`, () => {
