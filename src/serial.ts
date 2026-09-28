@@ -45,7 +45,8 @@ export function fromJSON(json: unknown): Program {
     })
     const result = j.result
     if (!Number.isInteger(result) || result! < 0 || result! >= nodes.length) fail(`its result ${String(result)} is not a node`)
-    if (nodes[result!]!.type !== TYPE.VEC4) fail("its result is not a float4")
+    const out = nodes[result!]!
+    if (out.k === "if" || out.k === "loop" || out.type !== TYPE.VEC4 || out.kind !== undefined) fail("its result is not a float4")
     const uniforms = (j.uniforms ?? []).map(uniform)
     const textures = (j.textures ?? []).map(texture)
     checkCaps({ uniforms, textures })
@@ -56,7 +57,7 @@ export function fromJSON(json: unknown): Program {
     // recorded unless the file predates version 2 (whose nodes version 2 reads
     // as they are) or was edited. One that claims less than its nodes need
     // holds something its version never had.
-    const version = programVersion(nodes)
+    const version = programVersion(nodes, result!)
     if (v < version && v >= 2) fail(`it says IR version ${v} and holds nodes version ${version} added; it was changed after it was written`)
     const hash = hashProgram(nodes, result!, uniforms, textures)
     // Same version, so the same maths and the same hash; a different one means
@@ -71,6 +72,35 @@ export function fromJSON(json: unknown): Program {
 function node(n: unknown, i: number): SLNode {
     if (typeof n !== "object" || n === null) fail(`node ${i} is not an object`)
     const x = n as Record<string, unknown>
+    const refs = (a: unknown, what: string): NodeRef[] => {
+        if (!Array.isArray(a) || !a.every((r) => Number.isInteger(r) && r >= 0 && r < i)) fail(`node ${i}'s ${what} do not all refer to earlier nodes`)
+        return a as number[]
+    }
+    const whole = (v: unknown, what: string): number => {
+        if (!Number.isInteger(v) || (v as number) < 0) fail(`node ${i}'s ${what} is not a whole number`)
+        return v as number
+    }
+    // IR 4's control nodes carry no type of their own.
+    if (x.k === "if") {
+        const [cond, then, otherwise] = [refs([x.cond], "condition")[0]!, refs(x.then, "then results"), refs(x.else, "else results")]
+        if (then.length !== otherwise.length) fail(`node ${i} is an if whose two sides give different numbers of results`)
+        return { k: "if", cond, then, else: otherwise }
+    }
+    if (x.k === "loop") {
+        const init = refs(x.init, "starting values"), next = refs(x.next, "next values")
+        if (init.length !== next.length) fail(`node ${i} is a loop whose next values do not match its starting values`)
+        if (!Number.isInteger(x.max) || (x.max as number) < 1) fail(`node ${i} is a loop with no turn limit`)
+        return { k: "loop", id: whole(x.id, "loop id"), init, cond: refs([x.cond], "condition")[0]!, next, max: x.max as number }
+    }
+    const kind = x.kind
+    if (kind !== undefined && kind !== "int" && kind !== "uint" && kind !== "bool") fail(`node ${i} holds a "${String(kind)}", which is not a kind`)
+    const withKind = <T extends SLNode>(v: T): T => (kind === undefined ? v : { ...v, kind })
+    if (x.k === "param" || x.k === "proj") {
+        const type = x.type
+        if (type !== 1 && type !== 2 && type !== 3 && type !== 4) fail(`node ${i} has no width 1 to 4`)
+        if (x.k === "param") return withKind({ k: "param", type: type as SLType, loop: whole(x.loop, "loop"), index: whole(x.index, "index") })
+        return withKind({ k: "proj", type: type as SLType, src: refs([x.src], "source")[0]!, index: whole(x.index, "index") })
+    }
     const type = x.type
     if (type !== 1 && type !== 2 && type !== 3 && type !== 4) fail(`node ${i} has no width 1 to 4`)
     const t = type as SLType
@@ -90,7 +120,7 @@ function node(n: unknown, i: number): SLNode {
         case "const": {
             const v = nums(x.v, "value")
             if (v.length !== t) fail(`node ${i} is a float${t === 1 ? "" : t} constant with ${v.length} values`)
-            return { k: "const", type: t, v }
+            return withKind({ k: "const", type: t, v })
         }
         case "input": {
             const name = x.name as keyof typeof INPUTS
@@ -106,7 +136,7 @@ function node(n: unknown, i: number): SLNode {
             if (chans.length !== t || !chans.every((c) => Number.isInteger(c) && c >= 0 && c <= 3)) {
                 fail(`node ${i}'s swizzle does not pick ${t} channels`)
             }
-            return { k: "swizzle", type: t, src: ref(x.src, "source"), chans }
+            return withKind({ k: "swizzle", type: t, src: ref(x.src, "source"), chans })
         }
         case "call": {
             const op = x.op as number
@@ -120,7 +150,7 @@ function node(n: unknown, i: number): SLNode {
             if (arity !== undefined && arity >= 0 && args.length !== arity) {
                 fail(`node ${i} calls ${SL_NAME[op]} with ${args.length} arguments; it takes ${arity}`)
             }
-            const out: SLNode = { k: "call", type: t, op: op as never, args }
+            const out: SLNode = withKind({ k: "call", type: t, op: op as never, args })
             if (x.imm !== undefined) out.imm = nums(x.imm, "immediates")
             return out
         }

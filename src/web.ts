@@ -24,7 +24,9 @@
  * vertex index) so one module is one pipeline; the GLSL host supplies its own.
  */
 
-import { SLError, TYPE, type Program, type SLNode, type SLType } from "./ir"
+import { INT_LIMITS } from "./body"
+import { SLError, TYPE, valueAt, type NodeRef, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
+import { inVaryingFlow, local, printBody, structure, type Syntax } from "./structure"
 import { libClosure, libIndex, LIB_FUNCTIONS, SDF_CALLS } from "./lib"
 import { LIB_GLSL } from "./lib/glsl"
 import { LIB_WGSL } from "./lib/wgsl"
@@ -48,29 +50,34 @@ function emitWeb(p: Program, lang: WebLanguage): string {
     const need = new Set<number>()
     const smoothsteps = new Set<SLType>()
     const sampled = new Set<number>()
-    const lines: string[] = []
-    const emitted = new Set<number>()
+    const shape = structure(p)
     const T = (t: SLType) => (W ? (t === 1 ? "f32" : `vec${t}f`) : t === 1 ? "float" : `vec${t}`)
-    const typeOf = (ref: number) => p.nodes[ref].type
+    /** A value's type in this language, its kind included. */
+    const typeName = (n: { type: SLType; kind?: SLKind }): string => {
+        if (n.kind === undefined) return T(n.type)
+        const scalar = W ? { int: "i32", uint: "u32", bool: "bool" }[n.kind] : n.kind
+        if (n.type === 1) return scalar
+        return W ? `vec${n.type}<${scalar}>` : `${{ int: "i", uint: "u", bool: "b" }[n.kind]}vec${n.type}`
+    }
+    const kindLit = (kind: SLKind, v: number): string => {
+        if (kind === "bool") return v !== 0 ? "true" : "false"
+        if (kind === "uint") return `${v >>> 0}u`
+        const i = W ? `${v}i` : String(v)
+        return v < 0 ? `(${i})` : i
+    }
+    const typeOf = (ref: number) => valueAt(p.nodes, ref).type
 
     /** A node's value widened to `t` when it is a scalar and `t` is not. */
     const splat = (ref: number, t: SLType) => (typeOf(ref) === 1 && t > 1 ? `${T(t)}(n${ref})` : `n${ref}`)
     /** A literal at width `t`. */
     const k = (v: number, t: SLType) => (t > 1 ? `${T(t)}(${lit(v)})` : lit(v))
 
-    const walk = (ref: number): void => {
-        if (emitted.has(ref)) return
-        const n = p.nodes[ref]
-        const deps = n.k === "swizzle" ? [n.src] : n.k === "call" ? n.args : []
-        for (const d of deps) walk(d)
-        emitted.add(ref)
-        const e = expr(n)
-        lines.push(W ? `    let n${ref}: ${T(n.type)} = ${e};` : `    ${T(n.type)} n${ref} = ${e};`)
-    }
-
-    const expr = (n: SLNode): string => {
+    const expr = (ref: NodeRef): string => {
+        const n = valueAt(p.nodes, ref)
         switch (n.k) {
-            case "const": return n.type === 1 ? lit(n.v[0]) : `${T(n.type)}(${n.v.map(lit).join(", ")})`
+            case "const":
+                if (n.kind !== undefined) return n.type === 1 ? kindLit(n.kind, n.v[0]!) : `${typeName(n)}(${n.v.map((v) => kindLit(n.kind!, v)).join(", ")})`
+                return n.type === 1 ? lit(n.v[0]) : `${T(n.type)}(${n.v.map(lit).join(", ")})`
             case "input": {
                 const res = W ? "sl.res" : "sl_Res"
                 switch (INPUT_ID[n.name]) {
@@ -87,14 +94,15 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             }
             case "swizzle": {
                 // A scalar has one component and no swizzle in either language.
-                if (typeOf(n.src) === 1) return n.type === 1 ? `n${n.src}` : `${T(n.type)}(n${n.src})`
+                if (typeOf(n.src) === 1) return n.type === 1 ? `n${n.src}` : `${typeName(n)}(n${n.src})`
                 return `n${n.src}.${n.chans.map((c) => "xyzw"[c]).join("")}`
             }
-            case "call": return call(n)
+            case "call": return call(n, ref)
+            default: throw new SLError(`the ${lang.toUpperCase()} emitter reached a ${n.k} as an expression`)
         }
     }
 
-    const call = (n: Extract<SLNode, { k: "call" }>): string => {
+    const call = (n: Extract<ValueNode, { k: "call" }>, ref: NodeRef): string => {
         const t = n.type
         const a = n.args.map((r) => `n${r}`)
         // Every argument at the result's width, for the element wise ops. WGSL
@@ -109,8 +117,55 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             return W ? LIB_FUNCTIONS[i]!.wgsl : name
         }
         const hlslType = (w: SLType) => (w === 1 ? "float" : `float${w}`)
+        const argKind = n.args.length > 0 ? valueAt(p.nodes, n.args[0]!).kind : undefined
+        // IR 4: the ops that take ints, uints and bools, by the kinds involved.
+        if (n.kind !== undefined || argKind !== undefined) {
+            const zero = kindLit(n.kind ?? "int", 0)
+            /** `c ? x : y`, which WGSL spells select(y, x, c). */
+            const pick = (c: string, x: string, y: string) => (W ? `select(${y}, ${x}, ${c})` : `(${c} ? ${x} : ${y})`)
+            switch (n.op) {
+                case SLOP.ADD: return `(${a[0]} + ${a[1]})`
+                case SLOP.SUB: return `(${a[0]} - ${a[1]})`
+                case SLOP.MUL: return `(${a[0]} * ${a[1]})`
+                // Truncating, and 0 for a zero divisor. GLSL ES leaves % of a
+                // negative undefined, so it is written out from the division.
+                case SLOP.DIV: return pick(`${a[1]} == ${zero}`, zero, `${a[0]} / ${a[1]}`)
+                case SLOP.MOD: return pick(`${a[1]} == ${zero}`, zero, W ? `${a[0]} % ${a[1]}` : `${a[0]} - ${a[1]} * (${a[0]} / ${a[1]})`)
+                case SLOP.NEG: return `(-${a[0]})`
+                case SLOP.MIN: return `min(${a[0]}, ${a[1]})`
+                case SLOP.MAX: return `max(${a[0]}, ${a[1]})`
+                case SLOP.ABS: return `abs(${a[0]})`
+                case SLOP.CLAMP: return `clamp(${a[0]}, ${a[1]}, ${a[2]})`
+            }
+        }
         switch (n.op) {
-            case SLOP.COMPOSE: return t === 1 ? a[0] : `${T(t)}(${a.join(", ")})`
+            case SLOP.COMPOSE: return t === 1 ? a[0] : `${typeName(n)}(${a.join(", ")})`
+            case SLOP.CAST: {
+                const from = valueAt(p.nodes, n.args[0]!).kind
+                if (n.kind === "bool") return `(${a[0]} != ${from === undefined ? "0.0" : kindLit(from, 0)})`
+                if (n.kind !== undefined && from === undefined) {
+                    const [lo, hi] = INT_LIMITS[n.kind]
+                    return `${typeName(n)}(clamp(${a[0]}, ${lo}, ${hi}))`
+                }
+                return `${typeName(n)}(${a[0]})`
+            }
+            case SLOP.LT: return `(${a[0]} < ${a[1]})`
+            case SLOP.LE: return `(${a[0]} <= ${a[1]})`
+            case SLOP.GT: return `(${a[0]} > ${a[1]})`
+            case SLOP.GE: return `(${a[0]} >= ${a[1]})`
+            case SLOP.EQ: return `(${a[0]} == ${a[1]})`
+            case SLOP.NE: return `(${a[0]} != ${a[1]})`
+            case SLOP.AND: return `(${a[0]} && ${a[1]})`
+            case SLOP.OR: return `(${a[0]} || ${a[1]})`
+            case SLOP.NOT: return `(!${a[0]})`
+            case SLOP.BIT_AND: return `(${a[0]} & ${a[1]})`
+            case SLOP.BIT_OR: return `(${a[0]} | ${a[1]})`
+            case SLOP.BIT_XOR: return `(${a[0]} ^ ${a[1]})`
+            case SLOP.BIT_NOT: return `(~${a[0]})`
+            // WGSL shifts by a u32.
+            case SLOP.SHL: return W ? `(${a[0]} << u32(${a[1]}))` : `(${a[0]} << ${a[1]})`
+            case SLOP.SHR: return W ? `(${a[0]} >> u32(${a[1]}))` : `(${a[0]} >> ${a[1]})`
+            case SLOP.CHOOSE: return W ? `select(${a[2]}, ${a[1]}, ${a[0]})` : `(${a[0]} ? ${a[1]} : ${a[2]})`
 
             case SLOP.ADD: return `(${s[0]} + ${s[1]})`
             case SLOP.SUB: return `(${s[0]} - ${s[1]})`
@@ -176,6 +231,12 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             case SLOP.SAMPLE: {
                 const slot = Math.round(imm[0] ?? 0)
                 sampled.add(slot)
+                // Where pixels part ways there are no neighbours to take a mip
+                // level from, and WGSL refuses the implicit sample outright, so
+                // every backend samples level 0 there (`structure.ts`).
+                if (inVaryingFlow(shape, ref)) {
+                    return W ? `textureSampleLevel(sl_tex${slot}, sl_samp${slot}, ${a[0]}, 0.0)` : `textureLod(sl_Tex${slot}, ${a[0]}, 0.0)`
+                }
                 return W ? `textureSample(sl_tex${slot}, sl_samp${slot}, ${a[0]})` : `texture(sl_Tex${slot}, ${a[0]})`
             }
             case SLOP.SAMPLE_LOD: {
@@ -239,8 +300,33 @@ function emitWeb(p: Program, lang: WebLanguage): string {
         }
     }
 
-    walk(p.result)
-    const body = lines.join("\n")
+    const vtype = (ref: NodeRef) => typeName(valueAt(p.nodes, ref))
+    const syntax: Syntax = W
+        ? {
+            value: (ref, e) => `let ${local(ref)}: ${vtype(ref)} = ${e};`,
+            mutable: (n, like, init) => `var ${n}: ${vtype(like)}${init === undefined ? "" : ` = ${init}`};`,
+            counter: (n) => `var ${n}: i32 = 0;`,
+            assign: (n, v) => `${n} = ${v};`,
+            increment: (n) => `${n} = ${n} + 1;`,
+            ifOpen: (c) => `if (${c}) {`,
+            elseOpen: "} else {",
+            close: "}",
+            loopOpen: "loop {",
+            breakUnless: (c, turns, max) => `if (!(${c}) || ${turns} >= ${max}) { break; }`,
+        }
+        : {
+            value: (ref, e) => `${vtype(ref)} ${local(ref)} = ${e};`,
+            mutable: (n, like, init) => `${vtype(like)} ${n}${init === undefined ? "" : ` = ${init}`};`,
+            counter: (n) => `int ${n} = 0;`,
+            assign: (n, v) => `${n} = ${v};`,
+            increment: (n) => `${n}++;`,
+            ifOpen: (c) => `if (${c}) {`,
+            elseOpen: "} else {",
+            close: "}",
+            loopOpen: "for (;;) {",
+            breakUnless: (c, turns, max) => `if (!(${c}) || ${turns} >= ${max}) break;`,
+        }
+    const body = printBody(p, shape, syntax, expr, "    ").join("\n")
     const library = [...[...smoothsteps].sort().map((w) => smoothstep(w, lang)), ...librarySource(need, lang)].join("\n")
     const header = `// GENERATED from a shader language program (${p.hash}). Do not edit.`
     // Only the textures the program samples. WebGPU's automatic layout leaves

@@ -151,6 +151,7 @@ function unityTarget(p: Program): BodyTarget {
         sampleLevel: (slot, uv, lod) => `tex2Dlod(_Tex${slot}, float4(${uv}, 0.0, ${lod}))`,
         colour: "linear",
         indent: "                ",
+        loopAttribute: "[loop]",
     }
 }
 

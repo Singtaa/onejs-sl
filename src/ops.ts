@@ -49,6 +49,9 @@ export const SLOP = {
     UNIFORM: 2,
     COMPOSE: 3,   // build a wider value from narrower parts
     SWIZZLE: 4,
+    // To the node's kind (a float when it has none) from the operand's: a
+    // float to an int truncates toward zero, held to the int's range (IR 4).
+    CAST: 5,
 
     // Arithmetic
     ADD: 16,
@@ -59,6 +62,23 @@ export const SLOP = {
     POW: 21,
     NEG: 22,
     RECIP: 23,
+    // IR 4: comparisons give a bool; logic takes and gives bools; the bitwise
+    // ops take ints or uints. ADD to NEG take ints as well, by the node's kind.
+    LT: 24,
+    LE: 25,
+    GT: 26,
+    GE: 27,
+    EQ: 28,
+    NE: 29,
+    AND: 30,
+    OR: 31,
+    NOT: 32,
+    BIT_AND: 33,
+    BIT_OR: 34,
+    BIT_XOR: 35,
+    BIT_NOT: 36,
+    SHL: 37,
+    SHR: 38,
 
     // Maths
     SIN: 48,
@@ -95,6 +115,8 @@ export const SLOP = {
     SMOOTHSTEP: 98,
     SELECT: 99,
     REMAP: 100,
+    // `c ? a : b` on a bool, for values SELECT's arithmetic cannot carry (IR 4).
+    CHOOSE: 101,
 
     // Colour
     RAMP: 112,
@@ -137,7 +159,11 @@ export type SLOpCode = (typeof SLOP)[keyof typeof SLOP]
  */
 export const SL_ARITY: Record<number, number> = {
     [SLOP.CONST]: 0, [SLOP.INPUT]: 0, [SLOP.UNIFORM]: 0,
-    [SLOP.COMPOSE]: -1, [SLOP.SWIZZLE]: 1,
+    [SLOP.COMPOSE]: -1, [SLOP.SWIZZLE]: 1, [SLOP.CAST]: 1,
+    [SLOP.LT]: 2, [SLOP.LE]: 2, [SLOP.GT]: 2, [SLOP.GE]: 2, [SLOP.EQ]: 2, [SLOP.NE]: 2,
+    [SLOP.AND]: 2, [SLOP.OR]: 2, [SLOP.NOT]: 1,
+    [SLOP.BIT_AND]: 2, [SLOP.BIT_OR]: 2, [SLOP.BIT_XOR]: 2, [SLOP.BIT_NOT]: 1, [SLOP.SHL]: 2, [SLOP.SHR]: 2,
+    [SLOP.CHOOSE]: 3,
 
     [SLOP.ADD]: 2, [SLOP.SUB]: 2, [SLOP.MUL]: 2, [SLOP.DIV]: 2,
     [SLOP.MOD]: 2, [SLOP.POW]: 2, [SLOP.NEG]: 1, [SLOP.RECIP]: 1,
@@ -208,6 +234,23 @@ export const SL_HLSL: Record<number, SLSurface> = {
     [SLOP.UNIFORM]: { syntax: "uniform <type> name = <default>;" },
     [SLOP.COMPOSE]: { syntax: "float2(), float3(), float4()" },
     [SLOP.SWIZZLE]: { syntax: ".xyzw / .rgba" },
+    [SLOP.CAST]: { syntax: "int(), uint(), float(), bool()" },
+    [SLOP.LT]: { syntax: "<" },
+    [SLOP.LE]: { syntax: "<=" },
+    [SLOP.GT]: { syntax: ">" },
+    [SLOP.GE]: { syntax: ">=" },
+    [SLOP.EQ]: { syntax: "==" },
+    [SLOP.NE]: { syntax: "!=" },
+    [SLOP.AND]: { syntax: "&&" },
+    [SLOP.OR]: { syntax: "||" },
+    [SLOP.NOT]: { syntax: "!" },
+    [SLOP.BIT_AND]: { syntax: "&" },
+    [SLOP.BIT_OR]: { syntax: "|" },
+    [SLOP.BIT_XOR]: { syntax: "^" },
+    [SLOP.BIT_NOT]: { syntax: "~" },
+    [SLOP.SHL]: { syntax: "<<" },
+    [SLOP.SHR]: { syntax: ">>" },
+    [SLOP.CHOOSE]: { syntax: "?: on a bool" },
 
     [SLOP.ADD]: { syntax: "+" },
     [SLOP.SUB]: { syntax: "-" },

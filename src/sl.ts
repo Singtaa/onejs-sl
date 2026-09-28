@@ -288,7 +288,7 @@ export function program(fn: (inputs: ProgramInputs) => Vec4): Program {
         }
         const nodes: SLNode[] = b.nodes.slice()
         return {
-            version: programVersion(nodes),
+            version: programVersion(nodes, out.ref),
             nodes,
             result: out.ref,
             uniforms: b.uniforms.slice(),
