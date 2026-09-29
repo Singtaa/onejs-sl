@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
-A `.sl` program whose uint constants now fold gets a new hash and shader, which a build regenerates; every other program keeps its hash and its shader, and a program built in code keeps both, since the fold is the `.sl` file's. That hash change and `sl.uniform.int` make the next release a minor.
+An int uniform says it is one, and uint constants fold as int ones do. A `.sl` program whose uint constants now fold gets a new hash and shader, which a build regenerates; every other program keeps its hash and its shader, and a program built in code keeps both, since the fold is the `.sl` file's. That hash change and `sl.uniform.int` make this a minor.
 
 - An int uniform's declaration says so: `kind: "int"` on the `UniformDecl`, which `toJSON` and `fromJSON` keep, so a host can show a whole number field. A float uniform has no `kind`, and the hash does not read it; an older `fromJSON` ignores it
 - An int uniform's default is refused when its float slot cannot hold it exactly (16777217, or anything past 2147483520), since the program would read another number

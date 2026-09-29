@@ -1,6 +1,6 @@
 {
  "generatedBy": "onejs-sl goldens/run.mjs",
- "package": "0.5.0",
+ "package": "0.6.0",
  "ir": 4,
  "target": "rgba8unorm-srgb: straight alpha, 8 bit, sRGB encoded, the stored bytes of a Linear OneJS game's element",
  "size": [
