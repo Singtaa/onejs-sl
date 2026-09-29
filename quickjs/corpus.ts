@@ -73,6 +73,9 @@ export function run(sources: Record<string, string>): Result {
         const v = sl.repeat(5, (i, acc) => acc.add(sl.sin(uv.x.mul(i + 1))), sl.float(0))
         return sl.vec4(v, v, v, 1)
     }))
+    // Folds uints past 2^31, where QuickJS-ng's BigInt.asUintN answers a negative.
+    out["uint-fold"] = attempt(() => parse("float4 main() { uint h = 0x9e3779b9u; h ^= h >> 16; h *= 0x7feb352du; " +
+        "return float4(float(h), float(0u - 1u), float(h >> 1), 1); }", { file: "uint-fold.sl" }))
     out["error-width"] = attempt(() => parse("float4 main() { return float3(1, 2, 3); }", { file: "width.sl" }))
     out["error-unknown"] = attempt(() => parse("float4 main() {\n    return blur(uv);\n}", { file: "unknown.sl" }))
     out["error-newer-ir"] = (() => {
