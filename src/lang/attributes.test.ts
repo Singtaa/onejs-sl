@@ -84,6 +84,61 @@ describe("what a host is given", () => {
         expect(back.hash).toBe(p.hash)
     })
 
+    it("marks an int uniform as one, and only an int, keeping it through toJSON and fromJSON", () => {
+        const p = parse("[Range(1, 8)] uniform int count = 3;\nuniform int plain = -2;\nuniform float f = 1;\n" +
+            "float4 main() { return float4(float(count) / 8, float(plain), f, 1); }")
+        expect(p.uniforms).toEqual([
+            { name: "count", type: 1, kind: "int", value: [3], range: { min: 1, max: 8 } },
+            { name: "plain", type: 1, kind: "int", value: [-2] },
+            { name: "f", type: 1, value: [1] },
+        ])
+        const back = fromJSON(JSON.parse(JSON.stringify(toJSON(p))))
+        expect(back.uniforms).toEqual(p.uniforms)
+        expect(back.hash).toBe(p.hash)
+    })
+
+    it("changes no hash by marking an int uniform: the int is already in the graph", () => {
+        const p = parse("uniform int n = 3;\nfloat4 main() { return float4(float(n) / 8, 0, 0, 1); }")
+        const bare = sl.program(() => sl.vec4(sl.float(sl.int(sl.uniform.float("n", 3))).div(8), 0, 0, 1))
+        expect(bare.uniforms[0]!.kind).toBeUndefined()
+        expect(p.hash).toBe(bare.hash)
+        expect(p.nodes).toEqual(bare.nodes)
+    })
+
+    it("the EDSL's sl.uniform.int writes the same program as the file", () => {
+        const edsl = sl.program(() => sl.vec4(sl.float(sl.uniform.int("count", 3, { range: { min: 1, max: 8 } })).div(8), 0, 0, 1))
+        const file = parse("[Range(1, 8)] uniform int count = 3;\nfloat4 main() { return float4(float(count) / 8, 0, 0, 1); }")
+        expect(toJSON(edsl)).toEqual(toJSON(file))
+    })
+
+    it("refuses an int uniform read as a float too, or with a default that is not a whole number", () => {
+        expect(() => sl.program(({ uv }) => {
+            const n = sl.float(sl.uniform.int("n", 3))
+            return sl.vec4(uv, n.add(sl.uniform.float("n", 3)), 1)
+        })).toThrow(/uniform "n" is declared as both an int and a float/)
+        expect(() => sl.program(({ uv }) => sl.vec4(uv, sl.float(sl.uniform.int("n", 2.5)), 1)))
+            .toThrow(/uniform "n": an int uniform's default is a whole number its float slot holds exactly, and this is 2.5/)
+    })
+
+    it("refuses an int uniform default the program would read as another number", () => {
+        // Its slot is a float: past 2^24 a float skips whole numbers, and a
+        // read is held to the widest float an int holds.
+        const read = (n: string) => () => parse(`uniform int n = ${n};\nfloat4 main() { return float4(float(n), 0, 0, 1); }`)
+        expect(read("16777217")).toThrow(/its float slot holds exactly, and this is 16777217/)
+        expect(read("2147483647")).toThrow(/its float slot holds exactly, and this is 2147483647/)
+        expect(read("16777216")).not.toThrow()
+        expect(read("2147483520")).not.toThrow()
+        expect(read("-2147483648")).not.toThrow()
+    })
+
+    it("refuses a saved int uniform edited into something no host could show", () => {
+        const json = toJSON(parse("uniform int n = 3;\nfloat4 main() { return float4(float(n), 0, 0, 1); }"))
+        const edit = (u: object) => ({ ...json, uniforms: [{ ...json.uniforms[0]!, ...u }] })
+        expect(() => fromJSON(edit({ kind: "uint" }))).toThrow(/uniform 0 holds a "uint"; a uniform is a float or an int/)
+        expect(() => fromJSON(edit({ value: [2.5] }))).toThrow(/uniform 0: an int uniform's default is a whole number/)
+        expect(() => fromJSON(edit({ type: 2, value: [1, 2] }))).toThrow(/uniform 0: an int uniform is one number, and this is a vec2/)
+    })
+
     it("refuses a saved program edited into a control a host would choke on", () => {
         const json = toJSON(parse("[Range(0, 2)] uniform float w = 1;" + main))
         const edit = (range: unknown) => ({ ...json, uniforms: [{ ...json.uniforms[0]!, range }] })

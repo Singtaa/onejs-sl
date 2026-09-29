@@ -225,6 +225,27 @@ export interface UniformDecl extends UniformControl {
      * conversion is already in the graph, so it is not part of the hash.
      */
     colour?: true
+    /**
+     * An int: `value` is a whole number and the program reads it as one, so a
+     * host shows a whole number field rather than a float's. The slot is a
+     * float, as every host binds it, and `type` is FLOAT. Set by `uniform int`
+     * in a `.sl` file or `sl.uniform.int`. Metadata for a host like `colour`:
+     * the reads' conversion to an int is already in the graph, so it is not
+     * part of the hash. A float uniform has none.
+     */
+    kind?: "int"
+}
+
+/** What is wrong with an int uniform of `type` and default `value`, or null. The one check, for the builder and `fromJSON`. */
+export function intUniformProblem(type: SLType, value: readonly number[]): string | null {
+    if (type !== TYPE.FLOAT) return `an int uniform is one number, and this is a ${widthName(type)}`
+    const v = value[0]!
+    // Its slot is a float, and a read is held to INT_BOUNDS: a default the
+    // program would read as another number is refused rather than shown.
+    if (!Number.isInteger(v) || Math.fround(v) !== v || v < INT_BOUNDS.int[0] || v > INT_BOUNDS.int[1]) {
+        return `an int uniform's default is a whole number its float slot holds exactly, and this is ${v}`
+    }
+    return null
 }
 
 export interface TextureDecl {
@@ -358,7 +379,7 @@ export class Builder {
         return this.add(node)
     }
 
-    uniform(name: string, type: SLType, value: number[], colour = false, control: UniformControl = {}): NodeRef {
+    uniform(name: string, type: SLType, value: number[], colour = false, control: UniformControl = {}, kind?: "int"): NodeRef {
         const existing = this.uniforms.findIndex((u) => u.name === name)
         if (existing >= 0) {
             const u = this.uniforms[existing]
@@ -367,6 +388,9 @@ export class Builder {
             }
             if ((u.colour === true) !== colour) {
                 throw new SLError(`uniform "${name}" is declared both as a colour and as plain numbers`)
+            }
+            if (u.kind !== kind) {
+                throw new SLError(`uniform "${name}" is declared as both an int and a float`)
             }
             // A second read may say nothing about the control, or the same thing again.
             const merged = { ...controlOf(u) }
@@ -384,10 +408,13 @@ export class Builder {
         }
         const problem = controlProblem(type, value, control)
         if (problem !== null) throw new SLError(`uniform "${name}": ${problem.message}`)
+        const kindProblem = kind === undefined ? null : intUniformProblem(type, value)
+        if (kindProblem !== null) throw new SLError(`uniform "${name}": ${kindProblem}`)
         const slot = this.uniforms.length
         if (slot >= UNIFORM_SLOTS) throw new SLError(tooManyUniforms(slot + 1, "program"))
         const decl: UniformDecl = { name, type, value: value.slice() }
         if (colour) decl.colour = true
+        if (kind !== undefined) decl.kind = kind
         Object.assign(decl, controlOf(control))
         this.uniforms.push(decl)
         return this.add({ k: "uniform", type, slot })

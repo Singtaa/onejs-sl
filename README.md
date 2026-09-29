@@ -76,7 +76,12 @@ supplies (`frac`, `lerp`).
 
 A uniform declared with a hex default (`uniform float4 tint = #ff8040;`), or
 with `sl.uniform.colour`, is marked `colour: true`: its value is sRGB as
-written, which is what a colour picker shows, and its reads convert. `inputsUsed`
+written, which is what a colour picker shows, and its reads convert. A
+`uniform int`, or `sl.uniform.int`, is marked `kind: "int"`: its slot is a float
+like any other, its default is a whole number that slot holds exactly, and the
+program reads it as one, so a host shows a whole number field; a float uniform
+has no `kind`. Neither mark is in the hash, since the reads' conversion already
+is. `inputsUsed`
 says which inputs the result depends on, dead nodes aside, so a host knows
 whether a program animates.
 

@@ -39,8 +39,9 @@
  * `uv.mul(8)`, not as `uv.mul(sl.float(8))`, because the first broadcasts to a
  * float2 constant and the second builds a float plus a swizzle. Same picture,
  * different graph, different hash, so the distinction is load bearing rather
- * than an optimisation. An int constant is a bigint and a bool constant a
- * boolean for the same reason: folded until something needs a node.
+ * than an optimisation. An int constant is a bigint, a uint constant a `Uint`
+ * and a bool constant a boolean for the same reason: folded until something
+ * needs a node.
  *
  * A COMPARISON WAITS to be used (`Test`). Where arithmetic or a `?:` reads it,
  * it is the float that is 0 or 1 it always was, built the way it always was,
@@ -80,17 +81,30 @@ class Test {
 }
 
 /**
- * A lowered value. A number is a float, a bigint an int and a boolean a bool,
- * none of which has had to become a node yet; a Test is a comparison not yet
- * either of its forms.
+ * A uint constant, 0 to 2^32 - 1, not yet a node. A bigint is already an int,
+ * so a uint needs a form of its own to fold the way an int does.
  */
-type LV = Val | number | bigint | boolean | Test
+class Uint {
+    readonly v: bigint
+    /**
+     * Any whole number, wrapped to 32 bits as a uint wraps. By a mask, not
+     * `BigInt.asUintN`, which QuickJS-ng answers with a negative from 2^31 up.
+     */
+    constructor(v: bigint) { this.v = v & 0xffffffffn }
+}
+
+/**
+ * A lowered value. A number is a float, a bigint an int, a Uint a uint and a
+ * boolean a bool, none of which has had to become a node yet; a Test is a
+ * comparison not yet either of its forms.
+ */
+type LV = Val | number | bigint | Uint | boolean | Test
 
 /** A declared type: its width, and its kind when it is not floats. */
 interface VType { width: SLType; kind: SLKind | undefined }
 
 interface Binding extends VType {
-    /** Always of the declared type: a Test is resolved and an int is a bigint or an int node. */
+    /** Always of the declared type: a Test is resolved and an int is a bigint or an int node, a uint a Uint or a uint node. */
     value: LV
 }
 
@@ -205,7 +219,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
     const blank = (t: VType, pos: Pos): LV => {
         if (t.kind === "int") return 0n
         if (t.kind === "bool") return false
-        if (t.kind === "uint") return at(pos, () => sl.uint(0))
+        if (t.kind === "uint") return new Uint(0n)
         return t.width === 1 ? 0 : at(pos, () => compose(t.width, new Array<LV>(t.width).fill(0)))
     }
 
@@ -298,7 +312,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             case "float3": return sl.uniform.vec3(name, [c[0]!, c[1]!, c[2]!], control) as unknown as Val
             case "float4": return sl.uniform.vec4(name, [c[0]!, c[1]!, c[2]!, c[3]!], control) as unknown as Val
             // A float slot, as every host binds, read as the whole number it holds.
-            case "int": return sl.int(sl.uniform.float(name, c[0]!, control)) as unknown as Val
+            case "int": return sl.uniform.int(name, c[0]!, control) as unknown as Val
             case "uint":
             case "bool": throw new Error(`the checker let a ${type} uniform through`)
         }
@@ -585,7 +599,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         const got = widthOf(v)
         if (got !== t.width) {
             if (fn === main) {
-                const what = typeof v === "number" || typeof v === "bigint" ? "a single number" : `a ${widthType(got)}`
+                const what = isConstant(v) ? "a single number" : `a ${widthType(got)}`
                 fail(`main returns a float4, a colour with alpha, and this returns ${what}. Wrap it: float4(value, 1)`, pos, 6)
             }
             fail(`${fn.name} is declared to return a ${fn.ret} and returns a ${widthType(got)}`, fn.pos)
@@ -755,8 +769,8 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             if (c.labels.includes(null)) { otherwise = c.body; continue }
             let cond: Expr | null = null
             for (const l of c.labels as Expr[]) {
-                const k = lowerExpr(l, scope, v instanceof Val && v.kind === "uint" ? "uint" : "int")
-                const key = typeof k === "bigint" ? k : k instanceof Val ? constValue(k) : null
+                const k = lowerExpr(l, scope, kindWant(v))
+                const key = typeof k === "bigint" ? k : k instanceof Uint ? k.v : k instanceof Val ? constValue(k) : null
                 if (key === null) fail("a case label is a whole number, or a const int", l.pos)
                 if (seen.has(key)) fail(`this switch already has a case ${key}`, l.pos)
                 seen.add(key)
@@ -795,13 +809,13 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             }
             case "int":
                 if (isInt(v)) return v
-                if (v instanceof Val && v.kind === "uint") fail(`${name} is an int and this is a uint; convert it with int(...)`, pos)
+                if (isUint(v)) fail(`${name} is an int and this is a uint; convert it with int(...)`, pos)
                 if (isBoolish(v)) fail(`${name} is an int and this is a bool; convert it with int(...)`, pos)
                 fail(`${name} is an int and this is a ${widthType(widthOf(v))}; convert it with int(...), which truncates toward zero`, pos)
                 break
             case "uint":
-                if (v instanceof Val && v.kind === "uint") return v
-                if (typeof v === "bigint" && v >= 0n) return at(pos, () => sl.uint(Number(v)) as unknown as Val)
+                if (isUint(v)) return v
+                if (typeof v === "bigint" && v >= 0n) return new Uint(v)
                 fail(`${name} is a uint and this is ${describeLV(v)}; convert it with uint(...)`, pos)
                 break
             case "bool": {
@@ -820,6 +834,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
     function toFloat(v: LV, pos: Pos): number | Val {
         if (typeof v === "number") return v
         if (typeof v === "bigint") return Number(v)
+        if (v instanceof Uint) return Number(v.v)
         if (typeof v === "boolean") return v ? 1 : 0
         if (v instanceof Test) return v.float
         return v.kind === undefined ? v : at(pos, () => sl.float(v) as unknown as Val)
@@ -839,6 +854,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         if (typeof v === "boolean") return v
         if (typeof v === "number") return v >= 0.5
         if (typeof v === "bigint") return v !== 0n
+        if (v instanceof Uint) return v.v !== 0n
         if (v instanceof Test) return v.bool
         if (v.kind === "bool") return v
         return at(pos, () => (v.kind === undefined ? v.ge(0.5) : v.ne(0)) as unknown as Val)
@@ -898,9 +914,8 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
     function lowerExpr(e: Expr, scope: Scope, want?: "int" | "uint"): LV {
         switch (e.k) {
             case "num":
-                if (e.unsigned === true) return at(e.pos, () => sl.uint(e.value) as unknown as Val)
+                if (e.unsigned === true || (e.whole && want === "uint")) return new Uint(BigInt(e.value))
                 if (e.whole && want === "int") return BigInt.asIntN(32, BigInt(e.value))
-                if (e.whole && want === "uint") return at(e.pos, () => sl.uint(e.value) as unknown as Val)
                 return e.value
             case "bool": return e.value
             case "hex": return at(e.pos, () => sl.color(e.hex) as unknown as Val)
@@ -927,18 +942,22 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             case "-":
                 if (typeof v === "number") return -v
                 if (typeof v === "bigint") return BigInt.asIntN(32, -v)
+                // As the node would: a uint negated is taken as a float.
+                if (v instanceof Uint) return -Number(v.v)
                 if (v instanceof Val && v.kind !== "bool") return at(e.pos, () => v.neg())
                 return at(e.pos, () => asVal(toFloat(v, e.pos)).neg())
             case "!":
                 if (typeof v === "boolean") return !v
                 if (typeof v === "number") return 1 - v
                 if (typeof v === "bigint") return v === 0n
+                if (v instanceof Uint) return v.v === 0n
                 if (v instanceof Test) return new Test(v.width, () => oneMinus(v.float, e.pos), () => notBool(v.bool))
                 if (v.kind === "bool") return at(e.pos, () => v.not())
                 if (v.kind === undefined) return oneMinus(v, e.pos)
                 return at(e.pos, () => v.eq(0))
             case "~":
                 if (typeof v === "bigint") return BigInt.asIntN(32, ~v)
+                if (v instanceof Uint) return new Uint(~v.v)
                 if (v instanceof Val && (v.kind === "int" || v.kind === "uint")) return at(e.pos, () => v.bnot())
                 fail(`~ flips the bits of an int or a uint, and this is ${describeLV(v)}`, e.pos)
         }
@@ -978,7 +997,11 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         }
         if (isUint(a) || isUint(b)) {
             if (!isIntLike(a) || !isIntLike(b)) fail(`a uint only meets another uint here; convert with uint(...) or float(...)`, pos)
-            return at(pos, () => intVal(a)[METHOD[op]](typeof b === "bigint" ? Number(b) : b as Val))
+            if (a instanceof Uint && b instanceof Uint) {
+                if ((op === "/" || op === "%") && b.v === 0n) return new Uint(0n)
+                return new Uint(INT_ARITH[op](a.v, b.v))
+            }
+            return at(pos, () => intVal(a)[METHOD[op]](other(b)))
         }
         return floatArithmetic(op, toFloat(a, pos), toFloat(b, pos), pos)
     }
@@ -1002,8 +1025,13 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             if (!isIntLike(v)) fail(`${op} works on the bits of an int or a uint, and this is ${describeLV(v)}${isBoolish(v) ? "; use && or ||" : ""}`, pos)
         }
         if (typeof a === "bigint" && typeof b === "bigint") return BigInt.asIntN(32, INT_BITS[op](a, b))
-        const x = intVal(a as bigint | Val)
-        const y = typeof b === "bigint" ? Number(b) : b as Val
+        // A shift's count may be either kind, and the value shifted keeps its own.
+        const shift = op === "<<" || op === ">>"
+        const count = typeof b === "bigint" ? b : b instanceof Uint ? b.v : null
+        if (a instanceof Uint && count !== null && (shift || b instanceof Uint)) return new Uint(INT_BITS[op](a.v, count))
+        if (typeof a === "bigint" && shift && b instanceof Uint) return BigInt.asIntN(32, INT_BITS[op](a, b.v))
+        const x = intVal(a as bigint | Uint | Val)
+        const y = other(b as bigint | Uint | Val)
         return at(pos, () => {
             switch (op) {
                 case "&": return x.band(y)
@@ -1025,7 +1053,8 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             return at(pos, () => intVal(a)[CMP_METHOD[op]!](typeof b === "bigint" ? Number(b) : b as Val) as unknown as Val)
         }
         if ((isUint(a) || isUint(b)) && isIntLike(a) && isIntLike(b)) {
-            return at(pos, () => intVal(a)[CMP_METHOD[op]!](typeof b === "bigint" ? Number(b) : b as Val) as unknown as Val)
+            if (a instanceof Uint && b instanceof Uint) return INT_CMP[op]!(a.v, b.v)
+            return at(pos, () => intVal(a)[CMP_METHOD[op]!](other(b)) as unknown as Val)
         }
         const fa = toFloat(a, pos)
         const fb = toFloat(b, pos)
@@ -1082,7 +1111,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
     /** `c ? a : b`: always a select, both sides computed. A float condition is the select it always was. */
     function lowerChoice(e: Extract<Expr, { k: "cond" }>, scope: Scope, want?: "int" | "uint"): LV {
         const cond = lowerExpr(e.cond, scope)
-        if (typeof cond === "boolean" || typeof cond === "number" || typeof cond === "bigint") {
+        if (typeof cond === "boolean" || typeof cond === "number" || typeof cond === "bigint" || cond instanceof Uint) {
             return lowerExpr(boolOf(cond, e.pos) ? e.then : e.else, scope, want)
         }
         // Built before the sides, as it always was, so a program's nodes keep
@@ -1093,13 +1122,13 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         let f = lowerExpr(e.else, scope, want)
         if (isIntLike(t) && typeof f === "number" && wholeExpr(e.else)) f = lowerExpr(e.else, scope, kindWant(t))
         if (isIntLike(f) && typeof t === "number" && wholeExpr(e.then)) t = lowerExpr(e.then, scope, kindWant(f))
-        const kinded = [t, f].some((v) => typeof v === "bigint" || typeof v === "boolean" || (v instanceof Val && v.kind !== undefined))
+        const kinded = [t, f].some((v) => typeof v === "bigint" || v instanceof Uint || typeof v === "boolean" || (v instanceof Val && v.kind !== undefined))
         if (!kinded) {
             const c = cond instanceof Test ? cond.float : cond
             return at(e.pos, () => sl.select(c, toFloat(t, e.pos), toFloat(f, e.pos)))
         }
         const c = boolOf(cond, e.pos)
-        const side = (v: LV): Num => (typeof v === "bigint" ? sl.int(Number(v)) : typeof v === "boolean" ? sl.bool(v) : v instanceof Test ? v.float : v) as Num
+        const side = (v: LV): Num => (isIntLike(v) ? intVal(v) : typeof v === "boolean" ? sl.bool(v) : v instanceof Test ? v.float : v) as Num
         return at(e.pos, () => sl.select(c, side(t), side(f)))
     }
 
@@ -1160,7 +1189,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             // min, max, abs and clamp keep ints ints; everything else takes floats.
             if (INT_BUILTINS.has(n) && args.some(isIntLike) && args.every((v, i) => isIntLike(v) || (typeof v === "number" && wholeExpr(e.args[i]!)))) {
                 const k = kindWant(args.find(isIntLike)!)
-                args = e.args.map((a) => lowerExpr(a, scope, k)).map((v) => (typeof v === "bigint" ? sl.int(Number(v)) : v) as LV)
+                args = e.args.map((a) => lowerExpr(a, scope, k)).map((v) => (isIntLike(v) ? intVal(v) : v) as LV)
                 return at(e.pos, () => builtin.lower!(args as Num[]))
             }
             const fs = args.map((v, i) => toFloat(v, e.args[i]!.pos))
@@ -1177,17 +1206,26 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         const v = lowerExpr(e.args[0]!, scope, n === "bool" ? undefined : n)
         if (widthOf(v) !== 1) fail(`${n}(x) takes one component, and this is a ${widthType(widthOf(v))}; convert each one`, e.pos)
         const x = v instanceof Test ? v.bool : v
+        // Between an int and a uint the bits are kept, as the GPU keeps them.
         if (n === "int") {
             if (typeof x === "bigint") return x
+            if (x instanceof Uint) return BigInt.asIntN(32, x.v)
             if (typeof x === "number") return BigInt(truncateHeld(x, "int"))
             if (typeof x === "boolean") return x ? 1n : 0n
+        }
+        if (n === "uint") {
+            if (x instanceof Uint) return x
+            if (typeof x === "bigint") return new Uint(x)
+            if (typeof x === "number") return new Uint(BigInt(truncateHeld(x, "uint")))
+            if (typeof x === "boolean") return new Uint(x ? 1n : 0n)
         }
         if (n === "bool") {
             if (typeof x === "boolean") return x
             if (typeof x === "number") return x !== 0
             if (typeof x === "bigint") return x !== 0n
+            if (x instanceof Uint) return x.v !== 0n
         }
-        const c = typeof x === "bigint" ? Number(x) : x
+        const c = isIntLike(x) ? intVal(x) : x
         return at(e.pos, () => (n === "int" ? sl.int(c) : n === "uint" ? sl.uint(c) : sl.bool(c)) as unknown as Val)
     }
 
@@ -1238,7 +1276,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
     }
 
     function compose(width: SLType, parts: LV[]): Val {
-        const ps = parts.map((p) => (p instanceof Test ? p.float : typeof p === "bigint" ? Number(p) : typeof p === "boolean" ? (p ? 1 : 0) : p)) as Num[]
+        const ps = parts.map((p) => (p instanceof Test ? p.float : typeof p === "bigint" ? Number(p) : p instanceof Uint ? Number(p.v) : typeof p === "boolean" ? (p ? 1 : 0) : p)) as Num[]
         if (width === 2) return sl.vec2(...ps) as unknown as Val
         if (width === 3) return sl.vec3(...ps) as unknown as Val
         return sl.vec4(...ps) as unknown as Val
@@ -1284,6 +1322,12 @@ const INT_BITS: Record<BitOp, (a: bigint, b: bigint) => bigint> = {
     ">>": (a, b) => a >> (b & 31n),
 }
 
+/** Comparisons of two uints, whose bigints compare as the values do. */
+const INT_CMP: Record<string, (a: bigint, b: bigint) => boolean> = {
+    "<": (a, b) => a < b, "<=": (a, b) => a <= b, ">": (a, b) => a > b,
+    ">=": (a, b) => a >= b, "==": (a, b) => a === b, "!=": (a, b) => a !== b,
+}
+
 const FOLD_CMP: Record<string, (a: number, b: number) => boolean> = {
     "<": (a, b) => a < b, "<=": (a, b) => a <= b, ">": (a, b) => a > b,
     ">=": (a, b) => a >= b, "==": (a, b) => a === b, "!=": (a, b) => a !== b,
@@ -1313,11 +1357,11 @@ function isInt(v: LV): v is bigint | Val {
     return typeof v === "bigint" || (v instanceof Val && v.kind === "int")
 }
 
-function isUint(v: LV): v is Val {
-    return v instanceof Val && v.kind === "uint"
+function isUint(v: LV): v is Uint | Val {
+    return v instanceof Uint || (v instanceof Val && v.kind === "uint")
 }
 
-function isIntLike(v: LV): v is bigint | Val {
+function isIntLike(v: LV): v is bigint | Uint | Val {
     return isInt(v) || isUint(v)
 }
 
@@ -1325,25 +1369,37 @@ function isBoolish(v: LV): boolean {
     return typeof v === "boolean" || v instanceof Test || (v instanceof Val && v.kind === "bool")
 }
 
-function isConstant(v: LV): v is number | bigint {
-    return typeof v === "number" || typeof v === "bigint"
+function isConstant(v: LV): v is number | bigint | Uint {
+    return typeof v === "number" || typeof v === "bigint" || v instanceof Uint
 }
 
-function kindWant(v: bigint | Val): "int" | "uint" {
-    return v instanceof Val && v.kind === "uint" ? "uint" : "int"
+function kindWant(v: LV): "int" | "uint" {
+    return isUint(v) ? "uint" : "int"
 }
 
 function num(v: LV): number {
-    return typeof v === "bigint" ? Number(v) : v as number
+    return typeof v === "bigint" ? Number(v) : v instanceof Uint ? Number(v.v) : v as number
 }
 
-/** An int operand as a node the EDSL's int methods take. */
-function intVal(v: bigint | Val): Val {
-    return typeof v === "bigint" ? sl.int(Number(v)) as unknown as Val : v
+/** An int or uint operand as a node the EDSL's int methods take. */
+function intVal(v: bigint | Uint | Val): Val {
+    if (typeof v === "bigint") return sl.int(Number(v)) as unknown as Val
+    if (v instanceof Uint) return sl.uint(Number(v.v)) as unknown as Val
+    return v
+}
+
+/**
+ * The second operand of an int method: an int constant as a number, which
+ * takes the first operand's kind, and a uint one as a node, so an int meeting
+ * it is refused rather than made a uint.
+ */
+function other(v: bigint | Uint | Val): number | Val {
+    return typeof v === "bigint" ? Number(v) : intVal(v)
 }
 
 function asVal(v: LV): Val {
     if (v instanceof Val) return v
+    if (v instanceof Uint) return intVal(v)
     return sl.float(typeof v === "number" ? v : num(v)) as unknown as Val
 }
 
@@ -1366,6 +1422,7 @@ function article(t: VType): string {
 
 function describeLV(v: LV): string {
     if (typeof v === "bigint") return "an int"
+    if (v instanceof Uint) return "a uint"
     if (typeof v === "boolean" || v instanceof Test) return "a bool"
     if (typeof v === "number") return "a float"
     return v.kind === undefined ? `a ${widthType(v.width)}` : v.kind === "int" ? "an int" : `a ${v.kind}`
@@ -1380,6 +1437,7 @@ function constValue(v: Val): bigint | null {
 /** Two lowered values that are certainly the same, so a join can leave them out. */
 function same(a: LV, b: LV): boolean {
     if (a === b) return true
+    if (a instanceof Uint && b instanceof Uint) return a.v === b.v
     return a instanceof Val && b instanceof Val && a.ref === b.ref && a.width === b.width && a.kind === b.kind
 }
 

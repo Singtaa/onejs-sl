@@ -266,8 +266,8 @@ describe("a local declared without a value", () => {
     it("holds zero, or false, until it is assigned", () => {
         expect(folded("float t; return float4(t, 0, 0, 1);")).toBe(0)
         expect(folded("int n; n += 3; return float4(n, 0, 0, 1);")).toBe(3)
-        const u = parse("float4 main() { uint u; return float4(u, 0, 0, 1); }")
-        expect(u.nodes.filter((n) => n.k === "const" && n.kind === "uint").map((n) => (n as { v: number[] }).v)).toEqual([[0]])
+        expect(folded("uint u; return float4(u, 0, 0, 1);")).toBe(0)
+        expect(folded("uint u; u += 3u; return float4(u, 0, 0, 1);")).toBe(3)
         expect(folded("bool b; return float4(b ? 1 : 0.5, 0, 0, 1);")).toBe(0.5)
         const vec = (decl: string) => parse(`float4 main() { ${decl} c.y = uv.x; return float4(c, 1); }`).hash
         expect(vec("float3 c;")).toBe(vec("float3 c = 0;"))
@@ -321,13 +321,110 @@ describe("ints", () => {
 
     it("read an int uniform as the whole number it holds", () => {
         const p = parse("[Range(1, 8)] uniform int count = 3;\nfloat4 main() { return float4(float(count) / 8, 0, 0, 1); }")
-        expect(p.uniforms[0]).toMatchObject({ name: "count", type: 1 })
+        expect(p.uniforms[0]).toEqual({ name: "count", type: 1, kind: "int", value: [3], range: { min: 1, max: 8 } })
         expect(calls(p, SLOP.CAST).length).toBe(2)
     })
 
     it("choose between ints with ?:", () => {
         const p = parse("float4 main() { int k = uv.x > 0.5 ? 3 : 1; return float4(float(k) / 3, 0, 0, 1); }")
         expect(calls(p, SLOP.CHOOSE).length).toBe(1)
+        printsEverywhere(p)
+    })
+})
+
+describe("uint constants", () => {
+    /** The folded number, having checked the program holds no uint, int or bool node at all. */
+    const plain = (source: string) => {
+        const v = folded(source)
+        const p = parse(`float4 main() { ${source} }`)
+        expect(p.nodes.filter((n) => "kind" in n && n.kind !== undefined)).toEqual([])
+        return v
+    }
+
+    it("fold into a float with no conversion left", () => {
+        expect(plain("return float4(float(5u), 0, 0, 1);")).toBe(5)
+        expect(plain("return float4(float(3u + 4u), 0, 0, 1);")).toBe(7)
+        expect(plain("uint u = 9u; return float4(u, 0, 0, 1);")).toBe(9)
+        const p = parse("float4 main() { return float4(float(3u + 4u), 0, 0, 1); }")
+        expect([calls(p, SLOP.CAST).length, calls(p, SLOP.ADD).length]).toEqual([0, 0])
+        expect(p.hash).toBe(parse("float4 main() { return float4(7, 0, 0, 1); }").hash)
+    })
+
+    it("wrap at 32 bits", () => {
+        expect(plain("return float4(float(0u - 1u), 0, 0, 1);")).toBe(4294967295)
+        expect(plain("return float4(float(4294967295u + 1u), 0, 0, 1);")).toBe(0)
+        expect(plain("return float4(float(65536u * 65537u), 0, 0, 1);")).toBe(65536)
+    })
+
+    it("divide as whole numbers, and give 0 for a zero divisor as a computed one does", () => {
+        expect(plain("return float4(float(7u / 2u), float(7u % 3u), float(7u / 0u), float(7u % 0u));")).toBe(3)
+        const p = parse("float4 main() { return float4(float(7u / 2u), float(7u % 3u), float(7u / 0u), float(7u % 0u)); }")
+        const out = p.nodes[p.result]!
+        expect(out.k === "const" && out.v).toEqual([3, 1, 0, 0])
+    })
+
+    it("fold bit operators, a right shift filling with zeros and a count taken modulo 32", () => {
+        expect(plain("return float4(float(0xf0u | 0x0fu), 0, 0, 1);")).toBe(255)
+        expect(plain("return float4(float(0xffu & 0x3cu ^ 1u), 0, 0, 1);")).toBe(0x3d)
+        expect(plain("return float4(float(~0u), 0, 0, 1);")).toBe(4294967295)
+        expect(plain("return float4(float(1u << 33u), 0, 0, 1);")).toBe(2)
+        expect(plain("return float4(float(0x80000000u >> 31), 0, 0, 1);")).toBe(1)
+        expect(plain("uint h = 0x9e3779b9u; h ^= h >> 16; h *= 0x7feb352du; return float4(float(h & 255u), 0, 0, 1);"))
+            .toBe(Number((0x9e3779b9n ^ (0x9e3779b9n >> 16n)) * 0x7feb352dn & 255n))
+    })
+
+    it("convert to and from an int keeping the bits, and from a float truncating, held to the range", () => {
+        expect(plain("return float4(float(int(4294967295u)), 0, 0, 1);")).toBe(-1)
+        expect(plain("int k = -1; return float4(float(uint(k)), 0, 0, 1);")).toBe(4294967295)
+        expect(plain("return float4(float(uint(2.7)), 0, 0, 1);")).toBe(2)
+        expect(plain("return float4(float(uint(-3.5)), 0, 0, 1);")).toBe(0)
+        expect(plain("return float4(float(uint(int(7))), 0, 0, 1);")).toBe(7)
+        expect(plain("return float4(bool(0u) ? 1 : 0.5, 0, 0, 1);")).toBe(0.5)
+    })
+
+    it("compare, and decide a choice and a branch", () => {
+        expect(plain("return float4(3u < 4u ? 1 : 0.5, 0, 0, 1);")).toBe(1)
+        expect(plain("float v = 0.25; if (5u == 5u) v = 0.75; return float4(v, 0, 0, 1);")).toBe(0.75)
+        expect(plain("return float4(5u ? 1 : 0.5, 0, 0, 1);")).toBe(1)
+        expect(plain("return float4(!0u ? 1 : 0.5, 0, 0, 1);")).toBe(1)
+    })
+
+    it("negate as a float, as a uint node is negated", () => {
+        expect(plain("return float4(-5u + 10, 0, 0, 1);")).toBe(5)
+    })
+
+    it("join as one value when both sides hold the same uint", () => {
+        expect(folded("uint h = 1u; if (uv.x > 0.5) { h = 1u; } return float4(float(h), 0, 0, 1);")).toBe(1)
+    })
+
+    it("count a loop whose turns are known, which then unrolls", () => {
+        expect(plain("uint s = 0u; for (uint i = 0u; i < 4u; i++) s += i; return float4(float(s), 0, 0, 1);")).toBe(6)
+    })
+
+    it("become nodes to cross a join, a real loop or a switch", () => {
+        const join = parse("float4 main() { uint h = 1u; if (uv.x > 0.5) { h = 2u; } else { h = h + 5u; } return float4(float(h) / 8, 0, 0, 1); }")
+        expect(kinds(join, "if").length).toBe(1)
+        const loop = parse("uniform int n = 4;\nfloat4 main() { uint h = 1u; for (int i = 0; i < n; i++) { h = h * 3u + 1u; } return float4(float(h & 255u) / 255, 0, 0, 1); }")
+        expect(loops(loop).length).toBe(1)
+        const sw = parse("uniform float s = 1;\nfloat4 main() { uint k = uint(s); switch (k) { case 1u: return #ff0000; case 2: return #00ff00; default: return #000000; } }")
+        for (const p of [join, loop, sw]) printsEverywhere(p)
+        expect(folded("uint k = 2u + 1u; switch (k) { case 3: return float4(1, 0, 0, 1); default: return float4(0, 0, 0, 1); }")).toBe(1)
+    })
+
+    it("stay uints when a swizzle reads one", () => {
+        const p = parse("float4 main() { uint h = 5u; uint g = h.x; return float4(float(g ^ 1u) / 8, 0, 0, 1); }")
+        expect(p.nodes.filter((n) => n.k === "swizzle" && n.kind === "uint").length).toBe(1)
+        printsEverywhere(p)
+    })
+
+    it("still refuse an int", () => {
+        expect(() => parse("float4 main() { int k = 1; return float4(float(k + 1u), 0, 0, 1); }")).toThrow(/an int with a uint/)
+    })
+
+    it("become a node where they meet one", () => {
+        const p = parse("uniform float s = 1; float4 main() { uint h = uint(s) * 3u + 1u; return float4(float(h), 0, 0, 1); }")
+        expect(calls(p, SLOP.MUL).length).toBe(1)
+        expect(p.nodes.filter((n) => n.k === "const" && n.kind === "uint").map((n) => (n as { v: number[] }).v)).toEqual([[3], [1]])
         printsEverywhere(p)
     })
 })

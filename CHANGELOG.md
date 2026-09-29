@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+A `.sl` program whose uint constants now fold gets a new hash and shader, which a build regenerates; every other program keeps its hash and its shader, and a program built in code keeps both, since the fold is the `.sl` file's. That hash change and `sl.uniform.int` make the next release a minor.
+
+- An int uniform's declaration says so: `kind: "int"` on the `UniformDecl`, which `toJSON` and `fromJSON` keep, so a host can show a whole number field. A float uniform has no `kind`, and the hash does not read it; an older `fromJSON` ignores it
+- An int uniform's default is refused when its float slot cannot hold it exactly (16777217, or anything past 2147483520), since the program would read another number
+- `sl.uniform.int(name, value, control)`, which `uniform int` in a `.sl` file lowers to
+- A uint constant folds as an int one does: `float(5u)` is 5 and `float(3u + 4u)` is 7, with no node. Arithmetic, bit operators, comparisons and conversions between constant uints, ints and floats come out as the value, on 32 bits and wrapping; a zero divisor gives 0, as a computed one does
+- `uint(k)` of a negative constant int keeps its bits (`uint(-1)` through an int is 4294967295), as the GPU does, instead of 0
+- A `for` counting a uint between constant bounds unrolls, as one counting an int does
+
 ## 0.5.0
 
 Real control flow: an `if` runs only the side it picks, a loop that cannot unroll runs as a loop, and `int`, `uint` and `bool` are types. A program with an `if` statement gets a new hash, which a build regenerates; every other program keeps its hash and its shader.

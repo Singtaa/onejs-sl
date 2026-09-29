@@ -9,7 +9,7 @@
  * older one is migrated to this one and rehashed under it.
  */
 import {
-    INPUTS, SLError, SL_HASH_VERSION, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, formProblem, hashProgram,
+    INPUTS, SLError, SL_HASH_VERSION, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, formProblem, hashProgram, intUniformProblem,
     programVersion, type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
 } from "./ir"
 import { SLOP, SL_ARITY, SL_NAME } from "./ops"
@@ -209,6 +209,12 @@ function uniform(u: unknown, i: number): UniformDecl {
     }
     const out: UniformDecl = { name: x.name!, type: x.type as SLType, value: x.value!.slice() }
     if (x.colour === true) out.colour = true
+    if (x.kind !== undefined) {
+        if (x.kind !== "int") fail(`uniform ${i} holds a "${String(x.kind)}"; a uniform is a float or an int`)
+        const problem = intUniformProblem(out.type, out.value)
+        if (problem !== null) fail(`uniform ${i}: ${problem}`)
+        out.kind = "int"
+    }
     // Its control: shapes checked here, sense checked by the one check the
     // compiler uses, so a hand edited file cannot give a host a range it would
     // choke on.

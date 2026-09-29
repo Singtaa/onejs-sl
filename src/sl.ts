@@ -956,6 +956,15 @@ export const uniform = {
         const b = ctx()
         return mk(b, b.uniform(name, TYPE.FLOAT, [value], false, control), TYPE.FLOAT)
     },
+    /**
+     * An int, read as the whole number it holds. Its slot is a float, as every
+     * host binds one; the declaration says `kind: "int"`, so a host shows a
+     * whole number field for it.
+     */
+    int(name: string, value = 0, control: UniformControl = {}): Int {
+        const b = ctx()
+        return int(mk(b, b.uniform(name, TYPE.FLOAT, [value], false, control, "int"), TYPE.FLOAT) as Float)
+    },
     vec2(name: string, value: [number, number] = [0, 0], control: UniformControl = {}): Vec2 {
         const b = ctx()
         return mk(b, b.uniform(name, TYPE.VEC2, value, false, control), TYPE.VEC2)
