@@ -90,6 +90,12 @@ describe("a file that already used the names", () => {
         expect([calls(p, SLOP.SAMPLE), calls(p, SLOP.SAMPLE_PREVIOUS)]).toEqual([1, 0])
     })
 
+    it("keeps a function named frame, which the call reaches while the bare name is still the input", () => {
+        const p = parse(main("return float4(frame(0.5), frame, 0, 1);", "float frame(float t) { return t * 2; }"))
+        expect(readsOf(p).frame).toBe(true)
+        expect(p.hash).toBe(parse(main("return float4(twice(0.5), frame, 0, 1);", "float twice(float t) { return t * 2; }")).hash)
+    })
+
     it("cannot assign to the input itself", () => {
         expect(() => parse(main("frame = 1;\nreturn float4(0, 0, 0, 1);"))).toThrow(/"frame" is a built in input and cannot be assigned to/)
     })

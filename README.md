@@ -442,7 +442,7 @@ A draw at the same time draws the same frame again. It clears (`previous`
 transparent black, `frame` and `deltaTime` 0) on the first draw, a new size, a
 new program, a seek and time going back, so `frame` is 0 exactly when
 `previous` is clear. A file that already used one of the three names for its
-own value or texture keeps it, as it keeps a `texel`.
+own value, texture or function keeps it.
 
 Why `resolution` and `aspect` are the target's: a program is drawn with
 `Graphics.Blit` into the element's own render texture, and Unity sets `_ScreenParams` per camera and

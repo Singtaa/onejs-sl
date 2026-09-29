@@ -17,7 +17,7 @@
  * `diagnose`, at their places in the new text).
  */
 
-import { DERIVED_INPUTS, INPUTS, PREVIOUS, STEP_INPUTS } from "../ir"
+import { INPUTS } from "../ir"
 import { BUILTINS } from "./builtins"
 import { diagnose } from "./index"
 import type { SLParseError } from "./lexer"
@@ -186,8 +186,8 @@ function rotationBody(words: string[], param: string): 1 | -1 | null {
 /** Names a pasted value or function cannot keep, because the language already means something by them. */
 function taken(name: string, isFunction: boolean): boolean {
     if (name in INPUTS || (SL_KEYWORDS as readonly string[]).includes(name) || (SL_TYPES as readonly string[]).includes(name)) return true
-    // A value may take a builtin's name, or a derived or built in input's; a function may not.
-    return isFunction && (BUILTINS[name] !== undefined || name in DERIVED_INPUTS || name in STEP_INPUTS || name === PREVIOUS)
+    // A value may take a builtin's name; a function may not.
+    return isFunction && BUILTINS[name] !== undefined
 }
 
 /** `fromGLSL(source)`: a GLSL fragment shader as a `.sl` file, with what changed and what still does not compile. */

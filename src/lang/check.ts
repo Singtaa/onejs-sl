@@ -47,12 +47,14 @@ const DERIVED_NAMES = new Set(Object.keys(DERIVED_INPUTS))
 /**
  * `frame` and `deltaTime`, and `previous`, the texture that is the frame drawn
  * before (IR 5). The language had none of them before 0.7.0, so a program may
- * already use the name for its own value or texture; it keeps it, as it keeps
- * a `texel`.
+ * already use the name for its own value, texture or function, and keeps it.
+ * A function by the name is called by it; the bare name is still the input.
  */
 const STEP_NAMES = new Set(Object.keys(STEP_INPUTS))
 /** What a declaration may take the name of, with the words for it. */
 const SHADOWABLE = new Set(["a builtin", "a derived input", "a built in input", "the previous frame"])
+/** What a function may take the name of: only the names that came after files could have used them. */
+const FUNCTION_MAY_TAKE = new Set(["a built in input", "the previous frame"])
 
 /**
  * The GLSL spellings whose HLSL name means the same wherever it is written, so
@@ -205,7 +207,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     for (const fn of unit.funcs) {
         attempt(() => {
             const clash = taken(fn.name)
-            if (clash !== null) fail(`"${fn.name}" already names ${clash}`, fn.pos, fn.name.length)
+            if (clash !== null && !FUNCTION_MAY_TAKE.has(clash)) fail(`"${fn.name}" already names ${clash}`, fn.pos, fn.name.length)
             if (unit.funcs.filter((f) => f.name === fn.name).length > 1) {
                 fail(
                     `this file declares ${fn.name} more than once. There is no overloading: a function ` +
