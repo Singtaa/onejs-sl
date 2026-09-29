@@ -12,13 +12,22 @@
  * named `n<index>`. What differs is the contract with the host, which is fixed
  * and the same for both languages:
  *
- *   sl_Res   (target width, target height, seconds, 0)
- *   sl_Opt   (1 in a Linear colour space project else 0, 1 to flip uv.y, 0, 0)
+ *   sl_Res   (target width, target height, seconds, frame)
+ *   sl_Opt   (1 in a Linear colour space project else 0, 1 to flip uv.y, deltaTime, 0)
  *   sl_U[16] uniform slots, each a vec4, in the program's slot order
  *   textures by slot: GLSL `sl_Tex<slot>`; WGSL `sl_tex<slot>` at binding
  *            2 + 2 * slot with its own sampler `sl_samp<slot>` at 1 + 2 * slot,
  *            all in group 0 beside the frame block at binding 0. Only the
  *            slots the program samples are declared.
+ *   the previous frame, only for a program that samples it: GLSL `sl_Prev`;
+ *            WGSL `sl_prev` with its sampler `sl_prevSamp`, at the two
+ *            bindings after the last texture slot's, whatever the program
+ *            declares. Read at level 0 (`body.ts`, `BodyTarget.previous`),
+ *            its y flipped when `sl_Opt.y` flips uv, so the texture the host
+ *            drew last frame reads back the way it was written.
+ *
+ * `frame` and `deltaTime` ride in components that were 0, and a host sets
+ * them only for a program that reads them (`readsOf`).
  *
  * WGSL also carries its vertex stage (`sl_vs`, a full-target triangle from the
  * vertex index) so one module is one pipeline; the GLSL host supplies its own.
@@ -30,7 +39,7 @@ import { inVaryingFlow, local, printBody, structure, type Syntax } from "./struc
 import { libClosure, libIndex, LIB_FUNCTIONS, SDF_CALLS } from "./lib"
 import { LIB_GLSL } from "./lib/glsl"
 import { LIB_WGSL } from "./lib/wgsl"
-import { INPUT_ID, SLOP, UNIFORM_SLOTS } from "./ops"
+import { INPUT_ID, SLOP, TEXTURE_SLOTS, UNIFORM_SLOTS } from "./ops"
 
 export type WebLanguage = "glsl" | "wgsl"
 
@@ -50,6 +59,8 @@ function emitWeb(p: Program, lang: WebLanguage): string {
     const need = new Set<number>()
     const smoothsteps = new Set<SLType>()
     const sampled = new Set<number>()
+    /** Whether the body samples the previous frame, which declares its binding. */
+    let previous = false
     const shape = structure(p)
     const T = (t: SLType) => (W ? (t === 1 ? "f32" : `vec${t}f`) : t === 1 ? "float" : `vec${t}`)
     /** A value's type in this language, its kind included. */
@@ -91,6 +102,8 @@ function emitWeb(p: Program, lang: WebLanguage): string {
                     case 2: return `${res}.xy`
                     case 3: return `${res}.z`
                     case 4: return `(${res}.x / max(${res}.y, 1.0))`
+                    case 5: return `${res}.w`
+                    case 6: return W ? "sl.opt.z" : "sl_Opt.z"
                     default: throw new Error(`no web mapping for the input "${n.name}"`)
                 }
             }
@@ -252,6 +265,13 @@ function emitWeb(p: Program, lang: WebLanguage): string {
                     ? `textureSampleLevel(sl_tex${slot}, sl_samp${slot}, ${a[0]}, ${a[1]})`
                     : `textureLod(sl_Tex${slot}, ${a[0]}, ${a[1]})`
             }
+            case SLOP.SAMPLE_PREVIOUS:
+                previous = true
+                // Flipped as this frame flipped the uv it wrote at, so a read at
+                // a pixel's own uv is that pixel on either backend.
+                return W
+                    ? `textureSampleLevel(sl_prev, sl_prevSamp, ${a[0]} * vec2f(1.0, 1.0 - 2.0 * sl.opt.y) + vec2f(0.0, sl.opt.y), 0.0)`
+                    : `textureLod(sl_Prev, ${a[0]} * vec2(1.0, 1.0 - 2.0 * sl_Opt.y) + vec2(0.0, sl_Opt.y), 0.0)`
             default:
                 throw new SLError(
                     `the ${lang.toUpperCase()} emitter has no case for opcode ${n.op}. A program using it would ` +
@@ -343,9 +363,12 @@ function emitWeb(p: Program, lang: WebLanguage): string {
     const textures = p.textures.filter((t) => sampled.has(t.slot))
 
     if (W) {
-        const bindings = textures.map((t) =>
+        const bindings = [...textures.map((t) =>
             `@group(0) @binding(${1 + 2 * t.slot}) var sl_samp${t.slot}: sampler;\n` +
-            `@group(0) @binding(${2 + 2 * t.slot}) var sl_tex${t.slot}: texture_2d<f32>;`).join("\n")
+            `@group(0) @binding(${2 + 2 * t.slot}) var sl_tex${t.slot}: texture_2d<f32>;`),
+        ...previous ? [
+            `@group(0) @binding(${1 + 2 * TEXTURE_SLOTS}) var sl_prevSamp: sampler;\n` +
+            `@group(0) @binding(${2 + 2 * TEXTURE_SLOTS}) var sl_prev: texture_2d<f32>;`] : []].join("\n")
         return `${header}
 struct SLFrame { res: vec4f, opt: vec4f, u: array<vec4f, ${WEB_UNIFORM_SLOTS}> }
 @group(0) @binding(0) var<uniform> sl: SLFrame;
@@ -363,7 +386,7 @@ ${body}
 }
 `
     }
-    const samplers = textures.map((t) => `uniform sampler2D sl_Tex${t.slot};`).join("\n")
+    const samplers = [...textures.map((t) => `uniform sampler2D sl_Tex${t.slot};`), ...previous ? ["uniform sampler2D sl_Prev;"] : []].join("\n")
     return `#version 300 es
 ${header}
 precision highp float;

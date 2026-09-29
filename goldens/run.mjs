@@ -21,6 +21,14 @@
  * rows from the top, RGBA each, per fixture per time. Small enough to diff, and
  * a wrong distance or a wrong noise anywhere in the frame still shows.
  *
+ * A fixture that reads the previous frame, `frame` or `deltaTime` is stepped
+ * instead (`page.html` says how): STEPS.count frames STEPS.dt apart, sampled at
+ * the frames in STEPS.record, both as the element shows them and as the raw
+ * `rgba16float` history holds them. `counter.sl`, `drift.sl` and
+ * `frame-delta.sl` are anchors on the history, to the bit: a step taken twice,
+ * a missed swap, a previous frame read upside down or history kept at 8 bits
+ * each moves a value arithmetic says exactly.
+ *
  *     node goldens/run.mjs --check      # compare with goldens.json, write nothing
  *
  * `--check` is the release gate on a machine other than the one that wrote
@@ -39,6 +47,7 @@ import { PROBE_PIXELS, intOpsPixel, loopCapLinear, probeProgramPixel } from "./r
 
 const HERE = import.meta.dirname
 const TIMES = [0, 1.25]
+const STEPS = { count: 8, dt: 1 / 30, record: [0, 1, 7] }
 const STEP = 4
 const OFFSET = 2
 const PKG = JSON.parse(fs.readFileSync(path.join(HERE, "../package.json"), "utf8"))
@@ -115,7 +124,7 @@ for (let i = 0; i < 50 && (await evaluate("typeof window.goldens").catch(() => "
 
 const draw = {}
 for (const backend of ["webgpu", "webgl2"]) {
-    draw[backend] = await evaluate(`goldens.render(${JSON.stringify(backend)}, ${JSON.stringify(fixtures)}, ${JSON.stringify(TIMES)})`)
+    draw[backend] = await evaluate(`goldens.render(${JSON.stringify(backend)}, ${JSON.stringify(fixtures)}, ${JSON.stringify(TIMES)}, ${JSON.stringify(STEPS)})`)
     console.log(`[goldens] ${backend}: ${draw[backend].device}`)
 }
 const probeDraw = {}
@@ -136,6 +145,9 @@ ws.close()
 server.close()
 
 const grid = Math.floor(SIZE / STEP)
+const isStepped = (fx) => fx.reads.previous || fx.reads.frame || fx.reads.deltaTime
+const timed = Object.keys(fixtures).filter((name) => !isStepped(fixtures[name]))
+const stepped = Object.keys(fixtures).filter((name) => isStepped(fixtures[name]))
 const samples = (image) => {
     const out = []
     for (let j = 0; j < grid; j++) {
@@ -153,7 +165,7 @@ for (const [backend, error] of Object.entries(libraryErrors)) {
 }
 // The backends against each other, over every pixel, not only the samples.
 let agreement = 0
-for (const name of Object.keys(fixtures)) {
+for (const name of timed) {
     for (const t of TIMES) {
         const a = draw.webgpu.images[name][t], b = draw.webgl2.images[name][t]
         let worst = 0
@@ -161,6 +173,24 @@ for (const name of Object.keys(fixtures)) {
         agreement = Math.max(agreement, worst)
         if (worst > 1) failures.push(`${name} at ${t}s: WebGPU and WebGL2 differ by ${worst}/255`)
         if (a.every((v) => v === 0)) failures.push(`${name} at ${t}s drew nothing`)
+    }
+}
+// Stepped: the shown bytes as above; the history to 1/255, since the two
+// backends' arithmetic may round a last place apart.
+let historyAgreement = 0
+for (const name of stepped) {
+    for (const k of STEPS.record) {
+        const a = draw.webgpu.steps[name].display[k], b = draw.webgl2.steps[name].display[k]
+        let worst = 0
+        for (let i = 0; i < a.length; i++) worst = Math.max(worst, Math.abs(a[i] - b[i]))
+        agreement = Math.max(agreement, worst)
+        if (worst > 1) failures.push(`${name} at frame ${k}: WebGPU and WebGL2 differ by ${worst}/255`)
+        if (a.every((v) => v === 0)) failures.push(`${name} at frame ${k} drew nothing`)
+        const ha = draw.webgpu.steps[name].history[k], hb = draw.webgl2.steps[name].history[k]
+        let hworst = 0
+        for (let i = 0; i < ha.length; i++) hworst = Math.max(hworst, Math.abs(ha[i] - hb[i]))
+        historyAgreement = Math.max(historyAgreement, hworst)
+        if (!(hworst <= 1 / 255)) failures.push(`${name} at frame ${k}: the backends' history differs by ${hworst}`)
     }
 }
 
@@ -205,6 +235,65 @@ const anchors = {
 /** A fixture compared at 0/255, here and by `--check`, and marked `exact` in goldens.json for a host. */
 const exact = (name) => anchors[name]?.tolerance === 0
 const anchorWorst = {}
+
+/** A half, as the history stores a value: round to nearest even, in range here. */
+const toHalf = (v) => {
+    if (v === 0) return 0
+    const e = Math.floor(Math.log2(Math.abs(v)))
+    const q = 2 ** (Math.max(e, -14) - 10)
+    const n = v / q, r = Math.round(n)
+    return (Math.abs(n - Math.trunc(n)) === 0.5 && r % 2 !== 0 ? r - Math.sign(n) : r) * q
+}
+/**
+ * The stepped anchors: what the history holds at frame k, pixel (x, y) from the
+ * top left, worked out here. Every one is exact in a half.
+ */
+const historyAnchors = {
+    "counter.sl": (k) => [(k + 1) / 256, (k + 1) / 256, (k + 1) / 256, 1],
+    "drift.sl": (k, x, y) => {
+        const from = Math.max(SIZE - 1 - y - k, 0)
+        return [Math.floor(x / 8) / 8, Math.floor(from / 8) / 8, 0.5, 1]
+    },
+    // deltaTime * 30 in float, stored as a half: 1 after the first frame.
+    "frame-delta.sl": (k) => [k / 256, k === 0 ? 0 : toHalf(Math.fround(Math.fround(STEPS.dt) * 30)), 1, 1],
+}
+/** Whether a stepped fixture's history is compared to the bit, here, by `--check`, and marked so for a host. */
+const historyExact = (name) => name in historyAnchors
+for (const [name, expect] of Object.entries(historyAnchors)) {
+    if (!stepped.includes(name)) { failures.push(`anchor ${name} is not a stepped fixture in the corpus`); continue }
+    let worst = 0, first = null
+    for (const backend of ["webgpu", "webgl2"]) {
+        for (const k of STEPS.record) {
+            const h = draw[backend].steps[name].history[k]
+            for (let y = 0; y < SIZE; y++) {
+                for (let x = 0; x < SIZE; x++) {
+                    const want = expect(k, x, y)
+                    for (let ch = 0; ch < 4; ch++) {
+                        const off = Math.abs(h[(y * SIZE + x) * 4 + ch] - want[ch])
+                        if (off > worst) { worst = off; first ??= `${backend} frame ${k} (${x}, ${y}) channel ${ch}: ${h[(y * SIZE + x) * 4 + ch]}, wanted ${want[ch]}` }
+                    }
+                }
+            }
+        }
+    }
+    anchorWorst[name] = worst
+    if (worst > 0) failures.push(`anchor ${name}'s history is off arithmetic by ${worst}; the first: ${first}`)
+}
+// What an element shows is its history, stored: every byte within 1 of the
+// value encoded, and alpha stored as it is.
+for (const name of stepped) {
+    for (const backend of ["webgpu", "webgl2"]) {
+        for (const k of STEPS.record) {
+            const h = draw[backend].steps[name].history[k], d = draw[backend].steps[name].display[k]
+            let worst = 0
+            for (let i = 0; i < d.length; i++) {
+                const v = Math.min(1, Math.max(0, h[i]))
+                worst = Math.max(worst, Math.abs(d[i] - (i % 4 === 3 ? Math.round(v * 255) : encode(v))))
+            }
+            if (worst > 1) failures.push(`${name} at frame ${k} on ${backend} shows ${worst}/255 off its own history`)
+        }
+    }
+}
 for (const [name, { tolerance, expect }] of Object.entries(anchors)) {
     if (!(name in fixtures)) { failures.push(`anchor ${name} is not in the corpus`); continue }
     let worst = 0
@@ -263,6 +352,23 @@ if (CHECK) {
         const r = recorded.fixtures[name]
         if (r === undefined) { failures.push(`${name} is not in goldens.json: regenerate it`); continue }
         if (r.hash !== fx.hash) { failures.push(`${name} compiles to ${fx.hash}, and goldens.json has ${r.hash}: regenerate it`); continue }
+        if (isStepped(fx)) {
+            if (r.frames === undefined || r.history === undefined) { failures.push(`${name} is stepped, and goldens.json has no frames for it: regenerate it`); continue }
+            const allowedHistory = historyExact(name) ? 0 : 1 / 255
+            for (const k of STEPS.record) {
+                for (const backend of ["webgpu", "webgl2"]) {
+                    const got = samples(draw[backend].steps[name].display[k]), want = r.frames[k]
+                    let worst = 0
+                    for (let i = 0; i < want.length; i++) worst = Math.max(worst, Math.abs(got[i] - want[i]))
+                    if (worst > 1) failures.push(`${name} at frame ${k} on ${backend} is ${worst}/255 from goldens.json (allowed 1)`)
+                    const gotH = samples(draw[backend].steps[name].history[k]), wantH = r.history[k]
+                    let worstH = 0
+                    for (let i = 0; i < wantH.length; i++) worstH = Math.max(worstH, Math.abs(gotH[i] - wantH[i]))
+                    if (!(worstH <= allowedHistory)) failures.push(`${name}'s history at frame ${k} on ${backend} is ${worstH} from goldens.json (allowed ${allowedHistory})`)
+                }
+            }
+            continue
+        }
         const allowed = exact(name) ? 0 : 1
         for (const t of TIMES) {
             for (const backend of ["webgpu", "webgl2"]) {
@@ -286,7 +392,8 @@ if (CHECK) {
 for (const f of failures) console.log(`[goldens] FAIL ${f}`)
 console.log(`[goldens] the whole library (${library.wgsl.split("\n").length} WGSL lines, ${library.glsl.split("\n").length} GLSL) ` +
     `compiles on ${Object.entries(libraryErrors).filter(([, e]) => e === "").map(([b]) => b).join(" and ") || "neither backend"}`)
-console.log(`[goldens] ${Object.keys(fixtures).length} fixtures x ${TIMES.length} times, backends agree within ${agreement}/255, ` +
+console.log(`[goldens] ${timed.length} fixtures x ${TIMES.length} times and ${stepped.length} stepped x ${STEPS.record.length} frames, ` +
+    `backends agree within ${agreement}/255 and their histories within ${historyAgreement}, ` +
     `anchors off arithmetic by ${Object.entries(anchorWorst).map(([k, v]) => `${k} ${v}`).join(", ")}`)
 console.log(`[goldens] hash probes, pixels off the reference: ${Object.entries(probeWrong).map(([k, v]) => `${k} ${v}`).join(", ")}`)
 if (CHECK) {
@@ -304,6 +411,13 @@ const out = {
     target: "rgba8unorm-srgb: straight alpha, 8 bit, sRGB encoded, the stored bytes of a Linear OneJS game's element",
     size: [SIZE, SIZE],
     times: TIMES,
+    steps: `a fixture that reads previous, frame or deltaTime is stepped rather than drawn at times: ${STEPS.count} frames, ` +
+        `frame k at time k / ${Math.round(1 / STEPS.dt)} with frame k and deltaTime 1 / ${Math.round(1 / STEPS.dt)} (0 on frame 0), ` +
+        "each drawn raw into one half of an rgba16float history pair that starts clear, the other half its previous frame " +
+        "(bilinear, clamp to edge), then copied texel for texel into the target. frames holds the target's samples at " +
+        `frames ${STEPS.record.join(", ")}, and history the same samples of the raw history, as floats`,
+    stepFrames: STEPS.record,
+    historyExact: "a stepped fixture marked historyExact has to hold its history samples to the bit",
     samples: `a ${grid} x ${grid} grid at x = ${OFFSET} + ${STEP}i, y = ${OFFSET} + ${STEP}j, rows from the top, i fastest, RGBA each`,
     texture: "every sampled slot: 8 x 8, rgba8 sRGB, linear filter, clamp to edge; texel (x, y) with y from the top = " +
         "(32x + 16, 32y + 16, (x + y) even ? 200 : 40, 255); uv (0, 0) is the image's bottom left. Mip levels 1 to 3 " +
@@ -312,8 +426,15 @@ const out = {
     uniforms: "each program's declared defaults; a colour uniform's default is sRGB as written",
     drawnOn: { webgpu: draw.webgpu.device, webgl2: draw.webgl2.device },
     backendsAgreeWithin: agreement,
+    historiesAgreeWithin: historyAgreement,
     exact: "a fixture marked exact has to draw its samples to the byte, not within 1/255",
-    fixtures: Object.fromEntries(Object.entries(fixtures).map(([name, fx]) => [name, {
+    fixtures: Object.fromEntries(Object.entries(fixtures).map(([name, fx]) => [name, isStepped(fx) ? {
+        hash: fx.hash,
+        ...(historyExact(name) ? { historyExact: true } : {}),
+        source: fx.source,
+        frames: Object.fromEntries(STEPS.record.map((k) => [k, samples(draw.webgpu.steps[name].display[k])])),
+        history: Object.fromEntries(STEPS.record.map((k) => [k, samples(draw.webgpu.steps[name].history[k])])),
+    } : {
         hash: fx.hash,
         ...(exact(name) ? { exact: true } : {}),
         source: fx.source,
@@ -328,7 +449,7 @@ const out = {
 }
 // One line per capture, so a changed golden reads as a changed line.
 const json = JSON.stringify(out, (k, v) => (Array.isArray(v) && typeof v[0] === "number" && v.length > 8 ? `@@${v.join(",")}@@` : v), 1)
-    .replace(/"@@([0-9,]*)@@"/g, "[$1]")
+    .replace(/"@@([0-9,.e+-]*)@@"/g, "[$1]")
 fs.writeFileSync(path.join(HERE, "goldens.json"), json + "\n")
 console.log(`[goldens] wrote goldens/goldens.json, ${(json.length / 1024).toFixed(0)} KB`)
 process.exit(0)

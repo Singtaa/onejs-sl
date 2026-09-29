@@ -9,10 +9,12 @@
  * older one is migrated to this one and rehashed under it.
  */
 import {
-    INPUTS, SLError, SL_HASH_VERSION, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, formProblem, hashProgram, intUniformProblem,
-    programVersion, type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
+    INPUTS, STEP_INPUTS, SLError, SL_HASH_VERSION, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, formProblem, hashProgram, intUniformProblem,
+    programVersion, type HostInputName, type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
 } from "./ir"
 import { SLOP, SL_ARITY, SL_NAME } from "./ops"
+
+const HOST_INPUTS: Readonly<Record<HostInputName, SLType>> = { ...INPUTS, ...STEP_INPUTS }
 
 export interface ProgramJSON {
     /** `SL_IR_VERSION` of the writer. Absent means 1. */
@@ -166,8 +168,10 @@ function node(n: unknown, i: number): SLNode {
             return withKind({ k: "const", type: t, v })
         }
         case "input": {
-            const name = x.name as keyof typeof INPUTS
-            if (!(name in INPUTS) || INPUTS[name] !== t) fail(`node ${i} reads an input "${String(x.name)}" that does not exist at that width`)
+            const name = x.name as HostInputName
+            if (!Object.prototype.hasOwnProperty.call(HOST_INPUTS, name) || HOST_INPUTS[name] !== t) {
+                fail(`node ${i} reads an input "${String(x.name)}" that does not exist at that width`)
+            }
             return { k: "input", type: t, name }
         }
         case "uniform": {

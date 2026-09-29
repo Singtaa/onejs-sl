@@ -18,6 +18,15 @@
  * so it draws with the flip; WebGL2's runs up, so it draws without one and the
  * rows are reversed after `readPixels`. Either way `uv.y` is 1 at the top row,
  * as SL defines it.
+ *
+ * A program that reads the previous frame, `frame` or `deltaTime` is STEPPED
+ * rather than drawn at times, as a host steps it (`Specs/SL_NEXT.md` 4): both
+ * halves of an `rgba16float` history pair start clear, and frame k draws raw
+ * into one half at time k * dt, with `frame` k and `deltaTime` dt (0 on frame
+ * 0), the other half bound as the previous frame (bilinear, clamped, at the
+ * two bindings after the last texture slot's; `sl_Prev` on WebGL2). A display
+ * pass then copies that half texel for texel into the sRGB target, which is
+ * what the element shows. Both the stored bytes and the raw history come back.
  */
 const SIZE = 64
 const SLOTS = 16
@@ -55,14 +64,31 @@ function textureBytes() {
     return out
 }
 
-function frame(time, linearFlip, defaults) {
+/** The history format, and the one a host keeps the previous frame in. */
+const HISTORY = "rgba16float"
+
+/** Whether a fixture is stepped: it reads something a host keeps between frames. */
+const stepped = (fx) => fx.reads !== undefined && (fx.reads.previous || fx.reads.frame || fx.reads.deltaTime)
+
+/** The frames a stepped fixture draws: `count` of them, `dt` apart, those in `record` read back. */
+const stepTimes = (steps) => Array.from({ length: steps.count }, (_, k) => ({ k, time: k * steps.dt, dt: k === 0 ? 0 : steps.dt }))
+
+/** An IEEE half as a number. */
+function half(h) {
+    const s = h & 0x8000 ? -1 : 1, e = (h >> 10) & 31, m = h & 1023
+    if (e === 0) return s * m * 2 ** -24
+    if (e === 31) return m ? NaN : s * Infinity
+    return s * (1 + m / 1024) * 2 ** (e - 15)
+}
+
+function frame(time, linearFlip, defaults, frameCount = 0, deltaTime = 0) {
     const f = new Float32Array(8 + SLOTS * 4)
-    f.set([SIZE, SIZE, time, 0, 1, linearFlip ? 1 : 0, 0, 0])
+    f.set([SIZE, SIZE, time, frameCount, 1, linearFlip ? 1 : 0, deltaTime, 0])
     f.set(defaults.slice(0, SLOTS * 4), 8)
     return f
 }
 
-async function webgpu(fixtures, times) {
+async function webgpu(fixtures, times, steps) {
     if (!navigator.gpu) throw new Error("this browser has no WebGPU")
     const adapter = await navigator.gpu.requestAdapter()
     if (!adapter) throw new Error("no WebGPU adapter")
@@ -79,8 +105,36 @@ async function webgpu(fixtures, times) {
         device.queue.writeTexture({ texture: tex, mipLevel: level }, mipBytes(level), { bytesPerRow: size * 4 }, [size, size])
     }
     const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" })
+    const history = [0, 1].map(() => device.createTexture({
+        size: [SIZE, SIZE], format: HISTORY,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+    }))
+    const historyReadback = device.createBuffer({ size: SIZE * SIZE * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ })
+    const previousSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" })
+    const displayModule = device.createShaderModule({ code: `
+@group(0) @binding(0) var h: texture_2d<f32>;
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+    let c = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4f(c * 2.0 - 1.0, 0.0, 1.0);
+}
+@fragment fn fs(@builtin(position) p: vec4f) -> @location(0) vec4f { return textureLoad(h, vec2i(p.xy), 0); }` })
+    const display = device.createRenderPipeline({
+        layout: "auto",
+        vertex: { module: displayModule, entryPoint: "vs" },
+        fragment: { module: displayModule, entryPoint: "fs", targets: [{ format: "rgba8unorm-srgb" }] },
+        primitive: { topology: "triangle-list" },
+    })
+    const displayGroups = history.map((h) => device.createBindGroup({ layout: display.getBindGroupLayout(0), entries: [{ binding: 0, resource: h.createView() }] }))
+    const fullscreen = (enc, view, pipeline, group) => {
+        const pass = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] })
+        pass.setPipeline(pipeline)
+        pass.setBindGroup(0, group)
+        pass.draw(3)
+        pass.end()
+    }
 
     const out = {}
+    const stepsOut = {}
     for (const [name, fx] of Object.entries(fixtures)) {
         const module = device.createShaderModule({ code: fx.wgsl })
         const info = await module.getCompilationInfo()
@@ -89,13 +143,51 @@ async function webgpu(fixtures, times) {
         const pipeline = device.createRenderPipeline({
             layout: "auto",
             vertex: { module, entryPoint: "sl_vs" },
-            fragment: { module, entryPoint: "sl_fs", targets: [{ format: "rgba8unorm-srgb" }] },
+            fragment: { module, entryPoint: "sl_fs", targets: [{ format: stepped(fx) ? HISTORY : "rgba8unorm-srgb" }] },
             primitive: { topology: "triangle-list" },
         })
         const entries = [{ binding: 0, resource: { buffer: ubo } }]
         for (const m of fx.wgsl.matchAll(/var sl_tex(\d+)/g)) {
             const s = Number(m[1])
             entries.push({ binding: 1 + 2 * s, resource: sampler }, { binding: 2 + 2 * s, resource: tex.createView() })
+        }
+        if (stepped(fx)) {
+            // One group per half drawn into, the other half bound as the previous frame.
+            const prev = [...fx.wgsl.matchAll(/@binding\((\d+)\) var sl_prev(Samp)?:/g)].map((m) => Number(m[1]))
+            const groups = history.map((_, into) => device.createBindGroup({
+                layout: pipeline.getBindGroupLayout(0),
+                entries: prev.length === 0 ? entries : [...entries,
+                    { binding: Math.min(...prev), resource: previousSampler },
+                    { binding: Math.max(...prev), resource: history[1 - into].createView() }],
+            }))
+            const enc = device.createCommandEncoder()
+            for (const h of history) {
+                enc.beginRenderPass({ colorAttachments: [{ view: h.createView(), loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 0] }] }).end()
+            }
+            device.queue.submit([enc.finish()])
+            stepsOut[name] = { display: {}, history: {} }
+            for (const { k, time, dt } of stepTimes(steps)) {
+                const into = k % 2
+                device.queue.writeBuffer(ubo, 0, frame(time, true, fx.defaults, k, dt))
+                const enc = device.createCommandEncoder()
+                fullscreen(enc, history[into].createView(), pipeline, groups[into])
+                const record = steps.record.includes(k)
+                if (record) {
+                    fullscreen(enc, target.createView(), display, displayGroups[into])
+                    enc.copyTextureToBuffer({ texture: target }, { buffer: readback, bytesPerRow: SIZE * 4 }, [SIZE, SIZE])
+                    enc.copyTextureToBuffer({ texture: history[into] }, { buffer: historyReadback, bytesPerRow: SIZE * 8 }, [SIZE, SIZE])
+                }
+                device.queue.submit([enc.finish()])
+                if (!record) continue
+                await readback.mapAsync(GPUMapMode.READ)
+                stepsOut[name].display[k] = Array.from(new Uint8Array(readback.getMappedRange()))
+                readback.unmap()
+                await historyReadback.mapAsync(GPUMapMode.READ)
+                stepsOut[name].history[k] = Array.from(new Uint16Array(historyReadback.getMappedRange()), half)
+                historyReadback.unmap()
+            }
+            if (errors.length > 0) throw new Error(`${name} on WebGPU: ${errors[0]}`)
+            continue
         }
         const group = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries })
         out[name] = {}
@@ -116,10 +208,10 @@ async function webgpu(fixtures, times) {
         if (errors.length > 0) throw new Error(`${name} on WebGPU: ${errors[0]}`)
     }
     const i = adapter.info ?? {}
-    return { device: `${i.vendor ?? ""} ${i.architecture ?? ""} ${i.description ?? ""}`.trim(), images: out }
+    return { device: `${i.vendor ?? ""} ${i.architecture ?? ""} ${i.description ?? ""}`.trim(), images: out, steps: stepsOut }
 }
 
-async function webgl2(fixtures, times) {
+async function webgl2(fixtures, times, steps) {
     const canvas = document.createElement("canvas")
     canvas.width = SIZE
     canvas.height = SIZE
@@ -158,7 +250,47 @@ void main() {
     gl.viewport(0, 0, SIZE, SIZE)
     gl.disable(gl.BLEND)
     const pixels = new Uint8Array(SIZE * SIZE * 4)
+    /** The rows of a `readPixels` result, top first. */
+    const topFirst = (rows, perPixel) => {
+        const top = new Array(SIZE * SIZE * perPixel)
+        for (let row = 0; row < SIZE; row++) {
+            const from = (SIZE - 1 - row) * SIZE * perPixel
+            for (let i = 0; i < SIZE * perPixel; i++) top[row * SIZE * perPixel + i] = rows[from + i]
+        }
+        return top
+    }
+
+    // The history pair, rendered to as a host renders to it.
+    if (!gl.getExtension("EXT_color_buffer_float")) throw new Error("this WebGL2 cannot render to a float target")
+    const history = [0, 1].map(() => {
+        const t = gl.createTexture()
+        gl.bindTexture(gl.TEXTURE_2D, t)
+        gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA16F, SIZE, SIZE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+        const f = gl.createFramebuffer()
+        gl.bindFramebuffer(gl.FRAMEBUFFER, f)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0)
+        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error("the history target is incomplete")
+        return { texture: t, fbo: f }
+    })
+    const display = gl.createProgram()
+    gl.attachShader(display, vs)
+    gl.attachShader(display, shader(gl.FRAGMENT_SHADER, `#version 300 es
+precision highp float;
+uniform sampler2D h;
+out vec4 o;
+void main() { o = texelFetch(h, ivec2(gl_FragCoord.xy), 0); }`, "the display pass"))
+    gl.linkProgram(display)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+    const floats = new Float32Array(SIZE * SIZE * 4)
+    /** The unit the previous frame is bound on, after the four texture slots'. */
+    const PREVIOUS_UNIT = 4
+
     const out = {}
+    const stepsOut = {}
     for (const [name, fx] of Object.entries(fixtures)) {
         const prog = gl.createProgram()
         gl.attachShader(prog, vs)
@@ -172,6 +304,48 @@ void main() {
             gl.bindTexture(gl.TEXTURE_2D, tex)
             gl.uniform1i(gl.getUniformLocation(prog, `sl_Tex${unit}`), unit)
         }
+        if (stepped(fx)) {
+            for (const h of history) {
+                gl.bindFramebuffer(gl.FRAMEBUFFER, h.fbo)
+                gl.clearColor(0, 0, 0, 0)
+                gl.clear(gl.COLOR_BUFFER_BIT)
+            }
+            const prev = gl.getUniformLocation(prog, "sl_Prev")
+            stepsOut[name] = { display: {}, history: {} }
+            for (const { k, time, dt } of stepTimes(steps)) {
+                const into = k % 2
+                gl.useProgram(prog)
+                if (prev !== null) {
+                    gl.activeTexture(gl.TEXTURE0 + PREVIOUS_UNIT)
+                    gl.bindTexture(gl.TEXTURE_2D, history[1 - into].texture)
+                    gl.uniform1i(prev, PREVIOUS_UNIT)
+                }
+                const f = frame(time, false, fx.defaults, k, dt)
+                gl.uniform4fv(gl.getUniformLocation(prog, "sl_Res"), f.subarray(0, 4))
+                gl.uniform4fv(gl.getUniformLocation(prog, "sl_Opt"), f.subarray(4, 8))
+                const u = gl.getUniformLocation(prog, "sl_U")
+                if (u !== null) gl.uniform4fv(u, f.subarray(8))
+                gl.bindFramebuffer(gl.FRAMEBUFFER, history[into].fbo)
+                gl.drawArrays(gl.TRIANGLES, 0, 3)
+                if (!steps.record.includes(k)) continue
+                gl.readPixels(0, 0, SIZE, SIZE, gl.RGBA, gl.FLOAT, floats)
+                stepsOut[name].history[k] = topFirst(floats, 4)
+                // The display pass: the half just drawn, texel for texel, into the sRGB target.
+                gl.useProgram(display)
+                gl.activeTexture(gl.TEXTURE0 + PREVIOUS_UNIT)
+                gl.bindTexture(gl.TEXTURE_2D, history[into].texture)
+                gl.uniform1i(gl.getUniformLocation(display, "h"), PREVIOUS_UNIT)
+                gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+                gl.drawArrays(gl.TRIANGLES, 0, 3)
+                gl.readPixels(0, 0, SIZE, SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+                stepsOut[name].display[k] = topFirst(pixels, 4)
+            }
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+            const err = gl.getError()
+            if (err !== gl.NO_ERROR) throw new Error(`${name} on WebGL2: GL error ${err}`)
+            gl.deleteProgram(prog)
+            continue
+        }
         out[name] = {}
         for (const t of times) {
             const f = frame(t, false, fx.defaults)
@@ -183,19 +357,14 @@ void main() {
             gl.clear(gl.COLOR_BUFFER_BIT)
             gl.drawArrays(gl.TRIANGLES, 0, 3)
             gl.readPixels(0, 0, SIZE, SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
-            const top = new Array(SIZE * SIZE * 4)
-            for (let row = 0; row < SIZE; row++) {
-                const from = (SIZE - 1 - row) * SIZE * 4
-                for (let i = 0; i < SIZE * 4; i++) top[row * SIZE * 4 + i] = pixels[from + i]
-            }
-            out[name][t] = top
+            out[name][t] = topFirst(pixels, 4)
         }
         const err = gl.getError()
         if (err !== gl.NO_ERROR) throw new Error(`${name} on WebGL2: GL error ${err}`)
         gl.deleteProgram(prog)
     }
     const dbg = gl.getExtension("WEBGL_debug_renderer_info")
-    return { device: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), images: out }
+    return { device: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), images: out, steps: stepsOut }
 }
 
 /** The first compile error in `source` on `backend`, or "" when it compiles. */
@@ -220,9 +389,9 @@ window.goldens = {
     compiles,
     textureBytes: () => Array.from(textureBytes()),
     mips: MIPS,
-    async render(backend, fixtures, times) {
+    async render(backend, fixtures, times, steps = { count: 0, dt: 0, record: [] }) {
         document.getElementById("status").textContent = `rendering on ${backend}`
-        const r = backend === "webgpu" ? await webgpu(fixtures, times) : await webgl2(fixtures, times)
+        const r = backend === "webgpu" ? await webgpu(fixtures, times, steps) : await webgl2(fixtures, times, steps)
         document.getElementById("status").textContent = `done on ${backend}`
         return r
     },

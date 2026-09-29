@@ -15,7 +15,7 @@
  * next time it is generated.
  */
 
-import { SLError, SL_HASH_VERSION, type Program } from "./ir"
+import { SLError, SL_HASH_VERSION, readsOf, type Program } from "./ir"
 import { emitBody, lit, type BodyTarget } from "./body"
 
 /** The property name a uniform gets. Prefixed so it cannot collide with ours. */
@@ -48,6 +48,7 @@ export function emitShader(p: Program, options: EmitOptions = {}): string {
     const name = options.name ?? `Hidden/SLGenerated/${p.hash}`
     const include = options.include ?? "SLCommon.cginc"
     const body = emitFragmentBody(p)
+    const reads = readsOf(p)
 
     const props: string[] = [
         `        _Secs ("Seconds", Float) = 0`,
@@ -69,6 +70,16 @@ export function emitShader(p: Program, options: EmitOptions = {}): string {
         props.push(`        _Tex${t.slot} ("${t.name}", 2D) = "white" {}`)
         decls.push(`            sampler2D _Tex${t.slot};`)
     }
+    // Only for a program that samples it, so every other program's shader is
+    // the text it always was. Transparent black is the previous frame's clear
+    // value, so a host that binds nothing draws the first frame.
+    if (reads.previous) {
+        props.push(`        _Prev ("Previous frame", 2D) = "black" {}`)
+        decls.push(`            sampler2D _Prev;`)
+    }
+    // What the program returns is the next frame's previous, kept at 16 bits
+    // a channel, so it leaves at full precision rather than as a fixed4.
+    const out = reads.previous ? "float4" : "fixed4"
 
     return `// GENERATED from a shader language program. Do not edit.
 //
@@ -112,7 +123,7 @@ ${decls.join("\n")}
                 return o;
             }
 
-            fixed4 frag(v2f i) : SV_Target
+            ${out} frag(v2f i) : SV_Target
             {
 ${body}
             }
@@ -125,7 +136,9 @@ ${body}
 
 /**
  * The frame's side of the body: OneJS's names for the inputs, a uniform's
- * material property, and `tex2D` and `tex2Dlod` on the slot's sampler. `sl_toLinear` stays a
+ * material property, and `tex2D` and `tex2Dlod` on the slot's sampler. The
+ * host puts the frame count and the step in `_Res`'s spare zw, and binds the
+ * previous frame as `_Prev`. `sl_toLinear` stays a
  * call because `SLCommon.cginc` decides Gamma or Linear per project, at the
  * shader compile, so this target always emits it.
  */
@@ -147,10 +160,15 @@ function unityTarget(p: Program): BodyTarget {
             resolution: "_Res.xy",
             time: "_Secs",
             aspect: "(_Res.x / max(_Res.y, 1.0))",
+            frame: "_Res.z",
+            deltaTime: "_Res.w",
         },
         uniform: (slot) => uniformProperty(p.uniforms[slot]!.name),
         sample: (slot, uv) => `tex2D(_Tex${slot}, ${uv})`,
         sampleLevel: (slot, uv, lod) => `tex2Dlod(_Tex${slot}, float4(${uv}, 0.0, ${lod}))`,
+        // Flipped as this frame flipped the uv it wrote at, so a read at a
+        // pixel's own uv is that pixel whichever way the host's target runs.
+        previous: (uv) => `tex2Dlod(_Prev, float4(${uv} * float2(1.0, 1.0 - 2.0 * _FlipY) + float2(0.0, _FlipY), 0.0, 0.0))`,
         colour: "linear",
         indent: "                ",
         loopAttribute: "[loop]",

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
-import { parse, SL_IR_VERSION, SL_SDF_PARAMS } from "./index"
+import { parse, readsOf, SL_IR_VERSION, SL_SDF_PARAMS } from "./index"
 // @ts-expect-error: plain JavaScript tooling, shared with the QuickJS run and the goldens runner
 import { fixtureSources } from "../corpus/fixtures.mjs"
 
@@ -28,12 +28,21 @@ describe("goldens.json", () => {
         }
     })
 
-    it("has a full grid of RGBA samples per time", () => {
+    it("has a full grid of RGBA samples per time, or per recorded frame for a stepped fixture", () => {
         const [w] = goldens.size
         const cells = (w / 4) * (w / 4) * 4
-        for (const g of Object.values(goldens.fixtures) as Array<{ samples: Record<string, number[]> }>) {
-            expect(Object.keys(g.samples).map(Number)).toEqual(goldens.times)
-            for (const s of Object.values(g.samples)) expect(s.length).toBe(cells)
+        type Golden = { samples?: Record<string, number[]>; frames?: Record<string, number[]>; history?: Record<string, number[]> }
+        for (const [name, g] of Object.entries(goldens.fixtures) as Array<[string, Golden]>) {
+            // Stepped exactly when the program reads something a host keeps between frames.
+            const reads = readsOf(parse(sources[name]!, { file: name }))
+            const stepped = reads.previous || reads.frame || reads.deltaTime
+            const grids = stepped ? [g.frames, g.history] : [g.samples]
+            const keys = stepped ? goldens.stepFrames : goldens.times
+            for (const grid of grids) {
+                expect(grid, name).toBeDefined()
+                expect(Object.keys(grid!).map(Number), name).toEqual(keys)
+                for (const s of Object.values(grid!)) expect(s.length).toBe(cells)
+            }
         }
         expect(goldens.backendsAgreeWithin).toBeLessThanOrEqual(1)
     })

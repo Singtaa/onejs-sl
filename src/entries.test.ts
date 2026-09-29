@@ -17,10 +17,10 @@ const names = (m: object) => Object.keys(m).sort()
 describe("entry points", () => {
     it("core is a program without the parser", () => {
         expect(names(core)).toEqual([
-            "CONTROL_FIELDS", "INPUTS", "INPUT_ID", "MAX_NODES", "SLError", "SLOP", "SL_ARITY",
-            "SL_HASH_VERSION", "SL_IR_VERSION", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_SHAPES", "TEXTURE_SLOTS", "TYPE", "UNIFORM_SLOTS",
-            "controlProblem", "fromJSON", "hashProgram", "inputsUsed", "isSampling", "parseColor", "sl", "toJSON",
-            "widthName",
+            "CONTROL_FIELDS", "INPUTS", "INPUT_ID", "MAX_NODES", "PREVIOUS", "SLError", "SLOP", "SL_ARITY",
+            "SL_HASH_VERSION", "SL_IR_VERSION", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_SHAPES", "STEP_INPUTS", "TEXTURE_SLOTS", "TYPE",
+            "UNIFORM_SLOTS", "controlProblem", "fromJSON", "hashProgram", "inputsUsed", "isSampling", "parseColor", "readsOf", "sl",
+            "toJSON", "widthName",
         ])
     })
 
@@ -35,9 +35,9 @@ describe("entry points", () => {
     it("the others", () => {
         expect(names(tables)).toEqual([
             "ATTRIBUTE_DOCS", "ATTRIBUTE_NAMES", "BUILTINS", "BUILTIN_DOCS", "BUILTIN_PARAMS", "DERIVED_INPUTS", "INPUTS", "INPUT_DOCS", "LIB_SIGNATURES",
-            "NOT_YET", "PRELUDE_DOCS", "PRELUDE_NAMES", "SLOP", "SL_ARITY", "SL_CALL_NAMES", "SL_GLSL_HINT", "SL_HLSL",
+            "NOT_YET", "PRELUDE_DOCS", "PRELUDE_NAMES", "PREVIOUS", "SLOP", "SL_ARITY", "SL_CALL_NAMES", "SL_GLSL_HINT", "SL_HLSL",
             "SL_KEYWORDS", "SL_NAME", "SL_SDF_PARAMS", "SL_SDF_PARAM_NAMES", "SL_SDF_SHAPES", "SL_TYPES",
-            "SL_UNIMPLEMENTED", "SOURCE_INPUTS", "TYPE_WIDTH",
+            "SL_UNIMPLEMENTED", "SOURCE_INPUTS", "STEP_INPUTS", "TYPE_WIDTH",
         ])
         expect(names(compiler)).toEqual(["compile"])
         expect(names(unity)).toEqual(["emitFragmentBody", "emitShader", "uniformProperty"])

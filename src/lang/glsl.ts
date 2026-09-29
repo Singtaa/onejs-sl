@@ -17,7 +17,7 @@
  * `diagnose`, at their places in the new text).
  */
 
-import { INPUTS } from "../ir"
+import { DERIVED_INPUTS, INPUTS, PREVIOUS, STEP_INPUTS } from "../ir"
 import { BUILTINS } from "./builtins"
 import { diagnose } from "./index"
 import type { SLParseError } from "./lexer"
@@ -76,6 +76,7 @@ const GLSL_TYPES = new Set(["float", "int", "uint", "bool", "vec2", "vec3", "vec
 const RENAME: Record<string, string> = {
     vec2: "float2", vec3: "float3", vec4: "float4", mix: "lerp", fract: "frac",
     texture: "tex2D", texture2D: "tex2D", textureLod: "tex2Dlod", iTime: "time", iGlobalTime: "time", gl_FragCoord: "fragCoord",
+    iFrame: "frame", iTimeDelta: "deltaTime",
 }
 
 /**
@@ -94,8 +95,6 @@ const NARROW: Record<string, [string, string]> = {
 
 /** Shadertoy's inputs with no counterpart yet, and why. */
 const MISSING: Record<string, string> = {
-    iFrame: "there is no frame counter yet",
-    iTimeDelta: "there is no delta time yet",
     iFrameRate: "there is no frame rate",
     iDate: "there is no date",
     iChannelTime: "a texture has no time of its own",
@@ -115,6 +114,7 @@ const MISSING: Record<string, string> = {
 const HOST_UNIFORMS: Record<string, string> = {
     u_time: "time", u_resolution: "resolution", time: "time", resolution: "resolution",
     iTime: "time", iGlobalTime: "time", iResolution: "resolution", iMouse: "mouse",
+    iFrame: "frame", iTimeDelta: "deltaTime",
 }
 
 const QUALIFIERS = new Set(["highp", "mediump", "lowp"])
@@ -186,8 +186,8 @@ function rotationBody(words: string[], param: string): 1 | -1 | null {
 /** Names a pasted value or function cannot keep, because the language already means something by them. */
 function taken(name: string, isFunction: boolean): boolean {
     if (name in INPUTS || (SL_KEYWORDS as readonly string[]).includes(name) || (SL_TYPES as readonly string[]).includes(name)) return true
-    // A value may take a builtin's name; a function may not.
-    return isFunction && BUILTINS[name] !== undefined
+    // A value may take a builtin's name, or a derived or built in input's; a function may not.
+    return isFunction && (BUILTINS[name] !== undefined || name in DERIVED_INPUTS || name in STEP_INPUTS || name === PREVIOUS)
 }
 
 /** `fromGLSL(source)`: a GLSL fragment shader as a `.sl` file, with what changed and what still does not compile. */

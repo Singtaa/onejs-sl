@@ -20,7 +20,7 @@ import { BUILTINS } from "./lang/builtins"
 import { LIB_FUNCTIONS, SDF_CALLS } from "./lib/table"
 import { LIB_PARAM_NAMES } from "./lib/names"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
-import type { SourceInputName } from "./ir"
+import type { PREVIOUS, SourceInputName } from "./ir"
 import type { AttributeName } from "./lang/attributes"
 
 /** One function of the helper library, as its source declares it. */
@@ -186,12 +186,15 @@ export const ATTRIBUTE_DOCS: Readonly<Record<AttributeName, string>> = {
  * the output is a UI element in OneJS and an image on a Magerie board, and the
  * clock is whichever one the host runs.
  */
-export const INPUT_DOCS: Readonly<Record<SourceInputName, string>> = {
+export const INPUT_DOCS: Readonly<Record<SourceInputName | typeof PREVIOUS, string>> = {
     uv: "The centre of this pixel in the output, 0 to 1 on each axis, with y up.",
     fragCoord: "The centre of this pixel in the output, in pixels, with y up: the first column is at 0.5.",
     resolution: "The output's size in pixels.",
     time: "The clock, in seconds.",
     aspect: "The output's width divided by its height.",
+    frame: "Frames drawn since previous was last cleared, from 0: an int, 0 exactly when previous is clear.",
+    deltaTime: "Seconds since the frame before; 0 when a frame redraws the same time.",
+    previous: "What this program drew the frame before, as a texture: tex2D(previous, uv). Clear on the first.",
     texel: "One pixel, in uv: 1 / resolution. Step by it to read a neighbouring pixel.",
     centered: "uv with 0 at the centre and x scaled by aspect, so a circle drawn in it stays round.",
 }

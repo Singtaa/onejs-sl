@@ -39,7 +39,7 @@ export const TEXTURE_SLOTS = 4
 
 /** Input ids, which the web emitter switches on. */
 export const INPUT_ID: Record<string, number> = {
-    uv: 0, fragCoord: 1, resolution: 2, time: 3, aspect: 4,
+    uv: 0, fragCoord: 1, resolution: 2, time: 3, aspect: 4, frame: 5, deltaTime: 6,
 }
 
 export const SLOP = {
@@ -146,6 +146,9 @@ export const SLOP = {
     // Sampling
     SAMPLE: 144,
     SAMPLE_LOD: 145,
+    // What this program drew the frame before, at a uv (IR 5). No slot: the
+    // host keeps it, and a program that never reads it has none.
+    SAMPLE_PREVIOUS: 146,
 } as const
 
 export type SLOpCode = (typeof SLOP)[keyof typeof SLOP]
@@ -187,7 +190,7 @@ export const SL_ARITY: Record<number, number> = {
     [SLOP.NOISE]: 1, [SLOP.SIMPLEX]: 1, [SLOP.FBM]: -1, [SLOP.SDF]: -1,
     [SLOP.VORONOI]: 1, [SLOP.TURBULENCE]: -1, [SLOP.RIDGED]: -1,
 
-    [SLOP.SAMPLE]: 1, [SLOP.SAMPLE_LOD]: 2,
+    [SLOP.SAMPLE]: 1, [SLOP.SAMPLE_LOD]: 2, [SLOP.SAMPLE_PREVIOUS]: 1,
 }
 
 /** Name per opcode, for error messages and for the HLSL emitter's comments. */
@@ -230,7 +233,7 @@ export interface SLSurface {
 
 export const SL_HLSL: Record<number, SLSurface> = {
     [SLOP.CONST]: { syntax: "a number literal" },
-    [SLOP.INPUT]: { syntax: "uv, fragCoord, resolution, time, aspect" },
+    [SLOP.INPUT]: { syntax: "uv, fragCoord, resolution, time, aspect, frame, deltaTime" },
     [SLOP.UNIFORM]: { syntax: "uniform <type> name = <default>;" },
     [SLOP.COMPOSE]: { syntax: "float2(), float3(), float4()" },
     [SLOP.SWIZZLE]: { syntax: ".xyzw / .rgba" },
@@ -312,6 +315,7 @@ export const SL_HLSL: Record<number, SLSurface> = {
 
     [SLOP.SAMPLE]: { call: "tex2D" },
     [SLOP.SAMPLE_LOD]: { call: "tex2Dlod" },
+    [SLOP.SAMPLE_PREVIOUS]: { syntax: "tex2D(previous, uv)" },
 }
 
 /**

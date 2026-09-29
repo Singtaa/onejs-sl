@@ -35,13 +35,18 @@ using namespace metal;
 #define SL_U(i) u[i]
 #define SL_SAMPLE(slot, uv) tex.sample(smp, uv)
 #define SL_SAMPLE_LEVEL(slot, uv, lod) tex.sample(smp, uv, level(lod))
+#define SL_PREVIOUS(uv) prev.sample(smp, uv, level(0.0))
 `
 
 const TARGET: BodyTarget = {
-    inputs: { uv: "SL_UV", fragCoord: "SL_FRAGCOORD", resolution: "SL_RES", time: "SL_TIME", aspect: "SL_ASPECT" },
+    inputs: {
+        uv: "SL_UV", fragCoord: "SL_FRAGCOORD", resolution: "SL_RES", time: "SL_TIME", aspect: "SL_ASPECT",
+        frame: "SL_FRAME", deltaTime: "SL_DT",
+    },
     uniform: (slot) => `SL_U(${slot})`,
     sample: (slot, uv) => `SL_SAMPLE(${slot}, ${uv})`,
     sampleLevel: (slot, uv, lod) => `SL_SAMPLE_LEVEL(${slot}, ${uv}, ${lod})`,
+    previous: (uv) => `SL_PREVIOUS(${uv})`,
     colour: "linear",
     result: "c",
 }
@@ -104,7 +109,7 @@ describe.skipIf(!hasMetal)("the shared subset, compiled as Metal", () => {
             const bodies = Object.entries({ ...corpus, ...builtins }).map(([name, source], i) => {
                 const body = emitBody(parse(source, { file: name }), { ...TARGET, colour }).body
                 return `// ${name}\nfloat4 program${i}(float2 SL_UV, float2 SL_FRAGCOORD, float2 SL_RES, float SL_TIME, float SL_ASPECT, ` +
-                    `constant float4* u, texture2d<float> tex, sampler smp) {\n    float4 c;\n${body}\n    return c;\n}`
+                    `float SL_FRAME, float SL_DT, constant float4* u, texture2d<float> tex, texture2d<float> prev, sampler smp) {\n    float4 c;\n${body}\n    return c;\n}`
             })
             const errors = compile(`${PRELUDE}\n${library}\n\n${bodies.join("\n\n")}\n`)
             expect(errors.split("\n").filter((l) => l.includes("error:")).slice(0, 12).join("\n")).toBe("")

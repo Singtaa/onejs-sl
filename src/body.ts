@@ -21,15 +21,24 @@
  * gives common subexpression elimination for free.
  */
 
-import { INT_BOUNDS, SLError, TYPE, valueAt, type InputName, type NodeRef, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
+import { INT_BOUNDS, SLError, TYPE, valueAt, type InputName, type NodeRef, type StepInputName, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
 import { libClosure, LIB_FUNCTIONS } from "./lib"
 import { LIB_HLSL } from "./lib/hlsl"
 import { SLOP } from "./ops"
 import { inVaryingFlow, local, printBody, structure, type Syntax } from "./structure"
 
 export interface BodyTarget {
-    /** An expression for each input, e.g. `{ uv: "SL_UV", time: "SL_TIME", ... }`. */
-    inputs: Record<InputName, string>
+    /**
+     * An expression for each input, e.g. `{ uv: "SL_UV", time: "SL_TIME", ... }`.
+     *
+     * `frame` and `deltaTime` are for a host that steps a program frame by
+     * frame (`Specs/SL_NEXT.md` 4): `frame` a float holding the whole number
+     * of frames since the previous frame was last cleared, `deltaTime` the
+     * seconds since the frame before. A target without one cannot draw a
+     * program that reads it, and `emitBody` says so rather than print a
+     * shader that stands still. `readsOf(p)` says which a program reads.
+     */
+    inputs: Record<InputName, string> & Partial<Record<StepInputName, string>>
     /** The float4 holding a uniform slot. The body swizzles it down to the uniform's width. */
     uniform: (slot: number, name: string) => string
     /**
@@ -60,6 +69,24 @@ export interface BodyTarget {
      * `tex2Dlod(s, float4(uv, 0, lod))` and Metal's `sample(s, uv, level(lod))`.
      */
     sampleLevel: (slot: number, uv: string, lod: string) => string
+    /**
+     * A float4 of what this program drew the frame before, at `uv`, for a
+     * host that keeps it (`tex2D(previous, uv)`, `Specs/SL_NEXT.md` 4).
+     *
+     * - **Raw**: exactly what the program's result was, linear and straight
+     *   alpha whatever `colour` says, with no decode on the way in. Kept at
+     *   16 bits a channel or more, so a slow fade does not stall on 8 bit
+     *   steps.
+     * - **Bilinear and clamped**, with one level. Read it at that level
+     *   wherever the call is (HLSL's `tex2Dlod`, not `tex2D`), so it needs no
+     *   derivatives and reads the same inside a branch as outside one.
+     * - **Transparent black** on the first frame and after anything that
+     *   clears it: a new size, a new program, a seek, time going back.
+     *
+     * Optional, and `emitBody` refuses a program that samples it when a
+     * target has none.
+     */
+    previous?: (uv: string) => string
     /**
      * `linear`: `toLinear` calls `sl_toLinear`, for a host whose target holds
      * linear light. `gamma`: `toLinear` is the identity, decided here, so hex
@@ -146,8 +173,11 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case "const":
                 if (n.kind !== undefined) return n.type === 1 ? kindLit(n.kind, n.v[0]!) : `${typeName(n)}(${n.v.map((v) => kindLit(n.kind!, v)).join(", ")})`
                 return ctor(n.type, n.v.map(lit))
-            case "input":
-                return target.inputs[n.name]
+            case "input": {
+                const v = target.inputs[n.name]
+                if (v === undefined) throw new SLError(`this target has no ${n.name} input, and the program reads it`)
+                return v
+            }
             case "uniform": {
                 const u = p.uniforms[n.slot]
                 if (u === undefined) throw new SLError(`a node reads uniform slot ${n.slot}, which is not declared`)
@@ -308,6 +338,9 @@ export function emitBody(p: Program, target: BodyTarget): Body {
                 textures.add(slot)
                 return target.sampleLevel(slot, a[0]!, a[1]!)
             }
+            case SLOP.SAMPLE_PREVIOUS:
+                if (target.previous === undefined) throw new SLError("this target keeps no previous frame, and the program samples it")
+                return target.previous(a[0]!)
 
             default:
                 throw new SLError(

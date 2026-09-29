@@ -13,10 +13,14 @@ import { SLOP, SL_HLSL, SL_NAME, SL_UNIMPLEMENTED } from "./ops"
  * here so an opcode change cannot land without the text Magerie compiles.
  */
 const MAGERIE: BodyTarget = {
-    inputs: { uv: "SL_UV", fragCoord: "SL_FRAGCOORD", resolution: "SL_RES", time: "SL_TIME", aspect: "SL_ASPECT" },
+    inputs: {
+        uv: "SL_UV", fragCoord: "SL_FRAGCOORD", resolution: "SL_RES", time: "SL_TIME", aspect: "SL_ASPECT",
+        frame: "SL_FRAME", deltaTime: "SL_DT",
+    },
     uniform: (slot) => `SL_U(${slot})`,
     sample: (slot, uv) => `SL_SAMPLE(${slot}, ${uv})`,
     sampleLevel: (slot, uv, lod) => `SL_SAMPLE_LEVEL(${slot}, ${uv}, ${lod})`,
+    previous: (uv) => `SL_PREVIOUS(${uv})`,
     colour: "linear",
     result: "c",
 }

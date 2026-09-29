@@ -11,7 +11,7 @@
  * are the only refusal (`checkCaps`).
  */
 
-import { checkCaps, type Program } from "./ir"
+import { checkCaps, readsOf, type Program, type SLReads } from "./ir"
 import { emitShader } from "./hlsl"
 import { emitGLSL, emitWGSL } from "./web"
 import { uniformDefaults } from "./sl"
@@ -47,6 +47,15 @@ export interface Compiled {
      */
     textures: string[]
     /**
+     * What the program needs its host to keep from one frame to the next: the
+     * previous frame, the frame count, the step (`Specs/SL_NEXT.md` 4). A host
+     * keeps a history pair only for a program that reads `previous`, and one
+     * that cannot provide something here refuses the program rather than
+     * drawing it as if nothing came before. A host that carries a compiled
+     * program elsewhere, as OneJS's `.sl` import does, has to carry this too.
+     */
+    reads: SLReads
+    /**
      * The program as HLSL, for a host that can compile it.
      *
      * Lazy, and absent from enumeration: in Play nothing ever reads it, so the
@@ -76,6 +85,7 @@ export function compile(program: Program): Compiled {
         uniforms: program.uniforms.map((u) => u.name),
         defaults: uniformDefaults(program),
         textures: program.textures.map((t) => t.name),
+        reads: readsOf(program),
     } as Compiled
     let hlsl: string | undefined
     let wgsl: string | undefined

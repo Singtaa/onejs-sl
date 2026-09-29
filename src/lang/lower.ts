@@ -50,7 +50,7 @@
  */
 
 import {
-    controlProblem, DERIVED_INPUTS, INPUTS, RAMP_STOP_COMPUTED, truncateHeld, writtenColour,
+    controlProblem, DERIVED_INPUTS, INPUTS, PREVIOUS, RAMP_STOP_COMPUTED, STEP_INPUTS, truncateHeld, writtenColour,
     type Program, type SLKind, type SLType, type UniformControl,
 } from "../ir"
 import { SLOP } from "../ops"
@@ -246,11 +246,11 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             // Read through, so a program that never names one records nothing
             // for it. The setter only serves a refused assignment, which the
             // checker has already reported and lowering carries on past.
-            for (const [name, width] of Object.entries(DERIVED_INPUTS)) {
+            for (const [name, width] of Object.entries({ ...DERIVED_INPUTS, ...STEP_INPUTS })) {
                 let value: LV | undefined
                 global.declare(name, {
                     width: width as SLType,
-                    kind: undefined,
+                    kind: name === "frame" ? "int" : undefined,
                     get value() { return value ??= (inputs as never)[name] },
                     set value(v: LV) { value = v },
                 })
@@ -289,6 +289,15 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             }
 
             for (const t of unit.textures) samplers.set(t.name, at(t.pos, () => sl.texture(t.name)))
+            // Unless the file declared a texture of its own by the name. The
+            // checker refuses tex2Dlod on it, and anything else that took the
+            // name, before lowering could reach either.
+            if (!samplers.has(PREVIOUS)) {
+                samplers.set(PREVIOUS, {
+                    sample: (uv) => inputs.previous.sample(uv),
+                    sampleLevel: () => { throw new Error("tex2Dlod(previous) reached lowering; the checker refuses it") },
+                })
+            }
 
             for (const c of unit.consts) {
                 const t = typeOf(c.type)

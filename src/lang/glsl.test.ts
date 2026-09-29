@@ -171,7 +171,7 @@ describe("rewrites that keep the meaning", () => {
 
 describe("what cannot be carried over", () => {
     it.each([
-        ["iFrame", "fragColor = vec4(float(iFrame));", "iFrame has no counterpart: there is no frame counter yet"],
+        ["iFrameRate", "fragColor = vec4(iFrameRate);", "iFrameRate has no counterpart: there is no frame rate"],
         ["texelFetch", "fragColor = texelFetch(iChannel0, ivec2(fragCoord), 0);", "texelFetch has no counterpart"],
         ["dFdx", "fragColor = vec4(dFdx(fragCoord.x));", "dFdx has no counterpart: there are no derivatives"],
     ])("says %s has no counterpart, and leaves it for the errors", (_, body, text) => {

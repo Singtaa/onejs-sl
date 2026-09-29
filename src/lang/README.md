@@ -245,7 +245,8 @@ It rewrites tokens and keeps everything else: comments, layout and names stay
 where they were, so the result reads as the shader it came from. What it does:
 
 - The spellings that mean the same (`vec3`, `mix`, `fract`, `texture`,
-  `iTime`, `gl_FragCoord`) become the HLSL ones. So do the calls that need an
+  `iTime`, `iFrame`, `iTimeDelta`, `gl_FragCoord`) become the HLSL ones and
+  the inputs. So do the calls that need an
   expression: `mod` floors (`a - b * floor(a / b)`, never `%`, which
   truncates), and `atan`, `inversesqrt`, `radians`, `degrees`, `exp2` and
   `log2` become what they compute.
@@ -269,8 +270,8 @@ where they were, so the result reads as the shader it came from. What it does:
   becomes a const; any other directive is kept as a comment, with a note.
 - A name the language already means something by gets a `_` suffix, and an
   `int` becomes a float (a for-loop counter stays an int), each with a note.
-- What has no counterpart (`iFrame`, `textureLod`, `dFdx`, a function returning
-  nothing) is left in place with a note, for `errors` to point at.
+- What has no counterpart (`iFrameRate`, `texelFetch`, `dFdx`, a function
+  returning nothing) is left in place with a note, for `errors` to point at.
 
 It is not a GLSL parser, and is not meant to be: a shader it cannot follow comes
 out with errors on the lines to look at, which is where a person pasting one

@@ -54,7 +54,11 @@ intrinsic at its exact type, since Metal overloads where HLSL converts). The `Bo
 for each input, the float4 holding a uniform slot, a texture sample and a
 sample at a mip level (`sampleLevel`, for `tex2Dlod`), whether
 `toLinear` is real (`colour: "linear"`) or the identity (`"gamma"`), and
-optionally a local to assign the result to. It returns the uniform and texture
+optionally a local to assign the result to. A host that steps a program frame
+by frame adds `frame` and `deltaTime` to its inputs and a `previous` read (below,
+"What a program is given"); a target without one cannot draw a program that
+reads it, and `emitBody` says which is missing rather than print a shader that
+stands still. It returns the uniform and texture
 slots the body uses and the library functions it calls. The sample's contract
 is on `BodyTarget.sample`: straight alpha in and out, rgb in the space `colour`
 names (an sRGB texture decoded before filtering when it is `linear`), and
@@ -83,7 +87,8 @@ program reads it as one, so a host shows a whole number field; a float uniform
 has no `kind`. Neither mark is in the hash, since the reads' conversion already
 is. `inputsUsed`
 says which inputs the result depends on, dead nodes aside, so a host knows
-whether a program animates.
+whether a program animates, and `readsOf` (also `compile(p).reads`) says which
+of the previous frame, `frame` and `deltaTime` it needs kept between frames.
 
 ## The helper library: one source
 
@@ -144,6 +149,15 @@ stores as written), `texture.sl` (a texture's orientation and sRGB decode) and
 solid colours). `sdf-values.sl`, `fbm-values.sl` and `ramp-values.sl` are black unless a
 shape, a noise or a ramp draws differently with its parameters as values than
 as constants.
+A fixture that reads the previous frame, `frame` or `deltaTime` is stepped
+instead of drawn at times: eight frames at 1/30 of a second, into an
+`rgba16float` history pair that starts clear, each frame then copied into the
+target as an element shows it. goldens.json holds its samples at frames 0, 1
+and 7, as shown and as the raw history. Three are anchors on the history, to
+the bit: `counter.sl` (a step taken twice, a missed swap or 8 bit history),
+`drift.sl` (the previous frame read upside down) and `frame-delta.sl` (`frame`
+and `deltaTime` as a host hands them over); `trail.sl` is the fading trail the
+docs show.
 The whole translated library must also compile on both backends, including
 the functions no fixture reaches. The file describes the sampling grid, the
 times and the texture every sampled slot gets. A host imports it as
@@ -156,7 +170,8 @@ bits per pixel, and `corpus/probe-hash.sl` does the same through a program;
 every pixel must match `goldens/reference.mjs`, which computes the hashes in
 JavaScript. goldens.json ships each probe under its name, as HLSL, WGSL and
 GLSL ES and with the bits it must draw, for a host to run on its own compiler,
-and marks the fixtures compared at 0/255 `exact`.
+and marks the fixtures compared at 0/255 `exact`, and the stepped fixtures
+whose history is compared to the bit `historyExact`.
 
 `npm run goldens -- --check` draws everything again and compares it with
 goldens.json instead of writing it: within 1/255, and exact fixtures and probes
@@ -353,7 +368,9 @@ number. `fromJSON` moves an older file's immediates to operands. IR 4 added
 control flow (the `if` and `loop` nodes, a loop's `param`s and each result's
 `proj`) and int, uint and bool values (a node's `kind`). A program that uses
 none of them is still IR 3 and keeps its hash; one with an `if` statement is
-IR 4, since the statement is now a real branch rather than a select.
+IR 4, since the statement is now a real branch rather than a select. IR 5 added
+the previous frame (`SAMPLE_PREVIOUS`) and the `frame` and `deltaTime` inputs;
+a program that reads none of them keeps the version and the hash it had.
 
 ## Control flow
 
@@ -407,6 +424,25 @@ in it stays round. They are recorded only when a program names them, so every
 program that does not compiles to the bytes it always did, and a program with a
 `texel` of its own keeps it: a local, a parameter or a uniform of that name
 shadows the input.
+
+Three are for a program drawn frame after frame, and a host hands them over
+only to a program that reads them (`readsOf`):
+
+- `previous`, a texture: what this program drew the frame before, read as
+  `tex2D(previous, uv)`. It is the program's result exactly, linear and
+  straight alpha, kept at 16 bits a channel, filtered bilinear and clamped at
+  the edges, with one level (so `tex2Dlod` refuses it). A read at a pixel's own
+  `uv` is that pixel.
+- `frame`, an int: frames drawn since `previous` was last cleared, from 0.
+- `deltaTime`: seconds since the frame before, 0 on the first.
+
+A host advances a frame when it draws with `time` moved forward: the last
+result becomes `previous`, `frame` goes up by one and `deltaTime` is the step.
+A draw at the same time draws the same frame again. It clears (`previous`
+transparent black, `frame` and `deltaTime` 0) on the first draw, a new size, a
+new program, a seek and time going back, so `frame` is 0 exactly when
+`previous` is clear. A file that already used one of the three names for its
+own value or texture keeps it, as it keeps a `texel`.
 
 Why `resolution` and `aspect` are the target's: a program is drawn with
 `Graphics.Blit` into the element's own render texture, and Unity sets `_ScreenParams` per camera and

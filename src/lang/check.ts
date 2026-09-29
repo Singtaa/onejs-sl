@@ -28,7 +28,7 @@
  * is refused with the reason.
  */
 
-import { DERIVED_INPUTS, INPUTS, tooManyTextures, tooManyUniforms } from "../ir"
+import { DERIVED_INPUTS, INPUTS, PREVIOUS, STEP_INPUTS, tooManyTextures, tooManyUniforms } from "../ir"
 import { TEXTURE_SLOTS, UNIFORM_SLOTS } from "../ops"
 import { SL_GLSL_HINT } from "../ops"
 import { BUILTINS, NOT_YET } from "./builtins"
@@ -44,6 +44,15 @@ const INPUT_NAMES = new Set(Object.keys(INPUTS))
  * long before the language had one, and that must keep compiling.
  */
 const DERIVED_NAMES = new Set(Object.keys(DERIVED_INPUTS))
+/**
+ * `frame` and `deltaTime`, and `previous`, the texture that is the frame drawn
+ * before (IR 5). The language had none of them before 0.7.0, so a program may
+ * already use the name for its own value or texture; it keeps it, as it keeps
+ * a `texel`.
+ */
+const STEP_NAMES = new Set(Object.keys(STEP_INPUTS))
+/** What a declaration may take the name of, with the words for it. */
+const SHADOWABLE = new Set(["a builtin", "a derived input", "a built in input", "the previous frame"])
 
 /**
  * The GLSL spellings whose HLSL name means the same wherever it is written, so
@@ -145,13 +154,15 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         if (textures.has(n)) return "a texture"
         if (consts.has(n)) return "a const"
         if (DERIVED_NAMES.has(n)) return "a derived input"
+        if (STEP_NAMES.has(n)) return "a built in input"
+        if (n === PREVIOUS) return "the previous frame"
         return null
     }
 
     /** What a value may not be called: anything spoken for, except a builtin's or a prelude function's name. */
     const valueClash = (n: string): string | null => {
         const why = taken(n)
-        if (why !== null && why !== "a builtin" && why !== "a derived input") return why
+        if (why !== null && !SHADOWABLE.has(why)) return why
         const fn = funcs.get(n)
         return fn !== undefined && !fn.prelude ? "a function" : null
     }
@@ -222,7 +233,8 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         if (main.params.length > 0) {
             fail(
                 "main takes no parameters: what a program is given are the free identifiers uv, " +
-                "fragCoord, resolution, time, aspect, texel and centered",
+                "fragCoord, resolution, time, aspect, texel, centered, frame and deltaTime, and the " +
+                "texture previous",
                 main.params[0]!.pos,
             )
         }
@@ -486,7 +498,15 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
             case "bool":
                 return
             case "ident": {
-                if (scope.has(e.name) || INPUT_NAMES.has(e.name) || DERIVED_NAMES.has(e.name) || uniforms.has(e.name) || consts.has(e.name)) return
+                if (scope.has(e.name) || INPUT_NAMES.has(e.name) || DERIVED_NAMES.has(e.name) || STEP_NAMES.has(e.name) ||
+                    uniforms.has(e.name) || consts.has(e.name)) return
+                if (e.name === PREVIOUS && !textures.has(e.name)) {
+                    fail(
+                        "previous is the frame this program drew before, a texture, and a texture is only " +
+                        "ever the first argument of tex2D. Write `tex2D(previous, uv)`",
+                        e.pos, e.name.length,
+                    )
+                }
                 if (textures.has(e.name)) {
                     fail(
                         `"${e.name}" is a texture, and a texture is only ever the first argument of ` +
@@ -604,7 +624,17 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                     )
                 }
                 arity(e, n, builtin.min, builtin.max)
-                if (tex === undefined || tex.k !== "ident" || !textures.has(tex.name)) {
+                // The previous frame, unless something in this file took its name.
+                const previous = tex?.k === "ident" && tex.name === PREVIOUS && !textures.has(PREVIOUS) &&
+                    !scope.has(PREVIOUS) && !uniforms.has(PREVIOUS) && !consts.has(PREVIOUS)
+                if (previous && n === "tex2Dlod") {
+                    fail(
+                        "previous has one level, the frame as drawn, so there is no mip level to pick. " +
+                        "Read it with `tex2D(previous, uv)`",
+                        e.pos,
+                    )
+                }
+                if (!previous && (tex === undefined || tex.k !== "ident" || !textures.has(tex.name))) {
                     const lod = n === "tex2Dlod" ? ", 0" : ""
                     fail(
                         `${n} samples a texture declared in this file, as in \`texture2D grain;\` ` +
@@ -654,7 +684,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     /** Refuses a name nothing declares, offering the nearest one spelled almost like it. */
     function unknown(n: string, scope: Set<string>, pos: Pos): never {
         const near = nearest(n, [
-            ...scope, ...INPUT_NAMES, ...DERIVED_NAMES, ...uniforms.keys(), ...textures.keys(), ...consts.keys(),
+            ...scope, ...INPUT_NAMES, ...DERIVED_NAMES, ...STEP_NAMES, ...uniforms.keys(), ...textures.keys(), ...consts.keys(),
             ...funcs.keys(), ...Object.keys(BUILTINS),
         ])
         if (near === null) fail(`"${n}" is not declared`, pos, n.length)

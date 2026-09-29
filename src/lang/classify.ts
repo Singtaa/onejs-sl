@@ -13,7 +13,7 @@
  * wants that should ask it.
  */
 
-import { SOURCE_INPUTS } from "../ir"
+import { PREVIOUS, SOURCE_INPUTS } from "../ir"
 import { BUILTINS } from "./builtins"
 import { lex } from "./lexer"
 import { PRELUDE_NAMES } from "./prelude-source"
@@ -42,7 +42,7 @@ export interface SLClassifiedToken {
     length: number
 }
 
-const INPUT_NAMES: ReadonlySet<string> = new Set(Object.keys(SOURCE_INPUTS))
+const INPUT_NAMES: ReadonlySet<string> = new Set([...Object.keys(SOURCE_INPUTS), PREVIOUS])
 
 /** The tokens of `source`, comments included, in order, each with its class. */
 export function classify(source: string): SLClassifiedToken[] {

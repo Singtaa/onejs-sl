@@ -24,8 +24,8 @@
 
 import { parseColor as parseHex } from "./color"
 import {
-    Builder, INPUTS, RAMP_STOP_COMPUTED, SLError, TYPE, hashProgram, programVersion, truncateHeld, widthName, writtenColour,
-    type InputName, type NodeRef, type Program, type SLKind, type SLNode, type SLType, type UniformControl,
+    Builder, INPUTS, RAMP_STOP_COMPUTED, STEP_INPUTS, SLError, TYPE, hashProgram, programVersion, truncateHeld, widthName, writtenColour,
+    type HostInputName, type InputName, type NodeRef, type Program, type SLKind, type SLNode, type SLType, type UniformControl,
 } from "./ir"
 import { SLOP, SL_HLSL, SL_NAME, type SLOpCode } from "./ops"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
@@ -497,6 +497,26 @@ export interface ProgramInputs {
     texel: Vec2
     /** `(uv - 0.5) * vec2(aspect, 1)`: 0 at the centre, and a circle stays round. Recorded only if read. */
     centered: Vec2
+    /**
+     * Frames drawn since `previous` was last cleared, from 0: so `frame` is 0
+     * exactly when `previous` is clear. Recorded only if read, and the host
+     * counts frames only for a program that reads it (`compile(p).reads`).
+     */
+    frame: Int
+    /** Seconds from the frame before to this one; 0 when a frame redraws the same time. Recorded only if read. */
+    deltaTime: Float
+    /**
+     * What this program drew the frame before: transparent black on the first
+     * frame and after anything that clears it (a new size, a seek, time going
+     * back). Linear and straight alpha, as `main` returned it, bilinear and
+     * clamped at the edges. A host keeps it only for a program that samples it.
+     */
+    previous: PreviousFrame
+}
+
+/** The frame a program drew before this one. It has one level, so there is no `sampleLevel`. */
+export interface PreviousFrame {
+    sample(uv: Vec2): Vec4
 }
 
 /**
@@ -515,11 +535,25 @@ export function program(fn: (inputs: ProgramInputs) => Vec4): Program {
             ;(inputs as any)[name] = mk(b, ref, width as SLType)
         }
         // Getters, so a program that never reads one records nothing for it
-        // (DERIVED_INPUTS in ir.ts). A second read is hash consed to the first.
+        // (DERIVED_INPUTS and STEP_INPUTS in ir.ts). A second read is hash
+        // consed to the first.
+        const step = (name: keyof typeof STEP_INPUTS): Val =>
+            mk(b, b.add({ k: "input", type: STEP_INPUTS[name], name: name as HostInputName }), STEP_INPUTS[name])
         Object.defineProperties(inputs, {
             texel: { enumerable: true, get: () => vec2(1, 1).div(inputs.resolution) },
             centered: { enumerable: true, get: () => inputs.uv.sub(0.5).mul(vec2(inputs.aspect, 1)) },
+            // The host hands the count over as a float, which holds it exactly
+            // for as long as anything will run.
+            frame: { enumerable: true, get: () => convert(step("frame"), "int") },
+            deltaTime: { enumerable: true, get: () => step("deltaTime") },
         })
+        inputs.previous = {
+            sample(uv: Vec2): Vec4 {
+                if (uv.owner !== b) throw new SLError("a value from another program cannot be used in this one")
+                if (uv.width !== TYPE.VEC2 || uv.kind !== undefined) throw new SLError(`the previous frame is read at a float2, and this is ${uv.kind === undefined ? `a ${widthName(uv.width)}` : `an ${uv.kind}`}`)
+                return mk(b, b.call(SLOP.SAMPLE_PREVIOUS, TYPE.VEC4, [uv.ref]), TYPE.VEC4)
+            },
+        }
         const out = fn(inputs)
         if (!(out instanceof Val)) throw new SLError("a program must return an sl value, not " + typeof out)
         if (out.width !== TYPE.VEC4) {

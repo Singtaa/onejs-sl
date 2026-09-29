@@ -57,9 +57,35 @@ export const DERIVED_INPUTS = {
 } as const
 export type DerivedInputName = keyof typeof DERIVED_INPUTS
 
+/**
+ * Inputs the host hands over only to a program that reads one (IR 5,
+ * `Specs/SL_NEXT.md` 4). They are not recorded up front as `INPUTS` are, so a
+ * program that never names one holds no node for it and keeps its IR version,
+ * its hash and its bytes. `compile(p).reads` says which a program reads.
+ *
+ *   frame      frames drawn since the previous frame was last cleared, from 0.
+ *              An int in the language; the host hands over a float holding it
+ *              exactly, and the program converts
+ *   deltaTime  seconds from the frame before to this one; 0 on a frame that
+ *              redraws the same time
+ *
+ * The previous frame itself is SLOP.SAMPLE_PREVIOUS, an op rather than an input.
+ */
+export const STEP_INPUTS = {
+    frame: TYPE.FLOAT,
+    deltaTime: TYPE.FLOAT,
+} as const
+export type StepInputName = keyof typeof STEP_INPUTS
+
+/** The name `.sl` reads the previous frame by, as a texture: `tex2D(previous, uv)`. */
+export const PREVIOUS = "previous"
+
+/** Every input a host hands over: the ones every program has, then the ones a program asks for. */
+export type HostInputName = InputName | StepInputName
+
 /** Every input a program can name: the host's, then the derived ones. */
-export type SourceInputName = InputName | DerivedInputName
-export const SOURCE_INPUTS: Readonly<Record<SourceInputName, SLType>> = { ...INPUTS, ...DERIVED_INPUTS }
+export type SourceInputName = HostInputName | DerivedInputName
+export const SOURCE_INPUTS: Readonly<Record<SourceInputName, SLType>> = { ...INPUTS, ...STEP_INPUTS, ...DERIVED_INPUTS }
 
 /** Index into `Program.nodes`. Always refers backwards. */
 export type NodeRef = number
@@ -77,7 +103,7 @@ export type SLKind = "int" | "uint" | "bool"
  */
 export type ValueNode =
     | { k: "const"; type: SLType; kind?: SLKind; v: number[] }
-    | { k: "input"; type: SLType; kind?: undefined; name: InputName }
+    | { k: "input"; type: SLType; kind?: undefined; name: HostInputName }
     | { k: "uniform"; type: SLType; kind?: undefined; slot: number }
     | { k: "swizzle"; type: SLType; kind?: SLKind; src: NodeRef; chans: number[] }
     | { k: "call"; type: SLType; kind?: SLKind; op: SLOpCode; args: NodeRef[]; imm?: number[] }
@@ -454,17 +480,43 @@ export function reachable(nodes: SLNode[], result: NodeRef): NodeRef[] {
 }
 
 /**
- * The inputs a program reads, in `INPUTS` order. Dead nodes do not count: a
- * value computed and never used is not in the picture, so a program that does
- * that with `time` is still not animated.
+ * The inputs a program reads, in `INPUTS` order and then `STEP_INPUTS` order.
+ * Dead nodes do not count: a value computed and never used is not in the
+ * picture, so a program that does that with `time` is still not animated.
  */
-export function inputsUsed(p: Program): InputName[] {
-    const read = new Set<InputName>()
+export function inputsUsed(p: Program): HostInputName[] {
+    const read = new Set<HostInputName>()
     for (const ref of reachable(p.nodes, p.result)) {
         const n = p.nodes[ref]
         if (n.k === "input") read.add(n.name)
     }
-    return (Object.keys(INPUTS) as InputName[]).filter((name) => read.has(name))
+    return ([...Object.keys(INPUTS), ...Object.keys(STEP_INPUTS)] as HostInputName[]).filter((name) => read.has(name))
+}
+
+/**
+ * What a program needs its host to keep from one frame to the next
+ * (`Specs/SL_NEXT.md` 4). A host that draws a program reading any of these
+ * has to hand it over, or refuse the program: nothing here has a value that
+ * would pass for right.
+ *
+ *   previous   the host keeps what the program drew last and binds it
+ *   frame      frames drawn since `previous` was last cleared
+ *   deltaTime  seconds since the frame before
+ */
+export interface SLReads {
+    previous: boolean
+    frame: boolean
+    deltaTime: boolean
+}
+
+export function readsOf(p: Program): SLReads {
+    const out: SLReads = { previous: false, frame: false, deltaTime: false }
+    for (const ref of reachable(p.nodes, p.result)) {
+        const n = p.nodes[ref]!
+        if (n.k === "call" && n.op === SLOP.SAMPLE_PREVIOUS) out.previous = true
+        else if (n.k === "input" && n.name in STEP_INPUTS) out[n.name as StepInputName] = true
+    }
+    return out
 }
 
 /** Structural key for hash consing. Order matters and is fixed by the node shape. */
@@ -681,10 +733,12 @@ const IR4_OPS = new Set<number>([
  * holds, and `fromJSON` moves it to the form IR 3 has.
  */
 function nodeVersion(n: SLNode): number {
+    if (n.k === "input" && n.name in STEP_INPUTS) return 5
     if (n.k === "if" || n.k === "loop" || n.k === "param" || n.k === "proj" || n.kind !== undefined) return 4
     if (n.k !== "call") return 2
     if (IR4_OPS.has(n.op)) return 4
     switch (n.op) {
+        case SLOP.SAMPLE_PREVIOUS: return 5
         case SLOP.SAMPLE_LOD: return 3
         case SLOP.SDF:
         case SLOP.FBM:
@@ -705,6 +759,8 @@ function nodeVersion(n: SLNode): number {
  *        the shape id the one immediate
  *   FBM, TURBULENCE, RIDGED  the point and the octave count, FBM's kind the
  *        one immediate
+ *   SAMPLE_PREVIOUS  a float4 at a float2, and no immediates: there is one
+ *        previous frame, so there is no slot to name
  */
 export function formProblem(n: Extract<SLNode, { k: "call" }>, nodes: readonly SLNode[]): string | null {
     const widths = n.args.map((a) => { const v = nodes[a]!; return v.k === "if" || v.k === "loop" ? "control" : v.type }).join(",")
@@ -719,6 +775,9 @@ export function formProblem(n: Extract<SLNode, { k: "call" }>, nodes: readonly S
             if (widths === "2,1" && (n.imm?.length ?? 0) === rest) return null
             return `${SL_NAME[n.op]} takes a float2 and its octave count, a float`
         }
+        case SLOP.SAMPLE_PREVIOUS:
+            if (widths === "2" && n.type === 4 && n.kind === undefined && (n.imm?.length ?? 0) === 0) return null
+            return "the previous frame is a float4 read at a float2"
         default:
             return null
     }
@@ -759,8 +818,9 @@ export const SL_HASH_VERSION = 2
  *   3  SAMPLE_LOD; an SDF's shape parameters and a noise's octave count are
  *      operands, where they were immediates
  *   4  control flow (if, loop, their params and projs), ints, uints and bools
+ *   5  the previous frame (SAMPLE_PREVIOUS), and the frame and deltaTime inputs
  */
-export const SL_IR_VERSION = 4
+export const SL_IR_VERSION = 5
 
 function fnv1a(s: string): string {
     let h = 0x811c9dc5

@@ -16,7 +16,7 @@
  */
 
 import { INPUTS, operands, reachable, type NodeRef, type Program, type SLNode } from "./ir"
-import { SLOP } from "./ops"
+import { isSampling } from "./ops"
 
 export interface Region {
     id: number
@@ -171,7 +171,7 @@ function varyingValues(nodes: readonly SLNode[], reach: NodeRef[]): Set<NodeRef>
             switch (n.k) {
                 case "input": if (PER_PIXEL.has(n.name)) mark(ref); break
                 case "call":
-                    if (n.op === SLOP.SAMPLE || n.op === SLOP.SAMPLE_LOD || n.args.some((a) => out.has(a))) mark(ref)
+                    if (isSampling(n.op) || n.args.some((a) => out.has(a))) mark(ref)
                     break
                 case "swizzle": if (out.has(n.src)) mark(ref); break
                 case "proj": {

@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+A program can read what it drew the frame before, and count frames (`Specs/SL_NEXT.md` 4). Every existing program keeps its hash and its shader; one that reads the new names is IR 5. A host has to forward the new `reads` to draw such a program, which makes this a minor.
+
+- `previous`, the frame this program drew last, read as `tex2D(previous, uv)`; `previous.sample(uv)` in `sl.program`
+- `frame`, an int counting frames since `previous` was last cleared, and `deltaTime`, the seconds since the frame before
+- A file that already used one of the three names keeps its own
+- `readsOf(program)` and `compile(p).reads` say which of the three a host has to keep between frames
+- `BodyTarget` takes `inputs.frame`, `inputs.deltaTime` and `previous(uv)`, all optional; `emitBody` names the one a program needs and a target lacks
+- The Unity shader reads the step from `_Res.zw` and the previous frame from `_Prev`; the web frame from `sl_Res.w`, `sl_Opt.z` and its own binding
+- IR 5: `SAMPLE_PREVIOUS` and the two inputs
+- `fromGLSL` turns `iFrame` and `iTimeDelta` into `frame` and `deltaTime`
+- The goldens step the programs that read the three, and hold the history to the bit
+- The web emitters refuse an input they have no mapping for
+- The shipped source is typechecked against ES2020 with no Node types, which found the parser's `Array.prototype.at`
+
 ## 0.6.0
 
 An int uniform says it is one, and uint constants fold as int ones do. A `.sl` program whose uint constants now fold gets a new hash and shader, which a build regenerates; every other program keeps its hash and its shader, and a program built in code keeps both, since the fold is the `.sl` file's. That hash change and `sl.uniform.int` make this a minor.

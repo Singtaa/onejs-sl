@@ -23,7 +23,7 @@ describe("compile", () => {
 
     it("enumerates its names and defaults, and not its sources", () => {
         const c = compile(programs[0]![1])
-        expect(Object.keys(c).sort()).toEqual(["defaults", "hash", "textures", "uniforms"])
+        expect(Object.keys(c).sort()).toEqual(["defaults", "hash", "reads", "textures", "uniforms"])
         expect(typeof c.hlsl).toBe("string")
     })
 

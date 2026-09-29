@@ -3,7 +3,7 @@
  * from the package's own emitters, and its uniform defaults. Bundled and run in
  * Node by `run.mjs`; the page never sees a compiler.
  */
-import { parse, sl, SL_IR_VERSION } from "../src/index"
+import { parse, readsOf, sl, SL_IR_VERSION } from "../src/index"
 import { emitGLSL, emitWGSL } from "../src/emit/web"
 import { LIB_GLSL } from "../src/lib/glsl"
 import { LIB_WGSL } from "../src/lib/wgsl"
@@ -90,6 +90,8 @@ export function compile(sources: Record<string, string>) {
             source,
             uniforms: p.uniforms,
             textures: p.textures.map((t) => t.slot),
+            // What decides whether the page steps the program rather than drawing it at times.
+            reads: readsOf(p),
             // Four floats per slot, as a host seeds them before a caller's own.
             defaults: sl.uniformDefaults(p),
             wgsl: emitWGSL(p),
