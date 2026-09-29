@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+Every hash changes once, so a program built in code is recorded again: run the app in the editor once, then build. A program from a `.sl` file needs only the app rebuilt. A host reading programs as JSON reads 0.3.0's files as before.
 
 - Every hash changes once: `a + b` and `b + a` share one, as do `8 * uv` and `uv * 8` (`SL_HASH_VERSION` 2)
 - A generated shader names its hash scheme on a line of its own (`// SL_HASH_VERSION 2`); `SL_HASH_VERSION` is exported from `onejs-sl/core`
