@@ -1,8 +1,15 @@
 import { describe, it, expect } from "vitest"
 import { sl } from "./index"
 import { emitFragmentBody, emitShader, uniformProperty } from "./hlsl"
+import { SL_HASH_VERSION } from "./core"
 
 describe("the HLSL emitter", () => {
+    it("writes the hash scheme on a line of its own, which a build compares with the apps' manifests", () => {
+        const hlsl = emitShader(sl.program(({ uv }) => sl.vec4(uv.x, uv.y, 0, 1)))
+        expect(SL_HASH_VERSION).toBe(2)
+        expect(hlsl.split("\n")).toContain(`// SL_HASH_VERSION ${SL_HASH_VERSION}`)
+    })
+
     it("gives one local per node, so CSE survives into the shader", () => {
         const p = sl.program(({ uv }) => {
             const q = uv.mul(8)

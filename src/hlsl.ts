@@ -15,7 +15,7 @@
  * next time it is generated.
  */
 
-import { SLError, type Program } from "./ir"
+import { SLError, SL_HASH_VERSION, type Program } from "./ir"
 import { emitBody, lit, type BodyTarget } from "./body"
 
 /** The property name a uniform gets. Prefixed so it cannot collide with ours. */
@@ -74,7 +74,9 @@ export function emitShader(p: Program, options: EmitOptions = {}): string {
 //
 // Source of truth is the program this was emitted from; edits here are lost the
 // next time it is generated. The name carries the program hash, which is how the
-// runtime pairs the two. See Specs/SHADER_LANG.md section 6.
+// runtime pairs the two. See Specs/SHADER_LANG.md section 6. The scheme that
+// hash was made under, which a build compares with the apps' manifests:
+// SL_HASH_VERSION ${SL_HASH_VERSION}
 Shader "${name}"
 {
     Properties

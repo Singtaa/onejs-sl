@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Every hash changes once: `a + b` and `b + a` share one, as do `8 * uv` and `uv * 8` (`SL_HASH_VERSION` 2)
+- A generated shader names its hash scheme on a line of its own (`// SL_HASH_VERSION 2`); `SL_HASH_VERSION` is exported from `onejs-sl/core`
 - `tex2Dlod(t, uv, lod)` samples a mip level; `sampleLevel` on `sl.texture`
 - `BodyTarget.sampleLevel` is required, for `tex2Dlod`
 - `fromGLSL` turns `textureLod` into `tex2Dlod`

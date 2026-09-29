@@ -10,7 +10,7 @@
 export * as sl from "./sl"
 export type { Float, Vec2, Vec3, Vec4, Num, ProgramInputs, Texture } from "./sl"
 export {
-    TYPE, INPUTS, MAX_NODES, SLError, hashProgram, widthName, SL_IR_VERSION, inputsUsed,
+    TYPE, INPUTS, MAX_NODES, SLError, hashProgram, widthName, SL_IR_VERSION, SL_HASH_VERSION, inputsUsed,
     CONTROL_FIELDS, controlProblem,
 } from "./ir"
 export type {
