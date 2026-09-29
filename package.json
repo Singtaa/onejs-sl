@@ -43,7 +43,7 @@
   "author": "Singtaa",
   "license": "MIT",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.lib.json",
     "lint": "eslint .",
     "test": "vitest run && node quickjs/run.mjs",
     "test:quickjs": "node quickjs/run.mjs",

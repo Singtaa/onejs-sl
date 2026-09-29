@@ -170,9 +170,12 @@ hash fails there until the goldens are drawn again.
 The source reaches for no host API: no `fs`, `process`, `Buffer`,
 `TextEncoder`, `performance`, `structuredClone` or `Intl`. It runs in a
 browser (the Play editor's diagnostics), a Cloudflare worker (the Play build)
-and QuickJS (Magerie). Two checks hold it to that:
+and QuickJS (Magerie). Three checks hold it to that:
 
 - lint refuses those globals and any Node module in `src/`;
+- `npm run typecheck` also checks the shipped source alone against ES2020 with
+  no Node types (`tsconfig.lib.json`), since `@types/node` adds later methods
+  such as `Array.prototype.at`, which 0.5.0 used by mistake;
 - `npm run test:quickjs` bundles `quickjs/corpus.ts` as one ES2020 IIFE, the
   way Magerie bundles a script, runs it in QuickJS-ng and in a bare Node
   context, and fails unless the two results agree byte for byte. The corpus

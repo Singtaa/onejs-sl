@@ -1,0 +1,9 @@
+{
+  // The shipped source alone, with no Node types: @types/node adds ES2022
+  // methods such as Array.prototype.at, which Magerie's QuickJS need not have,
+  // and the README promises plain ES2020.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": [] },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "src/**/*.test.ts", "src/fixtures"]
+}

@@ -636,7 +636,7 @@ function zeroOf(type: TypeName, at: Pos): Expr {
  * inside braces that are the case's last statement, as in `case 0: { ...; break; }`.
  */
 function dropClosingBreak(body: Stmt[]): boolean {
-    const last = body.at(-1)
+    const last = body[body.length - 1]
     if (last?.k === "break") {
         body.pop()
         return true
