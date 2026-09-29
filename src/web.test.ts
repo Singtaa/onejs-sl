@@ -33,6 +33,13 @@ float4 main() {
 `
 
 describe("the web emitters", () => {
+    it("refuses an input it has no mapping for, rather than drawing it as aspect", () => {
+        const p = sl.program(({ uv, aspect }) => sl.vec4(uv, aspect, 1))
+        const odd = { ...p, nodes: p.nodes.map((n) => (n.k === "input" && n.name === "aspect" ? { ...n, name: "bogus" } : n)) } as Program
+        expect(() => emitWGSL(odd)).toThrow(/no web mapping for the input "bogus"/)
+        expect(() => emitGLSL(odd)).toThrow(/no web mapping for the input "bogus"/)
+    })
+
     it("have a shape for every sdf id, in id order", () => {
         const ids = Object.values(SL_SDF_SHAPES)
         expect(SDF_CALLS.length).toBe(ids.length)

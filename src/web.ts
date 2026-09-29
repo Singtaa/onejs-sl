@@ -90,7 +90,8 @@ function emitWeb(p: Program, lang: WebLanguage): string {
                     case 1: return `(sl_uv * ${res}.xy)`
                     case 2: return `${res}.xy`
                     case 3: return `${res}.z`
-                    default: return `(${res}.x / max(${res}.y, 1.0))`
+                    case 4: return `(${res}.x / max(${res}.y, 1.0))`
+                    default: throw new Error(`no web mapping for the input "${n.name}"`)
                 }
             }
             case "uniform": {
