@@ -9,14 +9,16 @@
  * older one is migrated to this one and rehashed under it.
  */
 import {
-    INPUTS, SLError, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, formProblem, hashProgram, programVersion,
-    type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
+    INPUTS, SLError, SL_HASH_VERSION, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, formProblem, hashProgram,
+    programVersion, type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
 } from "./ir"
-import { SL_ARITY, SL_NAME } from "./ops"
+import { SLOP, SL_ARITY, SL_NAME } from "./ops"
 
 export interface ProgramJSON {
     /** `SL_IR_VERSION` of the writer. Absent means 1. */
     v: number
+    /** `SL_HASH_VERSION` of the writer, which `hash` was computed under. Absent means 1. */
+    h?: number
     nodes: SLNode[]
     result: NodeRef
     uniforms: UniformDecl[]
@@ -25,7 +27,10 @@ export interface ProgramJSON {
 }
 
 export function toJSON(p: Program): ProgramJSON {
-    return { v: p.version, nodes: p.nodes, result: p.result, uniforms: p.uniforms, textures: p.textures, hash: p.hash }
+    return {
+        v: p.version, h: SL_HASH_VERSION, nodes: p.nodes, result: p.result, uniforms: p.uniforms, textures: p.textures,
+        hash: p.hash,
+    }
 }
 
 export function fromJSON(json: unknown): Program {
@@ -38,34 +43,71 @@ export function fromJSON(json: unknown): Program {
             `Update onejs-sl to read it, or rebuild it from its .sl source.`)
     }
     if (!Array.isArray(j.nodes) || j.nodes.length === 0) fail("it has no nodes")
-    const nodes = j.nodes.map((n, i) => node(n, i))
+    const written = j.nodes.map((n, i) => node(n, i))
+    if (!Number.isInteger(j.result) || j.result! < 0 || j.result! >= written.length) {
+        fail(`its result ${String(j.result)} is not a node`)
+    }
+    // The lowest version that has these nodes, which is what the writer
+    // recorded unless the file predates version 2 (whose nodes version 2 reads
+    // as they are) or was edited. One that claims less than its nodes need
+    // holds something its version never had.
+    const needs = programVersion(written)
+    if (v < needs && v >= 2) fail(`it says IR version ${v} and holds nodes version ${needs} added; it was changed after it was written`)
+    const { nodes, result } = v < 3 ? toOperands(written, j.result!) : { nodes: written, result: j.result! }
     nodes.forEach((n, i) => {
         const problem = n.k === "call" ? formProblem(n, nodes) : null
         if (problem !== null) fail(`node ${i} is not a form its op has: ${problem}`)
     })
-    const result = j.result
-    if (!Number.isInteger(result) || result! < 0 || result! >= nodes.length) fail(`its result ${String(result)} is not a node`)
-    if (nodes[result!]!.type !== TYPE.VEC4) fail("its result is not a float4")
+    if (nodes[result]!.type !== TYPE.VEC4) fail("its result is not a float4")
     const uniforms = (j.uniforms ?? []).map(uniform)
     const textures = (j.textures ?? []).map(texture)
     checkCaps({ uniforms, textures })
     for (const n of nodes) {
         if (n.k === "uniform" && n.slot >= uniforms.length) fail(`a node reads uniform slot ${n.slot}, which is not declared`)
     }
-    // The lowest version that has these nodes, which is what the writer
-    // recorded unless the file predates version 2 (whose nodes version 2 reads
-    // as they are) or was edited. One that claims less than its nodes need
-    // holds something its version never had.
     const version = programVersion(nodes)
-    if (v < version && v >= 2) fail(`it says IR version ${v} and holds nodes version ${version} added; it was changed after it was written`)
-    const hash = hashProgram(nodes, result!, uniforms, textures)
-    // Same version, so the same maths and the same hash; a different one means
-    // the file was edited or damaged, and its cached shader belongs to
-    // something else. A version 1 file is rehashed under version 2 on purpose.
-    if (v === version && j.hash !== undefined && j.hash !== hash) {
+    const hash = hashProgram(nodes, result, uniforms, textures)
+    // The same IR version and hash scheme, so the same hash; a different one
+    // means the file was edited or damaged, and its cached shader belongs to
+    // something else. A file an older version or scheme wrote is rehashed under
+    // this one on purpose.
+    if (v === version && (j.h ?? 1) === SL_HASH_VERSION && j.hash !== undefined && j.hash !== hash) {
         fail(`its hash ${j.hash} does not match its nodes (${hash}); it was changed after it was written`)
     }
-    return { version, nodes, result: result!, uniforms, textures, hash }
+    return { version, nodes, result, uniforms, textures, hash }
+}
+
+/**
+ * A graph written before IR 3, with the forms it had then moved to the one each
+ * op has now: an sdf's shape parameters after its id and an octave op's count
+ * were immediates, and are operands. Each constant goes in just before the
+ * call that reads it, and every later reference moves along.
+ */
+function toOperands(written: readonly SLNode[], writtenResult: NodeRef): { nodes: SLNode[]; result: NodeRef } {
+    const nodes: SLNode[] = []
+    const at: NodeRef[] = []
+    const constant = (type: SLType, v: number[]): NodeRef => nodes.push({ k: "const", type, v }) - 1
+    written.forEach((n, i) => {
+        const imm = n.k === "call" ? n.imm ?? [] : []
+        if (n.k === "call" && n.op === SLOP.SDF && n.args.length === 1) {
+            if (imm.length < 5) fail(`node ${i} is an sdf with ${imm.length} immediates; one written before IR 3 has at least 5`)
+            const q = constant(TYPE.VEC4, [imm[1]!, imm[2]!, imm[3]!, imm[4]!])
+            const r = constant(TYPE.VEC2, [imm[5] ?? 0, imm[6] ?? 0])
+            at[i] = nodes.push({ ...n, args: [at[n.args[0]!]!, q, r], imm: [imm[0]!] }) - 1
+            return
+        }
+        const octaves = n.k === "call" && (n.op === SLOP.FBM || n.op === SLOP.TURBULENCE || n.op === SLOP.RIDGED)
+        if (octaves && n.args.length === 1) {
+            if (imm.length < 1) fail(`node ${i} is ${SL_NAME[n.op]} with no octave count`)
+            const count = constant(TYPE.FLOAT, [imm[0]!])
+            at[i] = nodes.push({ ...n, args: [at[n.args[0]!]!, count], imm: imm.slice(1) }) - 1
+            return
+        }
+        const moved: SLNode = n.k === "call" ? { ...n, args: n.args.map((a) => at[a]!) }
+            : n.k === "swizzle" ? { ...n, src: at[n.src]! } : n
+        at[i] = nodes.push(moved) - 1
+    })
+    return { nodes, result: at[writtenResult]! }
 }
 
 function node(n: unknown, i: number): SLNode {

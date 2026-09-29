@@ -507,7 +507,11 @@ export function programVersion(nodes: readonly SLNode[]): number {
     return v
 }
 
-/** The version that added this node's form. */
+/**
+ * The version that added this node's form. An sdf or octave call with one
+ * operand is the form before IR 3, which only a file an older compiler wrote
+ * holds, and `fromJSON` moves it to the form IR 3 has.
+ */
 function nodeVersion(n: SLNode): number {
     if (n.k !== "call") return 2
     switch (n.op) {
@@ -522,30 +526,28 @@ function nodeVersion(n: SLNode): number {
 }
 
 /**
- * What is wrong with a call's form, for the ops that have more than one, or
- * null. The builder only makes the right ones; this is for a program read from
- * JSON, which an emitter would otherwise print as something else.
+ * What is wrong with a call's form, for the ops whose operand list alone does
+ * not say it, or null. The builder only makes the right ones; this is for a
+ * program read from JSON, which an emitter would otherwise print as something
+ * else.
  *
- *   SDF  the point, its shape parameters immediates after the shape id; or the
- *        point, a float4 and a float2 holding them, the id the one immediate
- *   FBM, TURBULENCE, RIDGED  the point, the octave count the first immediate
- *        (FBM's kind the second); or the point and the count, FBM's kind the
+ *   SDF  the point, a float4 and a float2 holding the six shape parameters,
+ *        the shape id the one immediate
+ *   FBM, TURBULENCE, RIDGED  the point and the octave count, FBM's kind the
  *        one immediate
  */
 export function formProblem(n: Extract<SLNode, { k: "call" }>, nodes: readonly SLNode[]): string | null {
     const widths = n.args.map((a) => nodes[a]!.type).join(",")
     switch (n.op) {
         case SLOP.SDF:
-            if (widths === "2" && (n.imm?.length ?? 0) >= 5) return null
             if (widths === "2,4,2" && n.imm?.length === 1) return null
-            return "an sdf takes a float2 and its parameters as immediates, or a float2, a float4 and a float2 and the shape alone"
+            return "an sdf takes a float2, a float4 and a float2, and its shape as the one immediate"
         case SLOP.FBM:
         case SLOP.TURBULENCE:
         case SLOP.RIDGED: {
             const rest = n.op === SLOP.FBM ? 1 : 0
-            if (widths === "2" && n.imm?.length === rest + 1) return null
             if (widths === "2,1" && (n.imm?.length ?? 0) === rest) return null
-            return `${SL_NAME[n.op]} takes a float2 and its octave count as an immediate, or a float2 and a float`
+            return `${SL_NAME[n.op]} takes a float2 and its octave count, a float`
         }
         default:
             return null
@@ -584,7 +586,8 @@ export const SL_HASH_VERSION = 2
  *
  *   1  the first versioned IR
  *   2  an SDF call carries up to six shape parameters, not four (#129)
- *   3  SAMPLE_LOD; an SDF's shape parameters and a noise's octave count as operands
+ *   3  SAMPLE_LOD; an SDF's shape parameters and a noise's octave count are
+ *      operands, where they were immediates
  */
 export const SL_IR_VERSION = 3
 

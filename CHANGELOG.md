@@ -5,10 +5,11 @@
 - Every hash changes once: `a + b` and `b + a` share one, as do `8 * uv` and `uv * 8` (`SL_HASH_VERSION` 2)
 - `tex2Dlod(t, uv, lod)` samples a mip level; `sampleLevel` on `sl.texture`
 - `BodyTarget.sampleLevel` is required, for `tex2Dlod`
-- A program's IR version is the lowest that has its nodes, so IR 3 rehashes only programs that sample at a level
 - `fromGLSL` turns `textureLod` into `tex2Dlod`
 - A shape's parameters may be any value, a uniform included; a vector counts as its components
 - `fbm`, `turbulence` and `ridged` take an octave count that is a value, rounded and held to 1 to 4
+- IR 3: a shape's parameters and an octave count are always operands; `fromJSON` migrates an older file
+- `toJSON` writes the hash scheme (`h`), so `fromJSON` rehashes a file an older scheme wrote instead of refusing it
 - A ramp's stop may be a colour uniform or a const holding a hex, as well as a hex
 
 ## 0.3.0

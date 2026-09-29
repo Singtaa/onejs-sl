@@ -108,6 +108,11 @@ export function emitBody(p: Program, target: BodyTarget): Body {
     const helpers = new Set<string>()
     const helper = (fn: string) => { helpers.add(fn); return fn }
     /** A node at width `w`: a scalar repeated into a constructor, since HLSL refuses float3(x) and Metal x.xxx. */
+    /** A constant node's value, or null for anything computed. */
+    const constantOf = (ref: number): number[] | null => {
+        const c = p.nodes[ref]!
+        return c.k === "const" ? c.v : null
+    }
     const splat = (ref: number, w: SLType) => (p.nodes[ref]!.type === TYPE.FLOAT && w > 1 ? ctor(w, Array(w).fill(name(ref))) : name(ref))
 
     const expr = (n: SLNode): string => {
@@ -203,20 +208,16 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.FBM:
             case SLOP.TURBULENCE:
             case SLOP.RIDGED: {
-                // The count as an operand (IR 3), rounded here and held to 1 to 4
-                // by sl_fbm, or as the first immediate, fbm's kind after it.
-                const operand = n.args.length > 1
-                const count = operand ? `int(floor(${a[1]} + 0.5))` : String(Math.round(imm[0] ?? 3))
-                const kind = n.op === SLOP.TURBULENCE ? 2 : n.op === SLOP.RIDGED ? 3 : Math.round((operand ? imm[0] : imm[1]) ?? 0)
+                // The count rounded here and held to 1 to 4 by sl_fbm; a constant
+                // one is the whole number it is. fbm's kind is the one immediate.
+                const c = constantOf(n.args[1]!)
+                const count = c !== null ? String(Math.round(c[0]!)) : `int(floor(${a[1]} + 0.5))`
+                const kind = n.op === SLOP.TURBULENCE ? 2 : n.op === SLOP.RIDGED ? 3 : Math.round(imm[0] ?? 0)
                 return `${helper("sl_fbm")}(${a[0]}, ${count}, ${kind})`
             }
             case SLOP.SDF: {
                 const id = Math.round(imm[0] ?? 0)
-                // The parameters as operands (IR 3), or as the immediates after the id.
-                if (n.args.length > 1) return `${helper("sl_sdfDistance")}(${id}, ${a[0]}, ${a[1]}, ${a[2]})`
-                const q = [imm[1] ?? 0, imm[2] ?? 0, imm[3] ?? 0, imm[4] ?? 0].map(lit)
-                const r = [imm[5] ?? 0, imm[6] ?? 0].map(lit)
-                return `${helper("sl_sdfDistance")}(${id}, ${a[0]}, float4(${q.join(", ")}), float2(${r.join(", ")}))`
+                return `${helper("sl_sdfDistance")}(${id}, ${a[0]}, ${a[1]}, ${a[2]})`
             }
             case SLOP.VORONOI: return `${helper("sl_voronoi")}(${a[0]})`
             case SLOP.SAMPLE: {

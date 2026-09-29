@@ -535,9 +535,8 @@ export function uniformDefaults(p: Program): number[] {
  * offset the input for a different field. Octaves are 1 to 4, as in fx.
  *
  * The octave count may be a value, a uniform say, rounded to the nearest whole
- * number and held to 1 to 4 where it is read. A constant count is part of the
- * operation, as it always was, so a program passing one is the node it was and
- * hashes the same; a value is an operand (IR 3).
+ * number and held to 1 to 4 where it is read. It is an operand either way
+ * (IR 3); a constant one is checked here, and prints as the number it is.
  */
 export function noise(p: Vec2): Float {
     return mk(p.owner, p.owner.call(SLOP.NOISE, TYPE.FLOAT, [p.ref]), TYPE.FLOAT)
@@ -546,21 +545,18 @@ export function simplex(p: Vec2): Float {
     return mk(p.owner, p.owner.call(SLOP.SIMPLEX, TYPE.FLOAT, [p.ref]), TYPE.FLOAT)
 }
 /**
- * An octave op: the count as an immediate when it is a constant, which is
- * checked here, or as an operand after the point when it is a value, with
- * `rest` (fbm's kind) the immediates after it.
+ * An octave op: the point and the count as operands, with `rest` (fbm's kind)
+ * the immediates. A constant count is checked here.
  */
 function octaves(op: SLOpCode, name: string, p: Vec2, count: Num, rest: number[]): Float {
     const c = components(p.owner, count)
     if (c.length !== 1) throw new SLError(`${name}'s octave count is one number, and this is a ${widthName(c.length as SLType)}`)
     const n = c[0]!
-    if (typeof n === "number") {
-        if (!Number.isInteger(n) || n < 1 || n > 4) {
-            throw new SLError(`${name} octaves must be a whole number from 1 to 4, got ${n}`)
-        }
-        return mk(p.owner, p.owner.call(op, TYPE.FLOAT, [p.ref], [n, ...rest]), TYPE.FLOAT)
+    if (typeof n === "number" && (!Number.isInteger(n) || n < 1 || n > 4)) {
+        throw new SLError(`${name} octaves must be a whole number from 1 to 4, got ${n}`)
     }
-    return mk(p.owner, p.owner.call(op, TYPE.FLOAT, [p.ref, n.ref], rest), TYPE.FLOAT)
+    const v = typeof n === "number" ? float(n) : n
+    return mk(p.owner, p.owner.call(op, TYPE.FLOAT, [p.ref, v.ref], rest), TYPE.FLOAT)
 }
 /** Layered noise. `base` picks the grid ("value", the default) or triangles ("simplex"). */
 export function fbm(p: Vec2, octaveCount: Num = 3, base: "value" | "simplex" = "value"): Float {
@@ -663,10 +659,9 @@ function asWritten(v: Vec3 | Vec4): Vec4 {
  * Which parameters a shape takes is the shape's own business; `circle` wants a
  * radius, `roundedBox` wants half extents and a corner. See `lib/sdf2d.hlsl`.
  *
- * A parameter may be any value, a uniform or one computed per pixel. When every
- * one is a constant they are part of the operation, as they always were, so a
- * program that passes constants is the node it was and hashes the same; one
- * value among them makes them operands (IR 3), a float4 and a float2.
+ * A parameter may be any value, a uniform or one computed per pixel. The six
+ * are operands either way (IR 3), a float4 and a float2, and constant ones
+ * print as the numbers they are.
  */
 export function sdf(kind: SlSdfKind, p: Vec2, params: Num[] = []): Float {
     const id = SL_SDF_SHAPES[kind]
@@ -678,14 +673,8 @@ export function sdf(kind: SlSdfKind, p: Vec2, params: Num[] = []): Float {
     if (c.length > most) {
         throw new SLError(`sl.sdf("${kind}") takes at most ${most} parameters and was given ${c.length}`)
     }
-    if (c.every((v) => typeof v === "number")) {
-        for (const v of c) {
-            if (!Number.isFinite(v)) throw new SLError(`sl.sdf parameters must be finite, got ${v}`)
-        }
-        // Four always, as before, and a fifth and sixth only when given: a program
-        // using four or fewer is the same node, and hashes the same, as it was.
-        const imm = [c[0] ?? 0, c[1] ?? 0, c[2] ?? 0, c[3] ?? 0, ...c.slice(4)] as number[]
-        return mk(p.owner, p.owner.call(SLOP.SDF, TYPE.FLOAT, [p.ref], [id, ...imm]), TYPE.FLOAT)
+    for (const v of c) {
+        if (typeof v === "number" && !Number.isFinite(v)) throw new SLError(`sl.sdf parameters must be finite, got ${v}`)
     }
     const q = vec4(c[0] ?? 0, c[1] ?? 0, c[2] ?? 0, c[3] ?? 0)
     const r = vec2(c[4] ?? 0, c[5] ?? 0)

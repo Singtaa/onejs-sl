@@ -323,6 +323,11 @@ than for any cryptographic reason.
 Two numbers, with one rule: a reader accepts every version up to its own and
 refuses a newer one with a message naming both.
 
+- **`SL_HASH_VERSION`** (`ir.ts`) is bumped when the hashing scheme changes,
+  which changes every hash. 2 is the normalised hash above. `toJSON` writes it
+  beside the hash, and `fromJSON` checks a file's hash only when it was written
+  under the same scheme and IR version, and otherwise rehashes it.
+
 - **`SL_IR_VERSION`** (`ir.ts`) is bumped whenever an opcode, a shape or what
   one computes changes. A program carries the lowest version that has all its
   nodes (`programVersion`), and that is what its hash carries, so a bump
@@ -333,9 +338,10 @@ refuses a newer one with a message naming both.
   migrates an older one.
 IR 2 came with #129. A shape takes as many parameters as it reads
 (`SL_SDF_PARAMS`, six at most, and never fewer than four accepted), where it
-used to take four and lose the rest. IR 3 added `SAMPLE_LOD`, and an SDF
-whose shape parameters, or a noise whose octave count, are values rather than
-constants.
+used to take four and lose the rest. IR 3 added `SAMPLE_LOD`, and made an
+SDF's shape parameters and a noise's octave count operands, where they were
+immediates, so they can be any value; a constant one still prints as its
+number. `fromJSON` moves an older file's immediates to operands.
 
 ## Control flow
 

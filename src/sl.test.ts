@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { parse, sl, type Float } from "./index"
-import { SLError, TYPE, hashProgram } from "./ir"
+import { SLError, TYPE, hashProgram, type SLNode } from "./ir"
 import { SLOP } from "./ops"
 import { SL_SDF_SHAPES } from "./shapes"
 import { compile } from "./compile"
@@ -331,10 +331,16 @@ describe("the opcode table", () => {
     })
 })
 
+/** The value of a constant operand, or undefined when it is computed. */
+function constantAt(p: { nodes: readonly SLNode[] }, ref: number | undefined): number[] | undefined {
+    const n = ref === undefined ? undefined : p.nodes[ref]
+    return n?.k === "const" ? n.v : undefined
+}
+
 describe("noise is the fx family", () => {
     it("emits turbulence and ridged as their own opcodes carrying the octave count", () => {
         const p = sl.program(({ uv }) => { const n = sl.turbulence(uv, 2).add(sl.ridged(uv, 4)); return sl.vec4(n, n, n, 1) })
-        const ops = p.nodes.filter((n) => n.k === "call").map((n) => [n.op, n.imm?.[0]])
+        const ops = p.nodes.filter((n) => n.k === "call").map((n) => [n.op, constantAt(p, n.args[1])?.[0]])
         expect(ops).toContainEqual([SLOP.TURBULENCE, 2])
         expect(ops).toContainEqual([SLOP.RIDGED, 4])
     })
@@ -342,7 +348,7 @@ describe("noise is the fx family", () => {
     it("lets fbm pick a simplex base and refuses more octaves than the shader unrolls", () => {
         const p = sl.program(({ uv }) => { const n = sl.fbm(uv, 3, "simplex"); return sl.vec4(n, n, n, 1) })
         const fbm = p.nodes.find((n) => n.k === "call" && n.op === SLOP.FBM)
-        expect(fbm?.k === "call" ? fbm.imm : undefined).toEqual([3, 1])
+        expect(fbm?.k === "call" ? [constantAt(p, fbm.args[1]), fbm.imm] : undefined).toEqual([[3], [1]])
         expect(() => sl.program(({ uv }) => { const n = sl.fbm(uv, 5); return sl.vec4(n, n, n, 1) })).toThrow(/1 to 4/)
     })
 })
@@ -455,18 +461,18 @@ describe("sdf and voronoi", () => {
     it("carries a fifth and sixth parameter to every backend (#129)", () => {
         const p = sl.program(({ uv }) => sl.vec4(sl.sdf("orientedVesica", uv.sub(0.5), [-0.3, 0, 0.3, 0, 0.1]), 0, 0, 1))
         const node = p.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF)!
-        expect(node.k === "call" && node.imm).toEqual([24, -0.3, 0, 0.3, 0, 0.1])
+        expect(node.k === "call" && [node.imm, constantAt(p, node.args[1]), constantAt(p, node.args[2])])
+            .toEqual([[24], [-0.3, 0, 0.3, 0], [0.1, 0]])
         const e = compile(p)
-        expect(e.hlsl).toContain("float4(-0.3, 0.0, 0.3, 0.0), float2(0.1, 0.0)")
+        expect(e.hlsl).toMatch(/float4 (n\d+) = float4\(-0\.3, 0\.0, 0\.3, 0\.0\);\s+float2 (n\d+) = float2\(0\.1, 0\.0\);\s+float n\d+ = sl_sdfDistance\(24, n\d+, \1, \2\)/)
         expect(e.glsl).toMatch(/sdOrientedVesica\([^)]*vec2\(-0\.3, 0\.0\), vec2\(0\.3, 0\.0\), 0\.1\)/)
         expect(e.wgsl).toMatch(/sdOrientedVesica\([^)]*vec2f\(-0\.3, 0\.0\), vec2f\(0\.3, 0\.0\), 0\.1\)/)
     })
 
-    it("leaves a program of four or fewer exactly as it was", () => {
-        // Same node, same shader: an existing picture cannot move.
-        const p = sl.program(({ uv }) => sl.vec4(sl.sdf("roundedBox", uv.sub(0.5), [0.3, 0.2, 0.05, 0.1]), 0, 0, 1))
+    it("fills the parameters a program does not give with zeros", () => {
+        const p = sl.program(({ uv }) => sl.vec4(sl.sdf("roundedBox", uv.sub(0.5), [0.3, 0.2, 0.05]), 0, 0, 1))
         const node = p.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF)!
-        expect(node.k === "call" && node.imm).toEqual([1, 0.3, 0.2, 0.05, 0.1])
+        expect(node.k === "call" && [constantAt(p, node.args[1]), constantAt(p, node.args[2])]).toEqual([[0.3, 0.2, 0.05, 0], [0, 0]])
         expect(compile(p).hlsl).toContain("float2(0.0, 0.0)")
     })
 

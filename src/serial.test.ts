@@ -71,6 +71,33 @@ describe("IR versions", () => {
     })
 })
 
+describe("files an older onejs-sl wrote", () => {
+    // What 0.3.0 wrote for this program: IR 2, hash scheme 1, the shape's
+    // parameters and each octave count as immediates.
+    const V030 = {"v":2,"nodes":[{"k":"input","type":2,"name":"uv"},{"k":"input","type":2,"name":"fragCoord"},{"k":"input","type":2,"name":"resolution"},{"k":"input","type":1,"name":"time"},{"k":"input","type":1,"name":"aspect"},{"k":"const","type":2,"v":[0.5,0.5]},{"k":"call","type":2,"op":17,"args":[0,5]},{"k":"call","type":1,"op":131,"args":[6],"imm":[1,0.3,0.2,0.05,0.05,0.05,0.05]},{"k":"const","type":2,"v":[4,4]},{"k":"call","type":2,"op":18,"args":[0,8]},{"k":"swizzle","type":2,"src":3,"chans":[0,0]},{"k":"call","type":2,"op":16,"args":[9,10]},{"k":"call","type":1,"op":130,"args":[11],"imm":[2,1]},{"k":"const","type":2,"v":[3,3]},{"k":"call","type":2,"op":18,"args":[0,13]},{"k":"call","type":1,"op":133,"args":[14],"imm":[4]},{"k":"const","type":1,"v":[1]},{"k":"call","type":4,"op":3,"args":[7,12,15,16]}],"result":17,"uniforms":[],"textures":[],"hash":"2e0a9896"}
+    const fromSource = () => sl.program(({ uv, time }) => {
+        const q = uv.sub(0.5)
+        const d = sl.sdf("roundedBox", q, [0.3, 0.2, 0.05, 0.05, 0.05, 0.05])
+        const n = sl.fbm(uv.mul(4).add(time), 2, "simplex")
+        const t = sl.turbulence(uv.mul(3), 4)
+        return sl.vec4(d, n, t, 1)
+    })
+
+    it("read with its parameters and octave counts moved to operands, as the same source builds it now", () => {
+        const p = fromJSON(V030)
+        const now = fromSource()
+        expect(p.hash).toBe(now.hash)
+        expect(p.version).toBe(now.version)
+        expect(p.hash).not.toBe(V030.hash)
+    })
+
+    it("read under the current hash scheme, though the hash it carries is the old scheme's", () => {
+        // plasma as 0.3.0 wrote it: nothing to migrate, only the hash moved.
+        const p = fromJSON({ ...toJSON(plasma()), h: undefined, hash: "49d87e29" })
+        expect(p.hash).toBe("2e6f1466")
+    })
+})
+
 describe("opcodes", () => {
     it("refuses 135, which only the removed VM encoder wrote and no emitter draws", () => {
         const j = toJSON(plasma())

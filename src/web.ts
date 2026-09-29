@@ -52,6 +52,11 @@ function emitWeb(p: Program, lang: WebLanguage): string {
     const emitted = new Set<number>()
     const T = (t: SLType) => (W ? (t === 1 ? "f32" : `vec${t}f`) : t === 1 ? "float" : `vec${t}`)
     const typeOf = (ref: number) => p.nodes[ref].type
+    /** A constant node's value, or null for anything computed. */
+    const constantOf = (ref: number): number[] | null => {
+        const c = p.nodes[ref]!
+        return c.k === "const" ? c.v : null
+    }
 
     /** A node's value widened to `t` when it is a scalar and `t` is not. */
     const splat = (ref: number, t: SLType) => (typeOf(ref) === 1 && t > 1 ? `${T(t)}(n${ref})` : `n${ref}`)
@@ -196,28 +201,29 @@ function emitWeb(p: Program, lang: WebLanguage): string {
          * The library's onejsFbmKind, resolved here since the kind is a
          * constant: calling the dispatcher would print a WGSL `select` that
          * runs two of the four fields to keep one. The count is a literal when
-         * it is an immediate, and an operand rounded and held to 1 to 4 as
-         * `sl_fbm` holds it when it is a value.
+         * it is a constant, and otherwise rounded and held to 1 to 4 as
+         * `sl_fbm` holds it.
          */
         function octaveCall(kind: number, pt: string): string {
-            const o = n.args.length > 1
-                ? `clamp(${W ? "i32" : "int"}(floor(${a[1]} + 0.5)), 1, 4)`
-                : String(Math.min(4, Math.max(1, Math.round(imm[0] ?? 3))))
+            const c = constantOf(n.args[1]!)
+            const o = c !== null
+                ? String(Math.min(4, Math.max(1, Math.round(c[0]!))))
+                : `clamp(${W ? "i32" : "int"}(floor(${a[1]} + 0.5)), 1, 4)`
             const fn = kind === 2 ? "onejsTurbulence" : kind === 3 ? "onejsRidged" : kind === 1 ? "onejsFbmSimplex" : "onejsFbm"
             return `${lib(fn, ["float2", "float", "int", "float", "float"])}(${pt}, 0.0, ${o}, 2.0, 0.5)`
         }
 
         /**
          * The six shape parameters, each as a float expression and, when it
-         * is a constant, its number: literals when they are immediates, the
-         * components of the float4 and float2 operands when they are values.
+         * is a constant, its number: literals from a constant float4 or
+         * float2, and their components otherwise.
          */
         function sdfParams(): Array<{ text: string; value?: number }> {
-            if (n.args.length === 1) {
-                return [1, 2, 3, 4, 5, 6].map((i) => ({ text: lit(imm[i] ?? 0), value: imm[i] ?? 0 }))
+            const part = (ref: number, chans: string[]) => {
+                const c = constantOf(ref)
+                return chans.map((ch, i) => c !== null ? { text: lit(c[i]!), value: c[i]! } : { text: `${a[n.args.indexOf(ref)]}.${ch}` })
             }
-            return ["x", "y", "z", "w"].map((c) => ({ text: `${a[1]}.${c}` }))
-                .concat(["x", "y"].map((c) => ({ text: `${a[2]}.${c}` })))
+            return [...part(n.args[1]!, ["x", "y", "z", "w"]), ...part(n.args[2]!, ["x", "y"])]
         }
 
         /** The shape is a constant, so this calls it directly instead of sl_sdfDistance's switch. */

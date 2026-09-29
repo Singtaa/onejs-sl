@@ -13,6 +13,12 @@ import { PRELUDE_SOURCE, analyze, parse } from "./index"
  * this file makes on its own, so they are checked on their own.
  */
 
+/** The value of a constant operand, or undefined when it is computed. */
+const constantAt = (p: ReturnType<typeof parse>, ref: number | undefined): number[] | undefined => {
+    const n = ref === undefined ? undefined : p.nodes[ref]
+    return n?.k === "const" ? n.v : undefined
+}
+
 const ops = (p: ReturnType<typeof parse>): number[] =>
     p.nodes.filter((n) => n.k === "call").map((n) => (n as { op: number }).op)
 
@@ -22,14 +28,15 @@ describe("sdf", () => {
             float4 main() { return float4(sdf.orientedVesica(uv - 0.5, -0.3, 0, 0.3, 0, 0.1), 0, 0, 1); }
         `)
         const call = p.nodes.find((n) => n.k === "call" && n.op === SLOP.SDF)!
-        expect(call.k === "call" && call.imm).toEqual([24, -0.3, 0, 0.3, 0, 0.1])
+        expect(call.k === "call" && [call.imm, constantAt(p, call.args[1]), constantAt(p, call.args[2])])
+            .toEqual([[24], [-0.3, 0, 0.3, 0], [0.1, 0]])
     })
 
     it("takes a vector parameter as its components, so a constant one is the same program as numbers", () => {
         const numbers = parse("float4 main() { return float4(sdf.box(uv - 0.5, 0.3, 0.2), 0, 0, 1); }")
         const vector = parse("float4 main() { return float4(sdf.box(uv - 0.5, float2(0.3, 0.2)), 0, 0, 1); }")
         expect(vector.hash).toBe(numbers.hash)
-        expect(vector.version).toBe(2)
+        expect(vector.version).toBe(3)
     })
 
     it("takes a uniform or a computed parameter as an operand, which is IR 3", () => {
@@ -90,11 +97,14 @@ describe("noise", () => {
         expect(e.hlsl).toMatch(/sl_fbm\(n\d+, int\(floor\(n\d+ \+ 0\.5\)\), 3\)/)
     })
 
-    it("keeps a constant octave count an immediate, so the program is the one it was", () => {
+    it("takes a constant octave count as an operand that prints as the number it is", () => {
         const p = parse("float4 main() { return float4(fbm(uv * 4, 2), 0, 0, 1); }")
-        expect(p.version).toBe(2)
+        expect(p.version).toBe(3)
         const call = p.nodes.find((n) => n.k === "call" && n.op === SLOP.FBM)!
-        expect(call.k === "call" && [call.args.length, call.imm]).toEqual([1, [2, 0]])
+        expect(call.k === "call" && [constantAt(p, call.args[1]), call.imm]).toEqual([[2], [0]])
+        const e = compile(p)
+        expect(e.glsl).toMatch(/onejsFbm\(n\d+, 0\.0, 2, 2\.0, 0\.5\)/)
+        expect(e.hlsl).toMatch(/sl_fbm\(n\d+, 2, 0\)/)
         expect(() => parse("float4 main() { return float4(fbm(uv, 5), 0, 0, 1); }")).toThrow(/whole number from 1 to 4, got 5/)
     })
 })
@@ -287,7 +297,7 @@ describe("control flow", () => {
         expect(p.hash).toBe(written.hash)
     })
 
-    it("the counter is a number, so it reaches an immediate", () => {
+    it("the counter is a number, so it reaches the octave count as a constant", () => {
         const p = parse(`
             float4 main() {
                 float v = 0;
@@ -297,7 +307,7 @@ describe("control flow", () => {
         `)
         const octaves = p.nodes
             .filter((n) => n.k === "call" && n.op === SLOP.FBM)
-            .map((n) => (n as { imm?: number[] }).imm![0])
+            .map((n) => n.k === "call" ? constantAt(p, n.args[1])?.[0] : undefined)
         expect(octaves).toEqual([1, 2, 3])
     })
 
