@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 A program can read what it drew the frame before, and count frames (`Specs/SL_NEXT.md` 4). Every existing program keeps its hash and its shader; one that reads the new names is IR 5. A host has to forward the new `reads` to draw such a program, which makes this a minor.
 
