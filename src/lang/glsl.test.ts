@@ -133,11 +133,16 @@ describe("rewrites that keep the meaning", () => {
         expect(r.source).toContain("tex2Dlod(iChannel0, fragCoord / resolution.xy, 2.0)")
     })
 
-    it("keeps an int for-loop counter and says what an int elsewhere became", () => {
-        const r = compiles(image("float s = 0.0; int n = 3; for (int i = 0; i < 3; i++) { s += 0.25; } fragColor = vec4(s);"))
-        expect(r.source).toContain("for (int i = 0;")
-        expect(r.source).toContain("float n = 3;")
-        expect(r.notes.some((n) => n.includes("an int is a float here"))).toBe(true)
+    it("keeps int, uint and bool, which are types here too, and says what an int vector became", () => {
+        const r = compiles(image(
+            "int n = 7 / 2; uint h = 5u * 3U; bool odd = (h & 1u) == 1u; float s = 0.0;" +
+            " for (int i = 0; i < n; i++) { s += 0.25; } ivec2 q = ivec2(1, 2); fragColor = vec4(s, odd ? 1.0 : 0.0, float(q.x), 1.0);",
+        ))
+        expect(r.source).toContain("int n = 7 / 2; uint h = 5u * 3u; bool odd = (h & 1u) == 1u;")
+        expect(r.source).toContain("for (int i = 0; i < n; i++)")
+        expect(r.source).toContain("float2 q = float2(1, 2);")
+        expect(r.notes.some((n) => /\ban int\b|\ba uint\b|\ba bool\b/.test(n))).toBe(false)
+        expect(r.notes.some((n) => n.includes("an ivec2 is a float2 here"))).toBe(true)
     })
 
     it("renames a value that takes an input's name", () => {

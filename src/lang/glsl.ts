@@ -78,7 +78,10 @@ const RENAME: Record<string, string> = {
     texture: "tex2D", texture2D: "tex2D", textureLod: "tex2Dlod", iTime: "time", iGlobalTime: "time", gl_FragCoord: "fragCoord",
 }
 
-/** A rename that changes what the value can hold, so it is said. */
+/**
+ * A rename that changes what the value can hold, so it is said. `int`, `uint`
+ * and `bool` are types here too and are kept; their vectors are not yet.
+ */
 const NARROW: Record<string, [string, string]> = {
     ivec2: ["float2", "an ivec2 is a float2 here, so dividing one no longer truncates"],
     ivec3: ["float3", "an ivec3 is a float3 here, so dividing one no longer truncates"],
@@ -87,9 +90,6 @@ const NARROW: Record<string, [string, string]> = {
     uvec4: ["float4", "a uvec4 is a float4 here"],
     bvec2: ["float2", "a bvec2 is a float2 of 0s and 1s here"], bvec3: ["float3", "a bvec3 is a float3 of 0s and 1s here"],
     bvec4: ["float4", "a bvec4 is a float4 of 0s and 1s here"],
-    bool: ["float", "a bool is a float that is 0 or 1 here; a comparison already is one"],
-    int: ["float", "an int is a float here, so dividing one no longer truncates; wrap it in floor() where that mattered"],
-    uint: ["float", "a uint is a float here"],
 }
 
 /** Shadertoy's inputs with no counterpart yet, and why. */
@@ -501,7 +501,7 @@ export function fromGLSL(glsl: string, options: { file?: string } = {}): FromGLS
             const span = spans.get(i)
             if (span !== undefined && span.end < to) { out += span.render(inEntry); i = span.end; continue }
             if (t.kind === "directive") { out += directive(t); continue }
-            if (t.kind === "number") { out += t.text.replace(/[uU]$/, ""); continue }
+            if (t.kind === "number") { out += t.text.replace(/U$/, "u"); continue }
             if (t.kind !== "ident") { out += t.text; continue }
 
             const name = t.text
@@ -547,9 +547,6 @@ export function fromGLSL(glsl: string, options: { file?: string } = {}): FromGLS
                 continue
             }
             if (NARROW[name] !== undefined) {
-                // A for loop's counter is the one int the language has.
-                const forCounter = name === "int" && is(back(i - 1), "(") && is(back(back(i - 1) - 1), "for")
-                if (forCounter) { out += name; continue }
                 const [to2, why] = NARROW[name]!
                 noteOnce("narrow:" + name, t.line, why)
                 out += to2
