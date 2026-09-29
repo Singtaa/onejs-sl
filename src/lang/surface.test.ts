@@ -45,6 +45,12 @@ const EDSL_ONLY: Record<string, string> = {
     texture: "texture2D name;",
     repeat: "for (int i = 0; i < n; i++)",
     select: "?:",
+    toFloat: "float(x)",
+    int: "int(x)",
+    uint: "uint(x)",
+    bool: "bool(x)",
+    branch: "if (c) { ... } else { ... }",
+    loop: "for (...) { ... } and while (c) { ... }",
     uniformDefaults: "not an authoring op: a host reads defaults with it",
     Val: "not an authoring op: the recorded value class",
 }

@@ -11,40 +11,68 @@
  * pass over the source.
  */
 
+import type { SLKind } from "../ir"
 import type { Pos } from "./lexer"
 
-/** The four value types, under their HLSL names. `texture2D` is not one: it declares a slot. */
-export type TypeName = "float" | "float2" | "float3" | "float4"
+/** The value types, under their HLSL names. `texture2D` is not one: it declares a slot. */
+export type TypeName = "float" | "float2" | "float3" | "float4" | "int" | "uint" | "bool"
 
 export const TYPE_WIDTH: Record<TypeName, 1 | 2 | 3 | 4> = {
-    float: 1, float2: 2, float3: 3, float4: 4,
+    float: 1, float2: 2, float3: 3, float4: 4, int: 1, uint: 1, bool: 1,
+}
+
+/** What a type holds beside its width; the floats hold nothing else. */
+export const TYPE_KIND: Record<TypeName, SLKind | undefined> = {
+    float: undefined, float2: undefined, float3: undefined, float4: undefined, int: "int", uint: "uint", bool: "bool",
 }
 
 export type BinaryOp =
     | "+" | "-" | "*" | "/" | "%"
     | "<" | "<=" | ">" | ">=" | "==" | "!="
     | "&&" | "||"
+    | "&" | "|" | "^" | "<<" | ">>"
 
 export type Expr =
-    | { k: "num"; value: number; pos: Pos }
+    /**
+     * `whole` is a number written with no point and no exponent, `3` not `3.0`:
+     * a float, except beside an int, where it is an int. `unsigned` is `3u`.
+     */
+    | { k: "num"; value: number; whole: boolean; unsigned?: boolean; pos: Pos }
+    | { k: "bool"; value: boolean; pos: Pos }
     | { k: "hex"; hex: string; pos: Pos }
     | { k: "ident"; name: string; pos: Pos }
     /** A swizzle, or the shape half of `sdf.circle`. Which one is decided later. */
     | { k: "member"; obj: Expr; name: string; pos: Pos }
     | { k: "call"; callee: Expr; args: Expr[]; pos: Pos }
-    | { k: "unary"; op: "-" | "+" | "!"; arg: Expr; pos: Pos }
+    | { k: "unary"; op: "-" | "+" | "!" | "~"; arg: Expr; pos: Pos }
     | { k: "binary"; op: BinaryOp; a: Expr; b: Expr; pos: Pos }
     | { k: "cond"; cond: Expr; then: Expr; else: Expr; pos: Pos }
 
-export type AssignOp = "=" | "+=" | "-=" | "*=" | "/=" | "%="
+export type AssignOp = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
+
+/** One `case` group of a switch: its labels, `null` for `default`, and its body without the closing break. */
+export interface SwitchCase {
+    labels: Array<Expr | null>
+    body: Stmt[]
+    /** Whether it ended in a break, which is dropped from `body`. */
+    closed: boolean
+    pos: Pos
+}
 
 export type Stmt =
     | { k: "var"; type: TypeName; name: string; init: Expr; pos: Pos }
     /** A compile time constant: usable as a value and as a `for` bound. */
     | { k: "const"; type: TypeName; name: string; init: Expr; pos: Pos }
+    /** `x++` is `x += 1`, with the 1 whole. */
     | { k: "assign"; target: Expr; op: AssignOp; value: Expr; pos: Pos }
     | { k: "if"; cond: Expr; then: Stmt[]; else: Stmt[]; pos: Pos }
-    | { k: "for"; counter: string; from: Expr; to: Expr; inclusive: boolean; step: Expr; body: Stmt[]; pos: Pos }
+    /** `for (type counter = from; cond; update)`: the update changes the counter and nothing else. */
+    | { k: "for"; type: TypeName; counter: string; from: Expr; cond: Expr; update: Extract<Stmt, { k: "assign" }>; body: Stmt[]; pos: Pos }
+    | { k: "while"; cond: Expr; body: Stmt[]; pos: Pos }
+    | { k: "break"; pos: Pos }
+    | { k: "continue"; pos: Pos }
+    /** Cases never fall through: each ends in break, return or continue, and the break is dropped here. */
+    | { k: "switch"; value: Expr; cases: SwitchCase[]; pos: Pos }
     | { k: "return"; value: Expr; pos: Pos }
 
 export interface Param {

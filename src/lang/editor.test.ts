@@ -86,13 +86,11 @@ describe("fixes", () => {
     })
 
     it("offers none where the rename would change what the program means", () => {
-        // mod floors and % truncates; ivec2 truncates; one argument atan is not atan2;
-        // int is a counter's type, and float would change what dividing it does.
+        // mod floors and % truncates; ivec2 truncates; one argument atan is not atan2.
         for (const body of [
             "return float4(mod(uv.x, 0.5), 0, 0, 1);",
             "return float4(ivec2(uv), 0, 1);",
             "return float4(atan(uv.x), 0, 0, 1);",
-            "int n = 3; return float4(n, 0, 0, 1);",
             "return gl_FragColor;",
         ]) {
             const e = refuse(main(body))
@@ -109,15 +107,13 @@ describe("GLSL names used as values", () => {
     })
 })
 
-describe("statements that do not exist", () => {
+describe("statements out of place", () => {
     it.each([
-        ["break", "there is no break: a for loop unrolls, so every iteration runs"],
-        ["continue", "there is no continue: a for loop unrolls, so every iteration runs"],
-        ["switch", "there is no switch; write it as an if and else if"],
-    ])("names %s", (word, text) => {
-        const body = word === "switch" ? "switch (uv.x) { }" : `${word};`
-        const e = refuse(`float4 main() {\n    for (int i = 0; i < 2; i++) { ${body} }\n    return #fff;\n}`)
-        expect(e.text.startsWith(text), e.text).toBe(true)
+        ["break", "break leaves a loop, or ends a switch's case, and this is in neither"],
+        ["continue", "continue starts a loop's next turn, and this is not in a loop"],
+    ])("names %s outside a loop", (word, text) => {
+        const e = refuse(`float4 main() {\n    if (uv.x > 0.5) { ${word}; }\n    return #fff;\n}`)
+        expect(e.text).toBe(text)
         expect(e.length).toBe(word.length)
     })
 })
@@ -139,6 +135,9 @@ describe("the word lists", () => {
             "    float s = 0;",
             "    for (int i = 0; i < 2; i++) { s += i; }",
             "    if (s > 1) { s = 1; } else { s = 0; }",
+            "    uint h = 7u; bool on = true || false;",
+            "    while (s < 4 && on) { s += float(h); if (s > 3) { break; } else { continue; } }",
+            "    switch (int(s)) { case 1: s = 2; break; default: s = 3; break; }",
             "    return tex2D(t, uv) * float4(c, a) + d + float4(b, s, k);",
             "}",
         ].join("\n")

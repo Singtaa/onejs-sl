@@ -232,13 +232,13 @@ describe("control flow", () => {
                 return float4(a, b, 0, 1);
             }
         `)
-        // Two locals changed, so two selects. They have to be given different
-        // values to count: two joins that pick between the same pair of
-        // constants are one node, because the IR interns as it builds.
-        expect(ops(p).filter((o) => o === SLOP.SELECT).length).toBe(2)
+        // One real branch with two results, one per local changed.
+        const ifs = p.nodes.filter((n) => n.k === "if")
+        expect(ifs.length).toBe(1)
+        expect(ifs[0]!.k === "if" && ifs[0]!.then.length).toBe(2)
         expect(p.hash).toBe(sl.program(({ uv, time }) => {
-            const cond = sl.float(1).sub(sl.step(uv.x, 0.5))
-            return sl.vec4(sl.select(cond, uv.y, 0), sl.select(cond, 1, time), 0, 1)
+            const [a, b] = sl.branch(uv.x.gt(0.5), () => [uv.y, 1], () => [0, time])
+            return sl.vec4(a!, b!, 0, 1)
         }).hash)
     })
 
@@ -251,7 +251,8 @@ describe("control flow", () => {
                 return float4(a, untouched, 0, 1);
             }
         `)
-        expect(ops(p).filter((o) => o === SLOP.SELECT).length).toBe(1)
+        const ifs = p.nodes.filter((n) => n.k === "if")
+        expect(ifs.length === 1 && ifs[0]!.k === "if" && ifs[0]!.then.length).toBe(1)
     })
 
     it("a constant condition folds away entirely", () => {
@@ -276,7 +277,7 @@ describe("control flow", () => {
                 return float4(a, 0, 0, 1);
             }
         `)
-        expect(ops(p).filter((o) => o === SLOP.SELECT).length).toBe(2)
+        expect(p.nodes.filter((n) => n.k === "if").length).toBe(2)
     })
 
     it("a for loop unrolls into the same program as writing each iteration out", () => {

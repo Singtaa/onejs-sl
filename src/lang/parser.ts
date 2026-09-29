@@ -13,7 +13,7 @@
 
 import {
     type AssignOp, type Attribute, type AttributeArg, type BinaryOp, type Expr, type FuncDecl, type Param, type Stmt,
-    type TextureDecl, type TypeName, type UniformDecl, type Unit,
+    type SwitchCase, type TextureDecl, type TypeName, type UniformDecl, type Unit,
 } from "./ast"
 import { SLParseError, tokenize, type Pos, type SLFix, type Token } from "./lexer"
 import { KEYWORD_SET, TYPE_SET } from "./words"
@@ -29,9 +29,16 @@ const NOT_A_TYPE: Record<string, string> = {
     vec2: "use float2",
     vec3: "use float3",
     vec4: "use float4",
-    int: "there are no integers; a whole number is a float, so write float",
-    uint: "there are no integers; a whole number is a float, so write float",
-    bool: "there is no bool; a comparison is a float that is 0 or 1",
+    int2: "there are no int vectors yet; use an int for each component",
+    int3: "there are no int vectors yet; use an int for each component",
+    int4: "there are no int vectors yet; use an int for each component",
+    uint2: "there are no uint vectors yet; use a uint for each component",
+    uint3: "there are no uint vectors yet; use a uint for each component",
+    uint4: "there are no uint vectors yet; use a uint for each component",
+    bool2: "there are no bool vectors; use a bool for each component",
+    bool3: "there are no bool vectors; use a bool for each component",
+    bool4: "there are no bool vectors; use a bool for each component",
+    ivec2: "there are no int vectors yet; use an int for each component",
     half: "use float; the IR has one precision",
     double: "use float; the IR has one precision",
     fixed: "use float; the IR has one precision",
@@ -52,13 +59,17 @@ const TYPE_FIX: Record<string, TypeName> = {
 const BINDING: Record<string, number> = {
     "||": 1,
     "&&": 2,
-    "==": 3, "!=": 3,
-    "<": 4, "<=": 4, ">": 4, ">=": 4,
-    "+": 5, "-": 5,
-    "*": 6, "/": 6, "%": 6,
+    "|": 3,
+    "^": 4,
+    "&": 5,
+    "==": 6, "!=": 6,
+    "<": 7, "<=": 7, ">": 7, ">=": 7,
+    "<<": 8, ">>": 8,
+    "+": 9, "-": 9,
+    "*": 10, "/": 10, "%": 10,
 }
 
-const ASSIGN_OPS = new Set(["=", "+=", "-=", "*=", "/=", "%="])
+const ASSIGN_OPS = new Set(["=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="])
 
 class Parser {
     private i = 0
@@ -170,7 +181,7 @@ class Parser {
         const to = TYPE_FIX[t.text]
         const fix = to === undefined ? undefined : { title: `Replace ${t.text} with ${to}`, replacement: to }
         if (why !== undefined) this.fail(`"${t.text}" is not a type here: ${why}`, t, fix)
-        this.fail(`"${t.text}" is not a type; the types are float, float2, float3 and float4`, t)
+        this.fail(`"${t.text}" is not a type; the types are float, float2, float3, float4, int, uint and bool`, t)
     }
 
     // MARK: the file
@@ -342,25 +353,21 @@ class Parser {
         if (t.text === "const") return this.parseConst()
         if (t.text === "if") return this.parseIf()
         if (t.text === "for") return this.parseFor()
-        if (t.text === "while" || t.text === "do") {
-            this.fail(
-                `there is no ${t.text} loop: a loop unrolls at build time, and only a for loop ` +
-                `with constant bounds can. See a for loop`,
-                t,
-            )
+        if (t.text === "while") return this.parseWhile()
+        if (t.text === "switch") return this.parseSwitch()
+        if (t.text === "do") {
+            this.fail("there is no do loop; write it as a while loop, `while (condition) { ... }`", t)
         }
         if (t.text === "discard") {
             this.fail("there is no discard; return a colour with alpha 0 instead", t)
         }
         if (t.text === "break" || t.text === "continue") {
-            this.fail(
-                `there is no ${t.text}: a for loop unrolls, so every iteration runs. Put the rest of ` +
-                `the body under an if instead`,
-                t,
-            )
+            this.next()
+            this.expect(";", `after ${t.text}`)
+            return { k: t.text, pos: t }
         }
-        if (t.text === "switch") {
-            this.fail("there is no switch; write it as an if and else if", t)
+        if (t.text === "case" || t.text === "default") {
+            this.fail(`${t.text} belongs inside a switch's braces`, t)
         }
         if (t.text === "return") {
             this.next()
@@ -390,20 +397,36 @@ class Parser {
             return { k: "var", type, name: name.text, init, pos: t }
         }
 
+        const s = this.parseSimple(t)
+        this.expect(";", "after an assignment")
+        return s
+    }
+
+    /**
+     * An assignment, or `x++`, `++x`, `x--`, `--x`, with no semicolon: a
+     * statement's body, and a for loop's update.
+     */
+    private parseSimple(t: Token): Extract<Stmt, { k: "assign" }> {
+        const one = (at: Token): Expr => ({ k: "num", value: 1, whole: true, pos: at })
+        if (t.text === "++" || t.text === "--") {
+            this.next()
+            const target = this.parseUnary()
+            return { k: "assign", target, op: t.text === "++" ? "+=" : "-=", value: one(t), pos: t }
+        }
         const target = this.parseExpr()
         const op = this.peek()
         if (op.kind === "punct" && ASSIGN_OPS.has(op.text)) {
             this.next()
             const value = this.parseExpr()
-            this.expect(";", "after an assignment")
             return { k: "assign", target, op: op.text as AssignOp, value, pos: t }
         }
         if (op.text === "++" || op.text === "--") {
-            this.fail(`${op.text} is only a for loop's update; write \`x = x + 1;\``, op)
+            this.next()
+            return { k: "assign", target, op: op.text === "++" ? "+=" : "-=", value: one(op), pos: t }
         }
         this.fail(
             "this statement has no effect. A statement is a declaration, an assignment, an if, a " +
-            "for or a return",
+            "loop, a switch or a return",
             t,
         )
     }
@@ -423,63 +446,88 @@ class Parser {
     }
 
     /**
-     * `for (int i = A; i < B; i++)`, and nothing more exotic than `i += K`.
-     *
-     * The shape is narrow because the loop UNROLLS: the counter is a compile
-     * time number, not a value, and every form this refuses is one where it
-     * could not be. Section 3.6 of the spec, and the error says so rather than
-     * leaving an author to guess which part offended.
+     * `for (int i = A; condition; update)`, where the update changes the
+     * counter: `i++`, `i--`, `i += k`, `i = i * 2`. The loop unrolls when its
+     * turns are known at build time and few, and is a real loop otherwise.
      */
     private parseFor(): Stmt {
         const kw = this.next()
         this.expect("(", "after for")
 
         const decl = this.peek()
-        if (decl.text !== "int" && decl.text !== "float") {
+        if (decl.kind !== "ident" || this.peek(1).kind !== "ident") {
             this.fail(
                 `a for loop starts by declaring its counter, as in \`for (int i = 0; i < 4; i++)\`, ` +
                 `got ${describe(decl)}`, decl,
             )
         }
-        this.next()
+        const type = this.expectType("the counter's type")
         const counter = this.expectName("a counter name")
         this.expect("=", "after the counter")
         const from = this.parseExpr()
         this.expect(";", "after the counter's start")
 
-        const lhs = this.expectIdent("the counter in the loop's condition")
-        if (lhs.text !== counter.text) {
-            this.fail(`this loop counts ${counter.text}, so its condition has to test ${counter.text}`, lhs)
-        }
-        const cmp = this.peek()
-        if (cmp.text !== "<" && cmp.text !== "<=") {
-            this.fail(
-                `a for loop counts up, so its condition is \`${counter.text} <\` or \`${counter.text} <=\`, ` +
-                `got ${describe(cmp)}`, cmp,
-            )
-        }
-        this.next()
-        const to = this.parseExpr()
-        this.expect(";", "after the loop's bound")
+        const cond = this.parseExpr()
+        this.expect(";", "after the loop's condition")
 
-        const up = this.expectIdent("the counter in the loop's update")
-        if (up.text !== counter.text) {
+        const up = this.peek()
+        const update = this.parseSimple(up)
+        const target = update.target.k === "ident" ? update.target.name : null
+        if (target !== counter.text) {
             this.fail(`this loop counts ${counter.text}, so its update has to change ${counter.text}`, up)
-        }
-        let step: Expr = { k: "num", value: 1, pos: up }
-        if (this.eat("++")) {
-            // nothing: the step is 1
-        } else if (this.eat("+=")) {
-            step = this.parseExpr()
-        } else {
-            this.fail(
-                `a for loop's update is \`${counter.text}++\` or \`${counter.text} += n\`, got ` +
-                `${describe(this.peek())}`, this.peek(),
-            )
         }
         this.expect(")", "after the loop's update")
         const body = this.parseBody()
-        return { k: "for", counter: counter.text, from, to, inclusive: cmp.text === "<=", step, body, pos: kw }
+        return { k: "for", type, counter: counter.text, from, cond, update, body, pos: kw }
+    }
+
+    private parseWhile(): Stmt {
+        const kw = this.next()
+        this.expect("(", "after while")
+        const cond = this.parseExpr()
+        this.expect(")", "after a while condition")
+        const body = this.parseBody()
+        return { k: "while", cond, body, pos: kw }
+    }
+
+    /**
+     * `switch (x) { case 0: ... break; case 1: case 2: ... return c; default: ... }`.
+     *
+     * Cases never fall through. Labels stack, and each group of them ends in a
+     * break, a return or a continue, which the checker holds it to; the closing
+     * break is dropped here, since leaving the switch is all it says.
+     */
+    private parseSwitch(): Stmt {
+        const kw = this.next()
+        this.expect("(", "after switch")
+        const value = this.parseExpr()
+        this.expect(")", "after the switch's value")
+        this.expect("{", "to open the switch's cases")
+        const cases: SwitchCase[] = []
+        while (!this.at("}")) {
+            const t = this.peek()
+            if (t.kind === "eof") this.fail("this switch is never closed", t)
+            if (t.text !== "case" && t.text !== "default") {
+                this.fail(`a switch holds cases, as in \`case 0: ... break;\`, got ${describe(t)}`, t)
+            }
+            const labels: Array<Expr | null> = []
+            while (this.at("case") || this.at("default")) {
+                if (this.next().text === "case") labels.push(this.parseExpr())
+                else labels.push(null)
+                this.expect(":", "after a case label")
+            }
+            const body: Stmt[] = []
+            while (!this.at("case") && !this.at("default") && !this.at("}")) {
+                if (this.peek().kind === "eof") this.fail("this switch is never closed", this.peek())
+                const s = this.recover(() => this.parseStmt(), "statement")
+                if (s !== null) body.push(s)
+            }
+            const closed = body.at(-1)?.k === "break"
+            if (closed) body.pop()
+            cases.push({ labels, body, closed, pos: t })
+        }
+        this.next()
+        return { k: "switch", value, cases, pos: kw }
     }
 
     // MARK: expressions
@@ -511,12 +559,12 @@ class Parser {
 
     private parseUnary(): Expr {
         const t = this.peek()
-        if (t.kind === "punct" && (t.text === "-" || t.text === "+" || t.text === "!")) {
+        if (t.kind === "punct" && (t.text === "-" || t.text === "+" || t.text === "!" || t.text === "~")) {
             this.next()
             return { k: "unary", op: t.text, arg: this.parseUnary(), pos: t }
         }
         if (t.text === "++" || t.text === "--") {
-            this.fail(`${t.text} is only a for loop's update`, t)
+            this.fail(`${t.text} changes a local, so it is a statement of its own, \`i++;\`, and not part of an expression`, t)
         }
         return this.parsePostfix(this.parsePrimary())
     }
@@ -551,7 +599,10 @@ class Parser {
 
     private parsePrimary(): Expr {
         const t = this.next()
-        if (t.kind === "number") return { k: "num", value: t.value!, pos: t }
+        if (t.kind === "number") return t.unsigned === true
+            ? { k: "num", value: t.value!, whole: true, unsigned: true, pos: t }
+            : { k: "num", value: t.value!, whole: t.whole === true, pos: t }
+        if (t.text === "true" || t.text === "false") return { k: "bool", value: t.text === "true", pos: t }
         if (t.kind === "hex") return { k: "hex", hex: t.text, pos: t }
         if (t.kind === "ident") return { k: "ident", name: t.text, pos: t }
         if (t.kind === "string") {
@@ -584,6 +635,8 @@ export interface ParseOptions {
      * nothing, and finding that out at parse time is the point.
      */
     requireMain?: boolean
+    /** What `/` does with two ints (`LowerOptions`). Undecided, so a parse can pick either. */
+    intDivision?: "truncate" | "float"
 }
 
 export function parseUnit(source: string, options: ParseOptions = {}): Unit {

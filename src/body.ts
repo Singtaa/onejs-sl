@@ -21,7 +21,7 @@
  * gives common subexpression elimination for free.
  */
 
-import { SLError, TYPE, valueAt, type InputName, type NodeRef, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
+import { INT_BOUNDS, SLError, TYPE, valueAt, type InputName, type NodeRef, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
 import { libClosure, LIB_FUNCTIONS } from "./lib"
 import { LIB_HLSL } from "./lib/hlsl"
 import { SLOP } from "./ops"
@@ -106,7 +106,10 @@ function kindLit(kind: SLKind, v: number): string {
 }
 
 /** The int range a float is held to on its way to an int, so every backend truncates the same. */
-export const INT_LIMITS = { int: ["-2147483648.0", "2147483520.0"], uint: ["0.0", "4294967040.0"] } as const
+export const INT_LIMITS = {
+    int: INT_BOUNDS.int.map((n) => lit(n)),
+    uint: INT_BOUNDS.uint.map((n) => lit(n)),
+} as const
 
 /** A literal that survives a float32 round trip and never reads as an int. */
 export function lit(n: number): string {
@@ -219,8 +222,9 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.BIT_OR: return `(${a[0]} | ${a[1]})`
             case SLOP.BIT_XOR: return `(${a[0]} ^ ${a[1]})`
             case SLOP.BIT_NOT: return `(~${a[0]})`
-            case SLOP.SHL: return `(${a[0]} << ${a[1]})`
-            case SLOP.SHR: return `(${a[0]} >> ${a[1]})`
+            // The count modulo 32, which HLSL does itself and GLSL leaves undefined past 31.
+            case SLOP.SHL: return `(${a[0]} << (${a[1]} & ${kindLit(valueAt(p.nodes, n.args[1]!).kind ?? "int", 31)}))`
+            case SLOP.SHR: return `(${a[0]} >> (${a[1]} & ${kindLit(valueAt(p.nodes, n.args[1]!).kind ?? "int", 31)}))`
             case SLOP.CHOOSE: return `(${a[0]} ? ${a[1]} : ${a[2]})`
 
             case SLOP.ADD: return `(${a[0]} + ${a[1]})`

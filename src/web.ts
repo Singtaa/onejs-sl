@@ -167,9 +167,9 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             case SLOP.BIT_OR: return `(${a[0]} | ${a[1]})`
             case SLOP.BIT_XOR: return `(${a[0]} ^ ${a[1]})`
             case SLOP.BIT_NOT: return `(~${a[0]})`
-            // WGSL shifts by a u32.
-            case SLOP.SHL: return W ? `(${a[0]} << u32(${a[1]}))` : `(${a[0]} << ${a[1]})`
-            case SLOP.SHR: return W ? `(${a[0]} >> u32(${a[1]}))` : `(${a[0]} >> ${a[1]})`
+            // The count modulo 32, which GLSL leaves undefined past 31; WGSL shifts by a u32.
+            case SLOP.SHL: return W ? `(${a[0]} << (u32(${a[1]}) & 31u))` : `(${a[0]} << (${a[1]} & ${kindLit(valueAt(p.nodes, n.args[1]!).kind ?? "int", 31)}))`
+            case SLOP.SHR: return W ? `(${a[0]} >> (u32(${a[1]}) & 31u))` : `(${a[0]} >> (${a[1]} & ${kindLit(valueAt(p.nodes, n.args[1]!).kind ?? "int", 31)}))`
             case SLOP.CHOOSE: return W ? `select(${a[2]}, ${a[1]}, ${a[0]})` : `(${a[0]} ? ${a[1]} : ${a[2]})`
 
             case SLOP.ADD: return `(${s[0]} + ${s[1]})`

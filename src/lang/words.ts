@@ -9,12 +9,11 @@
 
 import { TYPE_WIDTH, type TypeName } from "./ast"
 
-/**
- * Declaration and statement words. `int` is here rather than among the types
- * because it is only ever a for loop's counter, `for (int i = 0; i < 4; i++)`;
- * a value cannot be declared as one.
- */
-export const SL_KEYWORDS = ["uniform", "texture2D", "const", "if", "else", "for", "return", "int"] as const
+/** Declaration and statement words, and the two bool literals. */
+export const SL_KEYWORDS = [
+    "uniform", "texture2D", "const", "if", "else", "for", "while", "break", "continue", "switch", "case", "default",
+    "return", "true", "false",
+] as const
 
 /** The types a value, a uniform or a function can have. */
 export const SL_TYPES = Object.keys(TYPE_WIDTH) as readonly TypeName[]

@@ -152,7 +152,7 @@ describe("a .sl file and its EDSL twin are the same program", () => {
             return sl.vec4(v, v, v, 1)
         }))
 
-    pair("an if is sl.select", `
+    pair("an if is sl.branch", `
         float4 main() {
             float v = uv.x;
             if (uv.y > 0.5) {
@@ -162,8 +162,37 @@ describe("a .sl file and its EDSL twin are the same program", () => {
         }`,
         () => sl.program(({ uv }) => {
             const v = uv.x
-            const cond = sl.float(1).sub(sl.step(uv.y, 0.5))
-            return sl.vec4(sl.select(cond, v.mul(2), v), 0, 0, 1)
+            const [out] = sl.branch(uv.y.gt(0.5), () => [v.mul(2)], () => [v])
+            return sl.vec4(out!, 0, 0, 1)
+        }))
+
+    pair("an early return is the rest of the function on the other side", `
+        float4 main() {
+            float d = length(uv - 0.5);
+            if (d > 0.45) return float4(0, 0, 0, 0);
+            float v = fbm(uv * 4, 3);
+            return float4(v, v, v, 1);
+        }`,
+        () => sl.program(({ uv }) => {
+            const d = uv.sub(0.5).length()
+            const [out] = sl.branch(d.gt(0.45), () => [sl.vec4(0, 0, 0, 0)], () => {
+                const v = sl.fbm(uv.mul(4), 3)
+                return [sl.vec4(v, v, v, 1)]
+            })
+            return out as sl.Vec4
+        }))
+
+    pair("a for loop with a uniform bound is sl.loop, capped at the Range", `
+        [Range(1, 32)] uniform float count = 8;
+        float4 main() {
+            float v = 0;
+            for (int i = 0; i < count; i++) { v += 0.03; }
+            return float4(v, 0, 0, 1);
+        }`,
+        () => sl.program(() => {
+            const count = sl.uniform.float("count", 8, { range: { min: 1, max: 32 } })
+            const [, v] = sl.loop([sl.int(0), 0], ([i]) => sl.float(i!).lt(count), ([i, v]) => [i!.add(1), v!.add(0.03)], 32)
+            return sl.vec4(v!, 0, 0, 1)
         }))
 
     pair("a ?: is sl.select too", `

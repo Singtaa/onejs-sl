@@ -31,6 +31,10 @@ export interface Token extends Pos {
     text: string
     /** Numbers only: the parsed value. */
     value?: number
+    /** Numbers only: written with no point, no exponent and no `f`, as `3` or `0xff`. */
+    whole?: boolean
+    /** Numbers only: written with a `u`, as `3u`. */
+    unsigned?: boolean
     /** Strings only: the text between the quotes, with `\"` and `\\` read. */
     str?: string
 }
@@ -87,9 +91,10 @@ export class SLParseError extends SLError {
  * baffling about the second half.
  */
 const PUNCT = [
-    "<=", ">=", "==", "!=", "&&", "||", "++", "--", "+=", "-=", "*=", "/=", "%=",
+    "<<=", ">>=",
+    "<=", ">=", "==", "!=", "&&", "||", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<", ">>",
     "(", ")", "{", "}", "[", "]", ",", ";", ".", "+", "-", "*", "/", "%",
-    "<", ">", "!", "?", ":", "=",
+    "<", ">", "!", "?", ":", "=", "&", "|", "^", "~",
 ]
 
 /** Directives that exist in HLSL and deliberately do not exist here. */
@@ -185,6 +190,19 @@ export function lex(source: string, file: string, keep: boolean): Token[] | Lexe
             continue
         }
 
+        // A whole number in hex, as an integer hash writes its constants: `0x9E3779B9u`.
+        if (c === "0" && (source[i + 1] === "x" || source[i + 1] === "X") && isHex(source[i + 2] ?? "")) {
+            const start = here()
+            let j = i + 2
+            while (j < source.length && isHex(source[j]!)) j++
+            const text = source.slice(i, j)
+            const unsigned = source[j] === "u" || source[j] === "U"
+            if (unsigned) j++
+            push({ kind: "number", text, value: Number(text), whole: true, unsigned, ...start }, j)
+            i = j
+            continue
+        }
+
         if (isDigit(c) || (c === "." && isDigit(source[i + 1] ?? ""))) {
             const start = here()
             let j = i
@@ -196,15 +214,21 @@ export function lex(source: string, file: string, keep: boolean): Token[] | Lexe
                 if (isDigit(source[k] ?? "")) { k++; while (k < source.length && isDigit(source[k]!)) k++; j = k }
             }
             const text = source.slice(i, j)
+            let whole = /^[0-9]+$/.test(text)
+            let unsigned = false
             // HLSL's float suffix. Accepted and dropped: `1.0f` is the same
             // number, and refusing it would only teach the author that this is
-            // not quite the language they think it is.
-            if (source[j] === "f" || source[j] === "F") {
-                if (!isIdentPart(source[j + 1] ?? "")) j++
+            // not quite the language they think it is. It does make a float.
+            if ((source[j] === "f" || source[j] === "F") && !isIdentPart(source[j + 1] ?? "")) {
+                j++
+                whole = false
+            } else if ((source[j] === "u" || source[j] === "U") && whole && !isIdentPart(source[j + 1] ?? "")) {
+                j++
+                unsigned = true
             }
             const value = Number(text)
             if (!Number.isFinite(value)) fail(`"${text}" is not a number`, start, text.length)
-            else push({ kind: "number", text, value, ...start }, j)
+            else push({ kind: "number", text, value, whole, unsigned, ...start }, j)
             i = j
             continue
         }
