@@ -24,10 +24,10 @@
 
 import { parseColor as parseHex } from "./color"
 import {
-    Builder, INPUTS, RAMP_STOP_COMPUTED, SLError, TYPE, hashProgram, programVersion, widthName, writtenColour,
-    type InputName, type NodeRef, type Program, type SLNode, type SLType, type UniformControl,
+    Builder, INPUTS, RAMP_STOP_COMPUTED, SLError, TYPE, hashProgram, programVersion, truncateHeld, widthName, writtenColour,
+    type InputName, type NodeRef, type Program, type SLKind, type SLNode, type SLType, type UniformControl,
 } from "./ir"
-import { SLOP, type SLOpCode } from "./ops"
+import { SLOP, SL_HLSL, SL_NAME, type SLOpCode } from "./ops"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
 
 // MARK: values
@@ -55,7 +55,8 @@ export type Num = Val | number
 // point rather than a hazard; see the comment above that loop.
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class Val {
-    constructor(readonly owner: Builder, readonly ref: NodeRef, readonly width: SLType) {}
+    /** `kind` is what the value holds beside its width: an int, a uint or a bool. None means floats. */
+    constructor(readonly owner: Builder, readonly ref: NodeRef, readonly width: SLType, readonly kind?: SLKind) {}
 
     // Arithmetic. Mixing a vector with a Float broadcasts, as in HLSL.
     add(o: Num): this { return bin(SLOP.ADD, this, o) as this }
@@ -73,6 +74,11 @@ export class Val {
     min(o: Num): this { return bin(SLOP.MIN, this, o) as this }
     max(o: Num): this { return bin(SLOP.MAX, this, o) as this }
     clamp(lo: Num, hi: Num): this {
+        if ([this, lo, hi].some((v) => typeof v !== "number" && v.kind !== undefined)) {
+            const u = unify([this, lo, hi])
+            if (u.kind !== undefined) return mk(u.owner, u.owner.call(SLOP.CLAMP, u.width, u.refs, undefined, u.kind), u.width, u.kind) as this
+            return (mk(u.owner, u.refs[0]!, u.width) as Val).clamp(mk(u.owner, u.refs[1]!, u.width) as Val, mk(u.owner, u.refs[2]!, u.width) as Val) as this
+        }
         const { refs, width } = alignN([this, lo, hi])
         return mk(this.owner, this.owner.call(SLOP.CLAMP, width, refs), width) as this
     }
@@ -88,6 +94,27 @@ export class Val {
         return mk(this.owner, this.owner.call(SLOP.DOT, TYPE.FLOAT, [a, c]), TYPE.FLOAT)
     }
     normalize(): this { return un(SLOP.NORMALIZE, this) as this }
+
+    // Comparisons give a bool per component; an int meeting a float is compared as a float.
+    lt(o: Num): Bool { return compare(SLOP.LT, this, o) }
+    le(o: Num): Bool { return compare(SLOP.LE, this, o) }
+    gt(o: Num): Bool { return compare(SLOP.GT, this, o) }
+    ge(o: Num): Bool { return compare(SLOP.GE, this, o) }
+    eq(o: Num): Bool { return compare(SLOP.EQ, this, o) }
+    ne(o: Num): Bool { return compare(SLOP.NE, this, o) }
+
+    // Logic, on bools.
+    and(o: Val | boolean): Bool { return logic(SLOP.AND, this, o) }
+    or(o: Val | boolean): Bool { return logic(SLOP.OR, this, o) }
+    not(): Bool { return logic(SLOP.NOT, this) }
+
+    // Bits, on ints and uints. A shift takes its count modulo 32 on every backend.
+    band(o: Num): this { return bits(SLOP.BIT_AND, this, o) as this }
+    bor(o: Num): this { return bits(SLOP.BIT_OR, this, o) as this }
+    bxor(o: Num): this { return bits(SLOP.BIT_XOR, this, o) as this }
+    shl(o: Num): this { return bits(SLOP.SHL, this, o) as this }
+    shr(o: Num): this { return bits(SLOP.SHR, this, o) as this }
+    bnot(): this { return bits(SLOP.BIT_NOT, this) as this }
 
     /**
      * Arbitrary swizzle. The common single and full width ones are also getters
@@ -106,7 +133,7 @@ export class Val {
             chans.push(c)
         }
         const t = chans.length as SLType
-        return mk(this.owner, this.owner.add({ k: "swizzle", type: t, src: this.ref, chans }), t) as Widen<S>
+        return mk(this.owner, this.owner.add(withKind({ k: "swizzle", type: t, src: this.ref, chans }, this.kind)), t, this.kind) as Widen<S>
     }
 
     get x(): Float { return this.swz("x") }
@@ -160,9 +187,18 @@ export interface Float extends Val { readonly width: 1 }
 export interface Vec2 extends Val { readonly width: 2 }
 export interface Vec3 extends Val { readonly width: 3 }
 export interface Vec4 extends Val { readonly width: 4 }
+/** A value holding a bool, an int or a uint rather than floats. */
+export interface Bool extends Val { readonly width: 1; readonly kind: "bool" }
+export interface Int extends Val { readonly width: 1; readonly kind: "int" }
+export interface UInt extends Val { readonly width: 1; readonly kind: "uint" }
 
-function mk(b: Builder, ref: NodeRef, width: SLType): any {
-    return new Val(b, ref, width)
+function mk(b: Builder, ref: NodeRef, width: SLType, kind?: SLKind): any {
+    return new Val(b, ref, width, kind)
+}
+
+/** A node with its kind, which a float node leaves out so it keys and hashes as it always did. */
+function withKind<T extends SLNode>(n: T, kind: SLKind | undefined): T {
+    return kind === undefined ? n : { ...n, kind }
 }
 
 // MARK: recording context
@@ -233,17 +269,220 @@ function alignN(vs: Num[]): { refs: NodeRef[]; width: SLType } {
 
 /** float -> vecN by repeating the component. */
 function broadcast(v: Val, width: SLType): NodeRef {
-    return v.owner.add({ k: "swizzle", type: width, src: v.ref, chans: new Array(width).fill(0) })
+    return v.owner.add(withKind({ k: "swizzle", type: width, src: v.ref, chans: new Array(width).fill(0) }, v.kind))
 }
 
 function bin(op: SLOpCode, a: Val, o: Num): Val {
+    if (a.kind !== undefined || (typeof o !== "number" && o.kind !== undefined)) return kindedBin(op, a, o)
     const [x, y] = align2(a, o)
     const width = typeof o === "number" ? a.width : (Math.max(a.width, o.width) as SLType)
     return mk(a.owner, a.owner.call(op, width, [x, y]), width)
 }
 
 function un(op: SLOpCode, a: Val): Val {
+    if (a.kind !== undefined) {
+        if ((op === SLOP.NEG || op === SLOP.ABS) && a.kind === "int") return mk(a.owner, a.owner.call(op, a.width, [a.ref], undefined, a.kind), a.width, a.kind)
+        a = toFloat(a)
+    }
     return mk(a.owner, a.owner.call(op, a.width, [a.ref]), a.width)
+}
+
+// MARK: kinds (IR 4)
+
+/** The ops an int or a uint keeps its kind through. Anything else takes it as a float. */
+const INT_OPS = new Set<number>([SLOP.ADD, SLOP.SUB, SLOP.MUL, SLOP.DIV, SLOP.MOD, SLOP.MIN, SLOP.MAX, SLOP.CLAMP])
+
+/** A value as floats: itself when it already is, a conversion otherwise (a bool is 0 or 1). */
+export function toFloat(v: Val): Val {
+    if (v.kind === undefined) return v
+    return mk(v.owner, v.owner.call(SLOP.CAST, v.width, [v.ref]), v.width)
+}
+
+/**
+ * The operands of an op brought to one kind and one width.
+ *
+ * Two ints stay ints, and a whole number beside one is an int too. Anything
+ * else meeting a float, a bool among them, becomes a float, as HLSL converts
+ * it. An int and a uint are refused, since which one wins is a guess.
+ */
+function unify(vs: Num[]): { refs: NodeRef[]; width: SLType; kind: SLKind | undefined; owner: Builder } {
+    let owner: Builder | null = null
+    const kinds = new Set<SLKind | undefined>()
+    let width: SLType = 1
+    for (const v of vs) {
+        if (typeof v === "number") continue
+        if (owner === null) owner = v.owner
+        else if (v.owner !== owner) throw new SLError("a value from another program cannot be used in this one")
+        kinds.add(v.kind)
+        if (v.width > width) width = v.width
+    }
+    const b = owner ?? ctx()
+    if (kinds.has("int") && kinds.has("uint")) {
+        throw new SLError("cannot combine an int with a uint; convert one with int(...) or uint(...)")
+    }
+    let kind = kinds.size === 1 ? [...kinds][0] : undefined
+    if (kind === "bool") kind = undefined
+    if (kind !== undefined && vs.some((v) => typeof v === "number" && !Number.isInteger(v))) kind = undefined
+    const refs = vs.map((v) => {
+        if (typeof v === "number") return b.constant(new Array(width).fill(v), kind)
+        const x = kind === undefined ? toFloat(v) : v
+        if (x.width === width) return x.ref
+        if (x.width === 1) return broadcast(x, width)
+        throw new SLError(`cannot combine a ${widthName(x.width)} with a ${widthName(width)}`)
+    })
+    return { refs, width, kind, owner: b }
+}
+
+function kindedBin(op: SLOpCode, a: Val, o: Num): Val {
+    const { refs, width, kind, owner } = unify([a, o])
+    if (kind === undefined || !INT_OPS.has(op)) {
+        const x = mk(owner, refs[0]!, width) as Val
+        return bin(op, x, mk(owner, refs[1]!, width) as Val)
+    }
+    return mk(owner, owner.call(op, width, refs, undefined, kind), width, kind)
+}
+
+function compare(op: SLOpCode, a: Val, o: Num): Bool {
+    const { refs, width, kind, owner } = unify([a, o])
+    void kind
+    return mk(owner, owner.call(op, width, refs, undefined, "bool"), width, "bool")
+}
+
+/** A bool operand, a JS boolean made a constant. */
+function asBool(b: Builder, v: Val | boolean, what: string): Val {
+    if (typeof v === "boolean") return mk(b, b.constant([v ? 1 : 0], "bool"), 1, "bool")
+    if (v.kind !== "bool") throw new SLError(`${what} takes bools, and this is ${v.kind === undefined ? `a ${widthName(v.width)}` : `an ${v.kind}`}; compare it, as in x > 0`)
+    return v
+}
+
+function logic(op: SLOpCode, a: Val, o?: Val | boolean): Bool {
+    const name = op === SLOP.AND ? "&&" : op === SLOP.OR ? "||" : "!"
+    const x = asBool(a.owner, a, name)
+    if (o === undefined) return mk(a.owner, a.owner.call(op, x.width, [x.ref], undefined, "bool"), x.width, "bool")
+    const y = asBool(a.owner, o, name)
+    if (x.width !== y.width) throw new SLError(`cannot combine a bool${x.width} with a bool${y.width}`)
+    return mk(a.owner, a.owner.call(op, x.width, [x.ref, y.ref], undefined, "bool"), x.width, "bool")
+}
+
+function bits(op: SLOpCode, a: Val, o?: Num): Val {
+    const word = SL_HLSL[op]?.syntax ?? SL_NAME[op]
+    const intOnly = (v: Num) => {
+        if (typeof v === "number" ? !Number.isInteger(v) : v.kind !== "int" && v.kind !== "uint") {
+            throw new SLError(`${word} works on the bits of an int or a uint, and this is ${typeof v === "number" ? "a fraction" : v.kind === "bool" ? "a bool; use && or ||" : `a ${widthName(v.width)}`}`)
+        }
+    }
+    intOnly(a)
+    if (o === undefined) return mk(a.owner, a.owner.call(op, a.width, [a.ref], undefined, a.kind), a.width, a.kind)
+    intOnly(o)
+    // A shift's count is its own kind; the value shifted keeps its own.
+    if (op === SLOP.SHL || op === SLOP.SHR) {
+        const count = typeof o === "number" ? a.owner.constant([o], a.kind) : o.ref
+        return mk(a.owner, a.owner.call(op, a.width, [a.ref, count], undefined, a.kind), a.width, a.kind)
+    }
+    const { refs, width, kind, owner } = unify([a, o])
+    return mk(owner, owner.call(op, width, refs, undefined, kind), width, kind)
+}
+
+/** A conversion to `kind`, or to floats when it is undefined. A float to an int truncates toward zero, held to the int's range. */
+function convert(v: Num | boolean, kind: SLKind | undefined): Val {
+    const b = typeof v === "object" ? v.owner : ctx()
+    if (typeof v === "boolean") v = mk(b, b.constant([v ? 1 : 0], "bool"), 1, "bool") as Val
+    if (typeof v === "number") {
+        if (kind === undefined) return mk(b, b.constant([v]), 1)
+        if (kind === "bool") return mk(b, b.constant([v !== 0 ? 1 : 0], "bool"), 1, "bool")
+        // A whole number the kind holds is that number exactly (`747796405u`);
+        // anything else is a float converted, as the GPU would.
+        const exact = Number.isInteger(v) && (kind === "int" ? v >= -2147483648 && v <= 2147483647 : v >= 0 && v <= 4294967295)
+        return mk(b, b.constant([exact ? v : truncateHeld(v, kind)], kind), 1, kind)
+    }
+    if (v.kind === kind) return v
+    return mk(b, b.call(SLOP.CAST, v.width, [v.ref], undefined, kind), v.width, kind)
+}
+
+/** An int: a whole number, or a value converted, a float truncating toward zero. */
+export function int(v: Num | boolean): Int { return convert(v, "int") as Int }
+export function uint(v: Num | boolean): UInt { return convert(v, "uint") as UInt }
+/** A bool: true or false, or a value converted, where anything but zero is true. */
+export function bool(v: Num | boolean): Bool { return convert(v, "bool") as Bool }
+
+function choose(b: Builder, cond: Num | boolean, whenTrue: Num, whenFalse: Num): Val {
+    if (typeof cond === "boolean") return convertTo(cond ? whenTrue : whenFalse, whenTrue, whenFalse)
+    // What SELECT reads a float condition as, so the two agree.
+    const c = typeof cond === "number" ? asBool(b, cond >= 0.5, "a choice")
+        : cond.kind === "bool" ? cond : cond.kind === undefined ? cond.ge(0.5) : cond.ne(0)
+    if (c.width !== 1) throw new SLError("a choice takes one bool, and this is several; combine them with && or ||")
+    const { refs, width, kind, owner } = unify([whenTrue, whenFalse])
+    return mk(owner, owner.call(SLOP.CHOOSE, width, [c.ref, ...refs], undefined, kind), width, kind)
+}
+
+/** `v` as the type the two would unify to, for a choice whose condition is known. */
+function convertTo(v: Num, a: Num, c: Num): Val {
+    const { refs, width, kind, owner } = unify([a, c])
+    return mk(owner, v === a ? refs[0]! : refs[1]!, width, kind)
+}
+
+/**
+ * A real branch: only the side `cond` picks runs, and its results come back.
+ * Both sides give the same number of results, pairwise of one type; a plain
+ * number takes its partner's. A value only one side needs is computed only when
+ * that side runs.
+ */
+export function branch(cond: Val | boolean, whenTrue: () => Num[], whenFalse: () => Num[]): Val[] {
+    const b = ctx()
+    if (typeof cond === "boolean") return (cond ? whenTrue() : whenFalse()).map((v) => (typeof v === "number" ? float(v) : v))
+    const c = asBool(b, cond, "a branch")
+    if (c.width !== 1) throw new SLError("a branch takes one bool, and this is several; combine them with && or ||")
+    const t = whenTrue()
+    const f = whenFalse()
+    if (t.length !== f.length) throw new SLError(`a branch's sides give ${t.length} and ${f.length} results; they must give the same`)
+    const types = t.map((x, i) => pairType(x, f[i]!, i))
+    if (types.length === 0) return []
+    const node = b.add({ k: "if", cond: c.ref, then: t.map((v, i) => typed(b, v, types[i]!)), else: f.map((v, i) => typed(b, v, types[i]!)) })
+    return types.map((ty, i) => mk(b, b.add(withKind({ k: "proj", type: ty.width, src: node, index: i }, ty.kind)), ty.width, ty.kind))
+}
+
+/**
+ * A real loop. The values start as `init`; while `cond` of them holds, and
+ * fewer than `max` turns have run, they become `body` of them. What comes back
+ * is the values when it stops. `max` is what guarantees it stops: a loop that
+ * reaches it leaves as if its condition had failed.
+ */
+export function loop(init: Num[], cond: (v: Val[]) => Val | boolean, body: (v: Val[]) => Num[], max = 1024): Val[] {
+    const b = ctx()
+    if (!Number.isInteger(max) || max < 1) throw new SLError(`a loop's turn limit is a whole number from 1, got ${max}`)
+    const start = init.map((v) => (typeof v === "number" ? (float(v) as Val) : v))
+    const id = b.newLoop()
+    const params = start.map((v, i) => mk(b, b.add(withKind({ k: "param", type: v.width, loop: id, index: i }, v.kind)), v.width, v.kind) as Val)
+    const c = asBool(b, cond(params), "a loop's condition")
+    if (c.width !== 1) throw new SLError("a loop's condition is one bool, and this is several; combine them with && or ||")
+    const next = body(params)
+    if (next.length !== params.length) throw new SLError(`a loop carries ${params.length} values and its body gave ${next.length}`)
+    const ty = params.map((p) => ({ width: p.width, kind: p.kind }))
+    const node = b.add({
+        k: "loop", id, init: start.map((v) => v.ref), cond: c.ref,
+        next: next.map((v, i) => { pairType(params[i]!, v, i); return typed(b, v, ty[i]!) }), max,
+    })
+    return ty.map((t, i) => mk(b, b.add(withKind({ k: "proj", type: t.width, src: node, index: i }, t.kind)), t.width, t.kind))
+}
+
+interface ValType { width: SLType; kind: SLKind | undefined }
+
+/** The one type two results share, or why they do not. */
+function pairType(a: Num, c: Num, i: number): ValType {
+    if (typeof a === "number" && typeof c === "number") return { width: 1, kind: undefined }
+    if (typeof a === "number") return { width: (c as Val).width, kind: (c as Val).kind }
+    if (typeof c === "number") return { width: a.width, kind: a.kind }
+    if (a.width !== c.width || a.kind !== c.kind) {
+        const name = (v: Val) => (v.kind === undefined ? widthName(v.width) : v.width === 1 ? v.kind : `${v.kind}${v.width}`)
+        throw new SLError(`result ${i} is a ${name(a)} one way and a ${name(c)} the other`)
+    }
+    return { width: a.width, kind: a.kind }
+}
+
+/** A result as a node of its type, a plain number becoming a constant. */
+function typed(b: Builder, v: Num, t: ValType): NodeRef {
+    if (typeof v === "number") return b.constant(new Array(t.width).fill(v), t.kind)
+    return v.ref
 }
 
 // MARK: the public surface
@@ -302,7 +541,8 @@ export function program(fn: (inputs: ProgramInputs) => Vec4): Program {
 
 export function float(v: Num): Float {
     const b = ctx()
-    return typeof v === "number" ? mk(b, b.constant([v]), TYPE.FLOAT) : (v as Float)
+    if (typeof v !== "number") return (v.kind === undefined ? v : toFloat(v)) as Float
+    return mk(b, b.constant([v]), TYPE.FLOAT)
 }
 
 /** Builds a wider value from narrower parts, which must add up exactly. */
@@ -478,8 +718,12 @@ export function atan2(y: Num, x: Num): Float {
  * rather than an `if`: a real branch would have to survive both backends
  * identically, and this does not.
  */
-export function select(cond: Num, whenTrue: Num, whenFalse: Num): Val {
+export function select(cond: Num | boolean, whenTrue: Num, whenFalse: Num): Val {
     const b = ctx()
+    const kinded = (v: Num | boolean) => typeof v === "object" && v.kind !== undefined
+    // A bool condition, or results that are not floats: a choice, which carries
+    // any kind, where SELECT's arithmetic carries only floats (IR 4).
+    if (typeof cond === "boolean" || kinded(cond) || kinded(whenTrue) || kinded(whenFalse)) return choose(b, cond, whenTrue, whenFalse)
     const c = typeof cond === "number" ? float(cond) : cond
     const t = typeof whenTrue === "number" ? float(whenTrue) : whenTrue
     const f = typeof whenFalse === "number" ? float(whenFalse) : whenFalse

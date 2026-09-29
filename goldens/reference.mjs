@@ -101,3 +101,37 @@ export function probeProgramPixel(x, y) {
     const [cx, cy] = cellOf(sx, sy, n & 15, n >> 4, sign)
     return bits(hash21(cx, cy, 0), j & 3)
 }
+
+/**
+ * What corpus/int-ops.sl draws at uv: each channel 0 or 255, from int and uint
+ * arithmetic done here as the GPU does it. Division and remainder truncate, a
+ * zero divisor gives 0, a float converts held to MIN and MAX, a sum wraps, and
+ * a shift takes its count modulo 32.
+ */
+export function intOpsPixel(u, v) {
+    const cell = Math.floor(f(u * 8)) + 8 * Math.floor(f(v * 8))
+    const a = cell - 32, b = (cell % 5) - 2
+    let h = u32(mul(cell, 747796405) + 2891336453)
+    h = mul(u32((h >>> (((h >>> 28) + 4) & 31)) ^ h), 277803737)
+    h = u32(h ^ (h >>> 22))
+    const big = (Math.trunc(clamp(f(f(cell) * 1e9))) + 2147483647) | 0
+    const odd = (a & 1) !== 0
+    const neg = Math.trunc(a / 3) < 0 || a % 3 < 0
+    const mid = a >= -8 && a <= 8
+    const q = b === 0 ? a : Math.trunc(a / b)
+    const r = ((q | (mid ? 1 : 0)) % 2) !== 0
+    const g = ((h & 0xff) > 127) !== odd
+    const bl = ((big >> 31) & 1) ^ (neg ? 1 : 0) ^ ((~cell & ((1 << ((cell + 30) & 31)) >> 1)) !== 0 ? 1 : 0)
+    return [r ? 255 : 0, g ? 255 : 0, bl ? 255 : 0, 255]
+}
+
+/**
+ * What corpus/loop-cap.sl draws at uv, as linear values before the store: red
+ * 1 where a loop that never stops by itself left after exactly 1024 turns,
+ * green the odd counts a loop of continues kept, blue where a return left a loop.
+ */
+export function loopCapLinear(u, v) {
+    const odd = Math.floor(Math.trunc(f(u * 40)) / 2)
+    const j = Math.floor(f(v * 100)) + 1
+    return [1, odd / 20, j <= 99 ? j / 100 : 1]
+}

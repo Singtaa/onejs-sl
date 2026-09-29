@@ -101,6 +101,20 @@ export type ControlNode =
 
 export type SLNode = ValueNode | ControlNode
 
+/**
+ * A float to an int or a uint as the GPU converts one: as a 32 bit float,
+ * held to the widest such float the kind can hold, then truncated toward zero.
+ * The emitters clamp to these bounds, so a folded conversion
+ * and a computed one agree.
+ */
+export function truncateHeld(v: number, kind: "int" | "uint"): number {
+    const [lo, hi] = INT_BOUNDS[kind]
+    return Math.trunc(Math.min(hi, Math.max(lo, Math.fround(v))))
+}
+
+/** The widest 32 bit floats an int and a uint hold, which a conversion clamps to first. */
+export const INT_BOUNDS = { int: [-2147483648, 2147483520], uint: [0, 4294967040] } as const
+
 /** The value node at `ref`. A control node is only ever read through its projs. */
 export function valueAt(nodes: readonly SLNode[], ref: NodeRef): ValueNode {
     const n = nodes[ref]
@@ -337,6 +351,7 @@ export class Builder {
     constant(v: number[], kind?: SLKind): NodeRef {
         for (const n of v) {
             if (!Number.isFinite(n)) throw new SLError(`a constant must be finite, got ${n}`)
+            if (kind !== undefined && !Number.isInteger(n)) throw new SLError(`an ${kind} constant must be a whole number, got ${n}`)
         }
         const node: SLNode = { k: "const", type: v.length as SLType, v: v.slice() }
         if (kind !== undefined) node.kind = kind
@@ -429,7 +444,7 @@ export function inputsUsed(p: Program): InputName[] {
 function keyOf(n: SLNode): string {
     const kind = "kind" in n && n.kind !== undefined ? `@${n.kind}` : ""
     switch (n.k) {
-        case "const": return `c:${n.type}:${n.v.map(fixed).join(",")}${kind}`
+        case "const": return `c:${n.type}:${n.v.map((v) => constText(v, n.kind)).join(",")}${kind}`
         case "input": return `i:${n.name}`
         case "uniform": return `u:${n.slot}`
         case "swizzle": return `s:${n.src}:${n.chans.join("")}${kind}`
@@ -448,6 +463,11 @@ function keyOf(n: SLNode): string {
  */
 export function fixed(n: number): string {
     return Object.is(n, -0) ? "0" : n.toPrecision(9)
+}
+
+/** A constant's value as keyed and hashed: a float at `fixed`'s precision, an int, a uint or a bool exactly. */
+function constText(n: number, kind: SLKind | undefined): string {
+    return kind === undefined ? fixed(n) : String(n)
 }
 
 export function widthName(t: SLType): string {
@@ -517,7 +537,7 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
             // two loops nested in one another never share a digest for a param.
             case "param": body = `p:${depth.get(n.loop) ?? 1}:${n.index}`; break
             case "proj": body = `j:${of(n.src)}:${n.index}`; break
-            case "const": body = `c:${n.type}:${n.v.map(fixed).join(",")}`; break
+            case "const": body = `c:${n.type}:${n.v.map((v) => constText(v, n.kind)).join(",")}`; break
             case "input": body = `i:${n.name}`; break
             // By slot rather than by name: the slot is what the generated shader
             // lays out, so two programs whose uniforms differ only in name still
@@ -527,7 +547,7 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
             case "swizzle": {
                 const src = nodes[n.src]!
                 body = src.k === "const" && src.kind === n.kind
-                    ? `c:${n.type}:${n.chans.map((c) => fixed(src.v[c]!)).join(",")}`
+                    ? `c:${n.type}:${n.chans.map((c) => constText(src.v[c]!, src.kind)).join(",")}`
                     : `s:${of(n.src)}:${n.chans.join("")}`
                 break
             }

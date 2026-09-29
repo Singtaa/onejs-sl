@@ -33,7 +33,7 @@ import { TEXTURE_SLOTS, UNIFORM_SLOTS } from "../ops"
 import { SL_GLSL_HINT } from "../ops"
 import { BUILTINS, NOT_YET } from "./builtins"
 import { SL_SDF_SHAPES } from "../shapes"
-import type { Expr, FuncDecl, Stmt, Unit } from "./ast"
+import { TYPE_WIDTH, type Expr, type FuncDecl, type Stmt, type Unit } from "./ast"
 import { readAttributes } from "./attributes"
 import { SLParseError, type Pos, type SLFix } from "./lexer"
 
@@ -296,8 +296,15 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                 case "const": expr(s.init); return
                 case "assign": expr(s.value); return
                 case "if": expr(s.cond); s.then.forEach(stmt); s.else.forEach(stmt); return
-                case "for": expr(s.from); expr(s.to); expr(s.step); s.body.forEach(stmt); return
+                case "for": expr(s.from); expr(s.cond); stmt(s.update); s.body.forEach(stmt); return
+                case "while": expr(s.cond); s.body.forEach(stmt); return
+                case "switch":
+                    expr(s.value)
+                    for (const c of s.cases) { c.labels.forEach((l) => { if (l !== null) expr(l) }); c.body.forEach(stmt) }
+                    return
                 case "return": expr(s.value); return
+                case "break":
+                case "continue": return
             }
         }
         body.forEach(stmt)
@@ -314,31 +321,33 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
             })
             params.add(p.name)
         }
-        checkBody(fn, fn.body, new Set(params), true)
+        checkBody(fn, fn.body, new Set(params), { loop: false, switchCase: false })
+        if (!terminates(fn.body)) {
+            attempt(() => fail(
+                returnsSomewhere(fn.body)
+                    ? `not every way through ${fn.name} returns a ${fn.ret}; add a return at the end`
+                    : `${fn.name} never returns a ${fn.ret}`,
+                fn.pos, fn.name.length,
+            ))
+        }
     }
 
     /**
-     * `outermost` is the only place a `return` may stand.
-     *
-     * `Specs/SL_TEXT.md` 9.2: an `if` lowers to a `select`, which evaluates both
-     * sides, so there is nothing for an early return to skip. Refusing it is
-     * what keeps that cost honest rather than pretending a branch happened.
+     * `where` says what a break or a continue would leave. A break inside a
+     * case, other than the one that ends it, is refused: it would leave the
+     * switch early, which an if says more plainly.
      */
-    function checkBody(fn: FuncDecl, body: Stmt[], scope: Set<string>, outermost: boolean): void {
-        let returned: Stmt | null = null
+    function checkBody(fn: FuncDecl, body: Stmt[], scope: Set<string>, where: { loop: boolean; switchCase: boolean }): void {
+        let ended: Stmt | null = null
         for (const s of body) {
-            if (returned !== null) {
+            if (ended !== null) {
                 // Once: everything after it is the same mistake.
-                attempt(() => fail("this is after the return, so it can never run", s.pos))
+                attempt(() => fail(unreachable(ended!), s.pos))
                 break
             }
             attempt(() => checkStmt(s))
             if (s.k === "var" || s.k === "const") scope.add(s.name)
-            // Only the outermost return ends a body; one inside an if is refused as that.
-            if (s.k === "return" && outermost) returned = s
-        }
-        if (outermost && returned === null) {
-            attempt(() => fail(`${fn.name} never returns a ${fn.ret}`, fn.pos, fn.name.length))
+            if (terminates([s])) ended = s
         }
 
         function checkStmt(s: Stmt): void {
@@ -351,72 +360,116 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                     checkExpr(fn, s.init, scope)
                     break
                 }
-                case "assign": {
-                    // `p.x = 1` and `c.rgb *= 0.5` write the components they name
-                    // and keep the rest; lowering rebuilds the local from both.
-                    let target = s.target
-                    if (target.k === "member") {
-                        const sw = target.name
-                        if (!/^([xyzw]{1,4}|[rgba]{1,4})$/.test(sw)) {
-                            fail(`${sw} is not a swizzle that can be assigned to; name components with xyzw or rgba`, target.pos, sw.length)
-                        }
-                        if (new Set(sw).size !== sw.length) {
-                            fail(`${sw} names a component twice, so assigning to it would write one component two ways`, target.pos, sw.length)
-                        }
-                        target = target.obj
-                    }
-                    if (target.k !== "ident") fail("only a local can be assigned to", target.pos)
-                    const n = target.name
-                    // A local shadows what it is named after, a builtin or a
-                    // derived input, so it is assignable like any other local.
-                    const why = scope.has(n) ? null : taken(n)
-                    if (why !== null) fail(`"${n}" is ${why} and cannot be assigned to`, target.pos, n.length)
-                    if (counters.has(n)) {
-                        fail(
-                            `"${n}" is a loop counter. The loop unrolls and substitutes it as a ` +
-                            `number, so assigning to it would change nothing. Use another local`,
-                            target.pos, n.length,
-                        )
-                    }
-                    if (!scope.has(n)) unknown(n, scope, target.pos)
-                    checkExpr(fn, s.value, scope)
+                case "assign":
+                    checkAssign(s, scope)
                     break
-                }
                 case "if":
                     checkExpr(fn, s.cond, scope)
-                    checkBody(fn, s.then, new Set(scope), false)
-                    checkBody(fn, s.else, new Set(scope), false)
+                    checkBody(fn, s.then, new Set(scope), where)
+                    checkBody(fn, s.else, new Set(scope), where)
                     break
                 case "for": {
                     const clash = valueClash(s.counter)
                     if (clash !== null) fail(`"${s.counter}" already names ${clash}`, s.pos, s.counter.length)
                     if (scope.has(s.counter)) fail(`"${s.counter}" is already declared in this body`, s.pos)
                     checkExpr(fn, s.from, scope)
-                    checkExpr(fn, s.to, scope)
-                    checkExpr(fn, s.step, scope)
                     const inner = new Set(scope)
                     inner.add(s.counter)
+                    checkExpr(fn, s.cond, inner)
+                    checkExpr(fn, s.update.value, inner)
                     counters.add(s.counter)
                     try {
-                        checkBody(fn, s.body, inner, false)
+                        checkBody(fn, s.body, new Set(inner), { loop: true, switchCase: false })
                     } finally {
                         counters.delete(s.counter)
                     }
                     break
                 }
-                case "return":
-                    if (!outermost) {
+                case "while":
+                    checkExpr(fn, s.cond, scope)
+                    checkBody(fn, s.body, new Set(scope), { loop: true, switchCase: false })
+                    break
+                case "break":
+                    if (where.switchCase) {
                         fail(
-                            "a return inside an if or a for has nothing to skip: an if evaluates " +
-                            "both sides and a for unrolls, so there is no branch to leave early. " +
-                            "Assign to a local and return it once at the end, or use ?:",
-                            s.pos,
+                            "this break would leave the switch before the end of its case. Put the rest " +
+                            "of the case under an if instead",
+                            s.pos, 5,
                         )
                     }
+                    if (!where.loop) fail("break leaves a loop, or ends a switch's case, and this is in neither", s.pos, 5)
+                    break
+                case "continue":
+                    if (!where.loop) fail("continue starts a loop's next turn, and this is not in a loop", s.pos, 8)
+                    break
+                case "switch": {
+                    checkExpr(fn, s.value, scope)
+                    let defaults = 0
+                    for (const c of s.cases) {
+                        for (const l of c.labels) {
+                            if (l === null) {
+                                defaults++
+                                if (defaults > 1) fail("this switch already has a default", c.pos, 7)
+                            } else {
+                                checkExpr(fn, l, scope)
+                            }
+                        }
+                        if (c.body.length === 0 && !c.closed) {
+                            fail("this case has no body; a case that shares the next one's body stacks its label on it", c.pos, 4)
+                        }
+                        checkBody(fn, c.body, new Set(scope), { loop: where.loop, switchCase: true })
+                        if (!c.closed && !terminates(c.body)) {
+                            fail(
+                                "this case does not end in break or return. Cases never fall through into the " +
+                                "next one here, so end it with `break;`",
+                                c.pos, 4,
+                            )
+                        }
+                    }
+                    break
+                }
+                case "return":
                     checkExpr(fn, s.value, scope)
                     break
             }
         }
+
+        function checkAssign(s: Extract<Stmt, { k: "assign" }>, scope: Set<string>): void {
+            // `p.x = 1` and `c.rgb *= 0.5` write the components they name
+            // and keep the rest; lowering rebuilds the local from both.
+            let target = s.target
+            if (target.k === "member") {
+                const sw = target.name
+                if (!/^([xyzw]{1,4}|[rgba]{1,4})$/.test(sw)) {
+                    fail(`${sw} is not a swizzle that can be assigned to; name components with xyzw or rgba`, target.pos, sw.length)
+                }
+                if (new Set(sw).size !== sw.length) {
+                    fail(`${sw} names a component twice, so assigning to it would write one component two ways`, target.pos, sw.length)
+                }
+                target = target.obj
+            }
+            if (target.k !== "ident") fail("only a local can be assigned to", target.pos)
+            const n = target.name
+            // A local shadows what it is named after, a builtin or a
+            // derived input, so it is assignable like any other local.
+            const why = scope.has(n) ? null : taken(n)
+            if (why !== null) fail(`"${n}" is ${why} and cannot be assigned to`, target.pos, n.length)
+            if (counters.has(n)) {
+                fail(
+                    `"${n}" is a loop counter, which only the loop's update changes, so the loop's ` +
+                    `turns can be counted. Use another local`,
+                    target.pos, n.length,
+                )
+            }
+            if (!scope.has(n)) unknown(n, scope, target.pos)
+            checkExpr(fn, s.value, scope)
+        }
+    }
+
+    /** Why the statement after `s` never runs. */
+    function unreachable(s: Stmt): string {
+        if (s.k === "return" || s.k === "break" || s.k === "continue") return `this is after the ${s.k}, so it can never run`
+        return `this can never run: every way through the ${s.k} above ends in a return, break or continue`
     }
 
     // MARK: expressions
@@ -425,6 +478,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         switch (e.k) {
             case "num":
             case "hex":
+            case "bool":
                 return
             case "ident": {
                 if (scope.has(e.name) || INPUT_NAMES.has(e.name) || DERIVED_NAMES.has(e.name) || uniforms.has(e.name) || consts.has(e.name)) return
@@ -507,7 +561,8 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         }
         const n = callee.name
 
-        if (n === "float2" || n === "float3" || n === "float4" || n === "float") {
+        // A constructor, or a conversion: `float3(...)`, `int(x)`, `bool(x)`.
+        if (n in TYPE_WIDTH) {
             for (const a of e.args) checkExpr(fn, a, scope)
             if (e.args.length === 0) fail(`${n}() needs at least one component`, e.pos)
             return
@@ -647,4 +702,38 @@ function distance(a: string, b: string): number {
         }
     }
     return rows[a.length]![b.length]!
+}
+
+/**
+ * Whether a body ends on every way through it in a return, a break or a
+ * continue, so nothing after it runs. A loop never counts: its condition, or
+ * its turn limit, can always end it. The lowering reads this too, to put what
+ * follows an if into the side that does not end.
+ */
+export function terminates(body: Stmt[]): boolean {
+    return body.some((s) => {
+        switch (s.k) {
+            case "return":
+            case "break":
+            case "continue": return true
+            case "if": return terminates(s.then) && terminates(s.else)
+            // A case's break only ends the switch, so it counts only when every
+            // case leaves by some other way and a default leaves nothing out.
+            case "switch": return s.cases.some((c) => c.labels.includes(null)) && s.cases.every((c) => !c.closed && terminates(c.body))
+            default: return false
+        }
+    })
+}
+
+function returnsSomewhere(body: Stmt[]): boolean {
+    return body.some((s) => {
+        switch (s.k) {
+            case "return": return true
+            case "if": return returnsSomewhere(s.then) || returnsSomewhere(s.else)
+            case "for":
+            case "while": return returnsSomewhere(s.body)
+            case "switch": return s.cases.some((c) => returnsSomewhere(c.body))
+            default: return false
+        }
+    })
 }

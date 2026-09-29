@@ -75,9 +75,14 @@ describe("types", () => {
             .toThrow(/"vec3" is not a type here: use float3/)
     })
 
-    it("says why there is no int", () => {
-        expect(() => parse("float4 main() { int n = 3; return #fff; }"))
-            .toThrow(/there are no integers/)
+    it("says there are no int vectors yet", () => {
+        expect(() => parse("float4 main() { int2 n = 3; return #fff; }"))
+            .toThrow(/there are no int vectors yet/)
+    })
+
+    it("refuses a float where an int goes, with the conversion", () => {
+        expect(() => parse("float4 main() { int n = uv.x * 4; return float4(n, 0, 0, 1); }"))
+            .toThrow(/n is an int and this is a float; convert it with int\(\.\.\.\), which truncates toward zero/)
     })
 
     it("checks a declaration against what was assigned", () => {
@@ -180,9 +185,9 @@ describe("no message names the VM", () => {
     // The VM went in 0.3.0. An error that gives it as the reason sends an
     // author looking for a machine that is not there.
     const cases: Record<string, string> = {
-        "a while loop": "float4 main() { while (1) { } return #fff; }",
-        "a long loop": "float4 main() { float v = 0; for (int i = 0; i < 500; i++) { v = v + uv.x; } return float4(v, 0, 0, 1); }",
-        "a computed bound": "uniform float n = 3;\nfloat4 main() { float v = 0; for (int i = 0; i < n; i++) { v = v + uv.x; } return float4(v, 0, 0, 1); }",
+        "a switch on a float": "float4 main() { switch (uv.x) { default: break; } return #fff; }",
+        "a case that falls through": "float4 main() { float v = 0; switch (int(uv.x * 4)) { case 0: v = 1; case 1: v = 2; break; } return float4(v, 0, 0, 1); }",
+        "a vector condition": "float4 main() { float v = 0; while (uv < 0.5) { v += 1; } return float4(v, 0, 0, 1); }",
     }
     for (const [what, source] of Object.entries(cases)) {
         it(`for ${what}`, () => {
@@ -211,13 +216,12 @@ describe("caps", () => {
 })
 
 describe("control flow", () => {
-    it("refuses a return inside an if, and offers the alternative", () => {
+    it("refuses a function that returns on only some ways through", () => {
         expect(() => parse(`
             float4 main() {
                 if (uv.x > 0.5) { return #fff; }
-                return #000;
             }
-        `)).toThrow(/has nothing to skip.*or use \?:/s)
+        `)).toThrow(/not every way through main returns a float4; add a return at the end/)
     })
 
     it("refuses code after a return", () => {
@@ -229,30 +233,34 @@ describe("control flow", () => {
         `)).toThrow(/after the return, so it can never run/)
     })
 
-    it("refuses a while loop and says which loop it can compile", () => {
-        expect(() => parse("float4 main() { while (1) { } return #fff; }"))
-            .toThrow(/only a for loop with constant bounds can/)
-    })
-
-    it("refuses a loop bound that is not constant", () => {
-        expect(() => parse(`
-            uniform float count = 4;
-            float4 main() {
-                float v = 0;
-                for (int i = 0; i < count; i++) { v = v + 1; }
-                return float4(v, 0, 0, 1);
-            }
-        `)).toThrow(/its bound has to be a constant/)
-    })
-
-    it("refuses a loop that would unroll past the ceiling", () => {
+    it("refuses code after a break", () => {
         expect(() => parse(`
             float4 main() {
                 float v = 0;
-                for (int i = 0; i < 500; i++) { v = v + uv.x; }
+                while (v < 4) { v += 1; break; v = 9; }
                 return float4(v, 0, 0, 1);
             }
-        `)).toThrow(/more than 64 iterations/)
+        `)).toThrow(/this is after the break, so it can never run/)
+    })
+
+    it("refuses a break that would leave a case early", () => {
+        expect(() => parse(`
+            float4 main() {
+                float v = 0;
+                switch (int(uv.x * 4)) { case 0: if (uv.y > 0.5) { break; } v = 1; break; default: break; }
+                return float4(v, 0, 0, 1);
+            }
+        `)).toThrow(/this break would leave the switch before the end of its case/)
+    })
+
+    it("refuses a case label twice", () => {
+        expect(() => parse(`
+            float4 main() {
+                float v = 0;
+                switch (int(uv.x * 4)) { case 1: v = 1; break; case 1: v = 2; break; }
+                return float4(v, 0, 0, 1);
+            }
+        `)).toThrow(/this switch already has a case 1/)
     })
 
     it("refuses assigning to a loop counter", () => {

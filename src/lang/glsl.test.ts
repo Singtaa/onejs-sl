@@ -160,8 +160,7 @@ describe("rewrites that keep the meaning", () => {
     it("turns an early return into returning the colour", () => {
         const r = convert(image("if (fragCoord.x > 10.0) { fragColor = vec4(1); return; } fragColor = vec4(0);"))
         expect(r.source).toContain("return fragColor; }")
-        // A return inside an if is refused until real control flow lands (Specs/SL_NEXT.md 3a).
-        expect(r.errors.map((e) => e.text)[0]).toMatch(/^a return inside an if/)
+        expect(r.errors).toEqual([])
     })
 })
 

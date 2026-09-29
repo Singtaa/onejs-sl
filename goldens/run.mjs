@@ -4,7 +4,7 @@
  *
  *     node goldens/run.mjs              # CHROME=/path/to/chrome to choose one
  *
- * The two backends have to agree within 1/255, and three anchor fixtures have
+ * The two backends have to agree within 1/255, and the anchor fixtures have
  * to match arithmetic rather than each other: `orient.sl` (orientation and the
  * linear to sRGB store), `hex.sl` (a hex colour stores as written) and
  * `texture.sl` (a texture's orientation and its sRGB decode). Two backends can
@@ -35,7 +35,7 @@ import os from "node:os"
 import path from "node:path"
 import vm from "node:vm"
 import { fixtureSources } from "../corpus/fixtures.mjs"
-import { PROBE_PIXELS, probeProgramPixel } from "./reference.mjs"
+import { PROBE_PIXELS, intOpsPixel, loopCapLinear, probeProgramPixel } from "./reference.mjs"
 
 const HERE = import.meta.dirname
 const TIMES = [0, 1.25]
@@ -189,6 +189,10 @@ const anchors = {
     "fbm-values.sl": { tolerance: 0, expect: () => [0, 0, 0, 255] },
     // Shapes measured with value parameters and with constants, black where they agree.
     "sdf-values.sl": { tolerance: 0, expect: () => [0, 0, 0, 255] },
+    // Ints and uints worked out here, each channel 0 or 1.
+    "int-ops.sl": { tolerance: 0, expect: (u, v) => intOpsPixel(u, v) },
+    // A loop leaving at its turn limit, exactly; green and blue are stored floats, so within 1.
+    "loop-cap.sl": { tolerance: 1, expect: (u, v) => loopCapLinear(u, v).map(encode).concat(255) },
     // Four bands, each one mip level: the image, then the three solid levels.
     "lod.sl": {
         tolerance: 2,
