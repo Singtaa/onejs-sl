@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0
+
+Real control flow: an `if` runs only the side it picks, a loop that cannot unroll runs as a loop, and `int`, `uint` and `bool` are types. A program with an `if` statement gets a new hash, which a build regenerates; every other program keeps its hash and its shader.
+
+- `if` is a real branch, and `return` works anywhere
+- `while`, `break`, `continue` and `switch`; a case never falls through
+- A `for` unrolls when its turns are known, 64 or fewer, and nothing leaves early; any other loop is real, with a turn limit
+- `int`, `uint` and `bool`; two ints divide toward zero; bit operators and `5u` literals
+- Braces on their own are a block with its own scope
+- A local declared without a value holds zero
+- `sl.branch` and `sl.loop` record control flow from code
+- IR 4: `if`, `loop`, `param` and `proj` nodes and int, uint and bool values; a program without them stays IR 3
+- `fromGLSL` keeps `int`, `uint` and `bool`
+
 ## 0.4.0
 
 Every hash changes once, so a program built in code is recorded again: run the app in the editor once, then build. A program from a `.sl` file needs only the app rebuilt. A host reading programs as JSON reads 0.3.0's files as before.

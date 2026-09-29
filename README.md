@@ -341,27 +341,44 @@ IR 2 came with #129. A shape takes as many parameters as it reads
 used to take four and lose the rest. IR 3 added `SAMPLE_LOD`, and made an
 SDF's shape parameters and a noise's octave count operands, where they were
 immediates, so they can be any value; a constant one still prints as its
-number. `fromJSON` moves an older file's immediates to operands.
+number. `fromJSON` moves an older file's immediates to operands. IR 4 added
+control flow (the `if` and `loop` nodes, a loop's `param`s and each result's
+`proj`) and int, uint and bool values (a node's `kind`). A program that uses
+none of them is still IR 3 and keeps its hash; one with an `if` statement is
+IR 4, since the statement is now a real branch rather than a select.
 
 ## Control flow
 
-There is none in the IR, deliberately. `sl.select`, `sl.step`, `sl.smoothstep` and
-`sl.mix` cover branching without branching, and `sl.repeat(n, body, seed)`
-unrolls at record time because `n` is a JavaScript number.
+IR 4 has it: an `if` node runs one of its two regions and gives back their
+results, and a `loop` node carries its values through turns while its
+condition holds. `sl.branch(cond, whenTrue, whenFalse)` and
+`sl.loop(init, cond, body, max)` record them, and the text form lowers `if`,
+`for`, `while`, `break`, `continue`, `switch` and a `return` anywhere onto the
+two (`src/lang/lower.ts` says how: a return or break that only some ways
+through reach is a flag, and what follows runs under a branch on it). No
+emitter ever prints a statement that returns or breaks from inside a region;
+every one prints the same structured body.
 
-`repeat` is honest about being a macro rather than a loop. It covers fbm,
-layered noise and small iterated distance fields, which is most of what 2D
-shaders loop for. A loop with a runtime count is `Specs/SL_NEXT.md` proposal
-3b. Because it unrolls, the count multiplies the body's operation count.
-`compile` has no ceiling, so a long program costs what it costs, as any shader
-does; `corpus/long.sl` is over a thousand operations.
+`structure.ts` decides where each node is computed: in the innermost region
+every use of it is inside. A value only a branch needs is computed only when
+the branch runs, one only a loop's body reads is computed each turn, and one
+needed on both sides is computed once, before either. It also marks the
+regions whose flow differs between neighbouring pixels, where a texture
+sample has no neighbours to take its mip level from; every emitter samples
+level 0 there, so every backend draws the same picture.
 
-Every loop that reaches a GPU is therefore bounded by a constant: `repeat` is
-unrolled, fbm's octaves are held to 1 to 4 even when the count is a value, the
-helper loops in the noise and Voronoi functions have fixed trip counts. No program can hang a GPU today,
-so the compiled backends carry no loop cap. A data dependent loop (the
-raymarching tier) would need one emitted into every loop it prints, since a GPU
-reset takes the whole page's device, Unity's included.
+A `for` in the text form still unrolls when its turns are known, are 64 or
+fewer, and nothing in it leaves early, and `sl.repeat(n, body, seed)` still
+unrolls at record time because `n` is a JavaScript number. Everything else is
+a real loop.
+
+Every real loop has a turn limit, `max`, emitted into the loop itself: the
+count a constant bound gives, the `[Range]` maximum of a uniform bound, or
+1024 when the bound says neither. A loop that reaches it leaves as if its
+condition had failed. That is what keeps a data dependent loop, a ray march
+say, from hanging a GPU, whose reset takes the whole page's device, Unity's
+included. `Tools/sl-loop-timing` in the container times a loop that breaks
+early against the same maths unrolled, on each backend.
 
 ## See also
 
