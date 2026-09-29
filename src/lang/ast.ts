@@ -74,6 +74,8 @@ export type Stmt =
     /** Cases never fall through: each ends in break, return or continue, and the break is dropped here. */
     | { k: "switch"; value: Expr; cases: SwitchCase[]; pos: Pos }
     | { k: "return"; value: Expr; pos: Pos }
+    /** `{ ... }` on its own: a body with its own scope, as a case's braces are. */
+    | { k: "block"; body: Stmt[]; pos: Pos }
 
 export interface Param {
     type: TypeName

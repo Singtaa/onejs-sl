@@ -303,6 +303,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                     for (const c of s.cases) { c.labels.forEach((l) => { if (l !== null) expr(l) }); c.body.forEach(stmt) }
                     return
                 case "return": expr(s.value); return
+                case "block": s.body.forEach(stmt); return
                 case "break":
                 case "continue": return
             }
@@ -431,6 +432,9 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                 case "return":
                     checkExpr(fn, s.value, scope)
                     break
+                case "block":
+                    checkBody(fn, s.body, new Set(scope), where)
+                    break
             }
         }
 
@@ -469,7 +473,8 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
     /** Why the statement after `s` never runs. */
     function unreachable(s: Stmt): string {
         if (s.k === "return" || s.k === "break" || s.k === "continue") return `this is after the ${s.k}, so it can never run`
-        return `this can never run: every way through the ${s.k} above ends in a return, break or continue`
+        const above = s.k === "block" ? "braces" : s.k
+        return `this can never run: every way through the ${above} above ends in a return, break or continue`
     }
 
     // MARK: expressions
@@ -717,6 +722,7 @@ export function terminates(body: Stmt[]): boolean {
             case "break":
             case "continue": return true
             case "if": return terminates(s.then) && terminates(s.else)
+            case "block": return terminates(s.body)
             // A case's break only ends the switch, so it counts only when every
             // case leaves by some other way and a default leaves nothing out.
             case "switch": return s.cases.some((c) => c.labels.includes(null)) && s.cases.every((c) => !c.closed && terminates(c.body))
@@ -730,6 +736,7 @@ function returnsSomewhere(body: Stmt[]): boolean {
         switch (s.k) {
             case "return": return true
             case "if": return returnsSomewhere(s.then) || returnsSomewhere(s.else)
+            case "block": return returnsSomewhere(s.body)
             case "for":
             case "while": return returnsSomewhere(s.body)
             case "switch": return s.cases.some((c) => returnsSomewhere(c.body))

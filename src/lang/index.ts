@@ -42,7 +42,7 @@ export { BUILTINS, NOT_YET } from "./builtins"
 
 /** Source text to a recorded program. Throws `SLParseError` with a line and a column. */
 export function parse(source: string, options: ParseOptions = {}): Program {
-    return lower(analyze(source, options), undefined, options)
+    return lower(analyze(source, options))
 }
 
 /**
@@ -74,7 +74,7 @@ export function diagnose(source: string, options: ParseOptions = {}): SLParseErr
         const unit = parseUnit(source, { ...options, errors })
         if (errors.length === 0) {
             const checked = check(unit, preludeFunctions(), { requireMain: options.requireMain, errors })
-            if (errors.length === 0) lower(checked, errors, options)
+            if (errors.length === 0) lower(checked, errors)
         }
     } catch (e) {
         // The lexer's, which stops at the first character it cannot read.

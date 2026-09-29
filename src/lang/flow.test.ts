@@ -37,8 +37,8 @@ const placedInRoot = (p: Program, op: number) => {
 }
 
 /** A program's one result as a number, when it folds that far. */
-const folded = (source: string, options = {}) => {
-    const p = parse(`float4 main() { ${source} }`, options)
+const folded = (source: string) => {
+    const p = parse(`float4 main() { ${source} }`)
     const out = p.nodes[p.result]!
     if (out.k !== "const") throw new Error(`did not fold: ${out.k}`)
     return out.v[0]
@@ -198,9 +198,25 @@ describe("switch", () => {
         }`
 
     it("is an if chain, one arm per case, stacked labels sharing one", () => {
-        const p = parse(modes.replace("float t;", "float t = 0;"))
+        const p = parse(modes)
         expect(kinds(p, "if").length).toBe(3)
         printsEverywhere(p)
+    })
+
+    it("takes a case's body in braces, the closing break inside them or after", () => {
+        const braced = modes
+            .replace("case 0: t = uv.x; break;", "case 0: { float a = uv.x; t = a; break; }")
+            .replace("case 1: t = uv.y; break;", "case 1: { float a = uv.y; t = a; } break;")
+        const p = parse(braced)
+        expect(kinds(p, "if").length).toBe(3)
+        expect(p.hash).toBe(parse(modes).hash)
+        printsEverywhere(p)
+        expect(folded("int m = 1; float v = 0; switch (m) { case 0: { v = 0.25; break; } case 1: { float q = 0.5; v = q; break; } default: { v = 1; break; } } return float4(v, 0, 0, 1);")).toBe(0.5)
+    })
+
+    it("still refuses a break that would leave a braced case early", () => {
+        expect(() => parse("float4 main() { float v = 0; switch (int(uv.x * 2)) { case 0: { if (uv.y > 0.5) break; v = 1; break; } default: break; } return float4(v, 0, 0, 1); }"))
+            .toThrow(/this break would leave the switch before the end of its case/)
     })
 
     it("folds on a constant", () => {
@@ -220,17 +236,54 @@ describe("switch", () => {
     })
 })
 
-describe("ints", () => {
-    it("divide as whole numbers under truncate, toward zero, and give 0 for a zero divisor", () => {
-        const div = (a: number, b: number) => folded(`int n = ${a} / ${b}; return float4(n, 0, 0, 1);`)
-        expect([div(7, 2), div(-7, 2), div(7, 0)]).toEqual([3, -3, 0])
+describe("blocks", () => {
+    it("give their locals a scope of their own", () => {
+        expect(folded("float r = 0; { float q = 0.25; r += q; } { float q = 0.5; r += q; } return float4(r, 0, 0, 1);")).toBe(0.75)
+        expect(() => parse("float4 main() { { float q = 0.3; } return float4(q, 0, 0, 1); }")).toThrow(/"q" is not declared/)
     })
 
-    it("divide as floats under float, and refuse the result into an int with the conversion", () => {
-        expect(folded("float f = 7 / 2; return float4(f, 0, 0, 1);", { intDivision: "float" })).toBe(3.5)
-        expect(() => parse("float4 main() { int a = 7; int n = a / 2; return float4(n, 0, 0, 1); }", { intDivision: "float" }))
-            .toThrow(/\/ always divides as floats. To divide as whole numbers, write int\(a \/ b\)/)
-        expect(folded("int a = 7; int n = int(a / 2); return float4(n, 0, 0, 1);", { intDivision: "float" })).toBe(3)
+    it("change nothing about a real loop they sit in: what it carries, its break, its return", () => {
+        const loop = (body: string) => parse(`
+            [Range(0, 200)] uniform int n = 100;
+            float4 main() {
+                float r = 0;
+                for (int i = 0; i < n; i++) { ${body} }
+                return float4(r, 0, 0, 1);
+            }`).hash
+        for (const body of ["r += 0.01;", "if (r > uv.x) break; r += 0.01;", "if (r > uv.x) return #ff0000; r += 0.01;"]) {
+            expect(loop(`{ ${body} }`)).toBe(loop(body))
+        }
+    })
+
+    it("return from inside, and nothing after braces that always return runs", () => {
+        printsEverywhere(parse("float4 main() { if (uv.x > 0.5) { { return #ff0000; } } return #0000ff; }"))
+        expect(() => parse("float4 main() { { return #ff0000; } float x = 1; return float4(x, 0, 0, 1); }"))
+            .toThrow(/this can never run: every way through the braces above ends/)
+    })
+})
+
+describe("a local declared without a value", () => {
+    it("holds zero, or false, until it is assigned", () => {
+        expect(folded("float t; return float4(t, 0, 0, 1);")).toBe(0)
+        expect(folded("int n; n += 3; return float4(n, 0, 0, 1);")).toBe(3)
+        const u = parse("float4 main() { uint u; return float4(u, 0, 0, 1); }")
+        expect(u.nodes.filter((n) => n.k === "const" && n.kind === "uint").map((n) => (n as { v: number[] }).v)).toEqual([[0]])
+        expect(folded("bool b; return float4(b ? 1 : 0.5, 0, 0, 1);")).toBe(0.5)
+        const vec = (decl: string) => parse(`float4 main() { ${decl} c.y = uv.x; return float4(c, 1); }`).hash
+        expect(vec("float3 c;")).toBe(vec("float3 c = 0;"))
+    })
+
+    it("takes its value from whichever side of a branch assigns it", () => {
+        const p = parse("float4 main() { float t; if (uv.x > 0.5) t = 0.7; else t = 0.2; return float4(t, 0, 0, 1); }")
+        expect(p.hash).toBe(parse("float4 main() { float t = 0; if (uv.x > 0.5) t = 0.7; else t = 0.2; return float4(t, 0, 0, 1); }").hash)
+        printsEverywhere(p)
+    })
+})
+
+describe("ints", () => {
+    it("divide as whole numbers, toward zero as HLSL does, and give 0 for a zero divisor", () => {
+        const div = (a: number, b: number) => folded(`int n = ${a} / ${b}; return float4(n, 0, 0, 1);`)
+        expect([div(7, 2), div(-7, 2), div(7, 0)]).toEqual([3, -3, 0])
     })
 
     it("keep a whole number a float until it meets an int", () => {

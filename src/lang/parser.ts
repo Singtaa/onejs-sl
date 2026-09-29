@@ -350,6 +350,7 @@ class Parser {
     private parseStmt(): Stmt {
         const t = this.peek()
 
+        if (t.text === "{") return { k: "block", body: this.parseBlock(), pos: t }
         if (t.text === "const") return this.parseConst()
         if (t.text === "if") return this.parseIf()
         if (t.text === "for") return this.parseFor()
@@ -391,9 +392,17 @@ class Parser {
                     this.peek(),
                 )
             }
-            this.expect("=", `after ${name.text}; every local is declared with a value`)
-            const init = this.parseExpr()
-            this.expect(";", "after a declaration")
+            // A local declared without a value holds zero, or false, until it
+            // is assigned: the same on every backend, where HLSL leaves it
+            // undefined.
+            let init: Expr
+            if (this.eat(";")) {
+                init = zeroOf(type, name)
+            } else {
+                this.expect("=", `after ${name.text}, or ";" to declare it holding zero`)
+                init = this.parseExpr()
+                this.expect(";", "after a declaration")
+            }
             return { k: "var", type, name: name.text, init, pos: t }
         }
 
@@ -522,9 +531,7 @@ class Parser {
                 const s = this.recover(() => this.parseStmt(), "statement")
                 if (s !== null) body.push(s)
             }
-            const closed = body.at(-1)?.k === "break"
-            if (closed) body.pop()
-            cases.push({ labels, body, closed, pos: t })
+            cases.push({ labels, body, closed: dropClosingBreak(body), pos: t })
         }
         this.next()
         return { k: "switch", value, cases, pos: kw }
@@ -617,6 +624,26 @@ class Parser {
     }
 }
 
+/** What a local declared without a value holds: zero in each component, or false. */
+function zeroOf(type: TypeName, at: Pos): Expr {
+    if (type === "bool") return { k: "bool", value: false, pos: at }
+    return { k: "num", value: 0, whole: type === "int" || type === "uint", unsigned: type === "uint" || undefined, pos: at }
+}
+
+/**
+ * Whether a case's body ends in the break that closes it, which is dropped,
+ * since leaving the switch is all it says. The break may be the last thing
+ * inside braces that are the case's last statement, as in `case 0: { ...; break; }`.
+ */
+function dropClosingBreak(body: Stmt[]): boolean {
+    const last = body.at(-1)
+    if (last?.k === "break") {
+        body.pop()
+        return true
+    }
+    return last?.k === "block" && dropClosingBreak(last.body)
+}
+
 function describe(t: Token): string {
     if (t.kind === "eof") return "the end of the file"
     return `"${t.text}"`
@@ -635,8 +662,6 @@ export interface ParseOptions {
      * nothing, and finding that out at parse time is the point.
      */
     requireMain?: boolean
-    /** What `/` does with two ints (`LowerOptions`). Undecided, so a parse can pick either. */
-    intDivision?: "truncate" | "float"
 }
 
 export function parseUnit(source: string, options: ParseOptions = {}): Unit {

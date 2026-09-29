@@ -222,6 +222,11 @@ describe("control flow", () => {
                 if (uv.x > 0.5) { return #fff; }
             }
         `)).toThrow(/not every way through main returns a float4; add a return at the end/)
+        expect(() => parse(`
+            float4 main() {
+                { if (uv.x > 0.5) return #fff; }
+            }
+        `)).toThrow(/not every way through main returns a float4; add a return at the end/)
     })
 
     it("refuses code after a return", () => {
@@ -279,6 +284,10 @@ describe("control flow", () => {
             float b(float x) { return a(x); }
             float4 main() { return float4(a(uv.x), 0, 0, 1); }
         `)).toThrow(/a calls b calls a/)
+        expect(() => parse(`
+            float a(float x) { { return a(x); } }
+            float4 main() { return float4(a(uv.x), 0, 0, 1); }
+        `)).toThrow(/a calls a/)
     })
 })
 

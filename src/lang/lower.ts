@@ -148,25 +148,15 @@ class Scope {
     }
 }
 
-export interface LowerOptions {
-    /**
-     * What `/` does with two ints: `"truncate"` divides as whole numbers, as
-     * HLSL does; `"float"` always divides as floats, and an int local takes the
-     * result only through `int(...)`. Undecided (`Specs/SL_NEXT.md` 3, 5c).
-     */
-    intDivision?: "truncate" | "float"
-}
-
 /**
  * `errors`, when given, collects every error lowering finds and carries on past
  * each, one statement or declaration at a time, for `diagnose`. The program it
  * returns then is not one to draw.
  */
-export function lower(checked: Checked, errors?: SLParseError[], options: LowerOptions = {}): Program {
+export function lower(checked: Checked, errors?: SLParseError[]): Program {
     const { unit, funcs } = checked
     const file = unit.file
     const main = unit.main!
-    const intDivision = options.intDivision ?? "truncate"
 
     /**
      * Runs an EDSL call and gives its error a place in the file.
@@ -288,7 +278,7 @@ export function lower(checked: Checked, errors?: SLParseError[], options: LowerO
 
             for (const c of unit.consts) {
                 const t = typeOf(c.type)
-                const v = recover(() => fit(lowerExpr(c.init, global, want(t)), t, c.name, c.pos, c.init), () => blank(t, c.pos))
+                const v = recover(() => fit(lowerExpr(c.init, global, want(t)), t, c.name, c.pos), () => blank(t, c.pos))
                 global.declare(c.name, { ...t, value: v })
             }
 
@@ -453,7 +443,7 @@ export function lower(checked: Checked, errors?: SLParseError[], options: LowerO
             }
             if (s.k === "var" || s.k === "const") {
                 const t = typeOf(s.type)
-                const v = recover(() => fit(lowerExpr(s.init, scope, want(t)), t, s.name, s.pos, s.init), () => blank(t, s.pos))
+                const v = recover(() => fit(lowerExpr(s.init, scope, want(t)), t, s.name, s.pos), () => blank(t, s.pos))
                 scope.declare(s.name, { ...t, value: v })
                 continue
             }
@@ -543,13 +533,14 @@ export function lower(checked: Checked, errors?: SLParseError[], options: LowerO
         differ.forEach((x, i) => x.set(out[i]!))
     }
 
-    /** An assignment, a loop, a switch, a return, a break or a continue. */
+    /** An assignment, a loop, a switch, a block, a return, a break or a continue. */
     function run(s: Stmt, scope: Scope, frame: Frame): void {
         switch (s.k) {
             case "assign": assign(s, scope); break
             case "for":
             case "while": runLoop(s, scope, frame); break
             case "switch": exec([switchAsIf(s, scope)], scope, frame); break
+            case "block": exec(s.body, new Scope(scope), frame); break
             case "return": {
                 const v = lowerExpr(s.value, scope, want(frame.ret))
                 frame.retval = returned(v, frame, s.pos)
@@ -584,7 +575,7 @@ export function lower(checked: Checked, errors?: SLParseError[], options: LowerO
             if (b.kind !== undefined) fail(`${name} is ${article(b)} ${typeName(b)}, which has no components to write`, member.pos)
             v = writeComponents(b, member, toFloat(v, s.pos), s.pos)
         }
-        b.value = fit(v, b, name, s.pos, s.value)
+        b.value = fit(v, b, name, s.pos)
     }
 
     /** A return's value as the function's type. Only the kind converts; a width has to match. */
@@ -599,7 +590,7 @@ export function lower(checked: Checked, errors?: SLParseError[], options: LowerO
             }
             fail(`${fn.name} is declared to return a ${fn.ret} and returns a ${widthType(got)}`, fn.pos)
         }
-        return fit(v, t, `${fn.name}'s result`, pos, null)
+        return fit(v, t, `${fn.name}'s result`, pos)
     }
 
     // MARK: loops
@@ -610,7 +601,7 @@ export function lower(checked: Checked, errors?: SLParseError[], options: LowerO
         if (s.k === "for") {
             const t = typeOf(s.type)
             if (t.width !== 1 || t.kind === "bool") fail(`a loop counts with an int, a uint or a float, and this is ${article(t)} ${s.type}`, s.pos)
-            counter = { ...t, value: fit(lowerExpr(s.from, scope, want(t)), t, s.counter, s.pos, s.from) }
+            counter = { ...t, value: fit(lowerExpr(s.from, scope, want(t)), t, s.counter, s.pos) }
             loopScope.declare(s.counter, counter)
             const turns = leavesEarly(s.body) || readsAny([s.cond, s.update.value], assignedIn(s.body)) ? null : countTurns(s, loopScope, counter, MAX_UNROLL)
             if (turns !== null && turns.length <= MAX_UNROLL) {
@@ -792,7 +783,7 @@ export function lower(checked: Checked, errors?: SLParseError[], options: LowerO
      * int only an int goes: a float is refused with the conversion that says
      * how, since which rounding was meant is the author's to say.
      */
-    function fit(v: LV, t: VType, name: string, pos: Pos, source: Expr | null): LV {
+    function fit(v: LV, t: VType, name: string, pos: Pos): LV {
         switch (t.kind) {
             case undefined: {
                 let x = toFloat(v, pos)
@@ -806,9 +797,6 @@ export function lower(checked: Checked, errors?: SLParseError[], options: LowerO
                 if (isInt(v)) return v
                 if (v instanceof Val && v.kind === "uint") fail(`${name} is an int and this is a uint; convert it with int(...)`, pos)
                 if (isBoolish(v)) fail(`${name} is an int and this is a bool; convert it with int(...)`, pos)
-                if (source?.k === "binary" && source.op === "/" && intDivision === "float") {
-                    fail(`${name} is an int, and / always divides as floats. To divide as whole numbers, write int(a / b)`, pos)
-                }
                 fail(`${name} is an int and this is a ${widthType(widthOf(v))}; convert it with int(...), which truncates toward zero`, pos)
                 break
             case "uint":
@@ -981,7 +969,7 @@ export function lower(checked: Checked, errors?: SLParseError[], options: LowerO
     }
 
     function arithmetic(op: ArithOp, a: LV, b: LV, pos: Pos): LV {
-        if (isInt(a) && isInt(b) && !(op === "/" && intDivision === "float")) {
+        if (isInt(a) && isInt(b)) {
             if (typeof a === "bigint" && typeof b === "bigint") {
                 if ((op === "/" || op === "%") && b === 0n) return 0n
                 return BigInt.asIntN(32, INT_ARITH[op](a, b))
@@ -1223,7 +1211,7 @@ export function lower(checked: Checked, errors?: SLParseError[], options: LowerO
                     arg.pos,
                 )
             }
-            scope.declare(p.name, { ...t, value: fit(v, t, `${fn.name}'s parameter ${p.name}`, arg.pos, arg) })
+            scope.declare(p.name, { ...t, value: fit(v, t, `${fn.name}'s parameter ${p.name}`, arg.pos) })
         })
         return callBody(fn, scope)
     }
@@ -1434,6 +1422,7 @@ function assignedIn(body: Stmt[]): Set<string> {
                 return
             }
             case "if": s.then.forEach(walk); s.else.forEach(walk); return
+            case "block": s.body.forEach(walk); return
             case "for": walk(s.update); s.body.forEach(walk); return
             case "while": s.body.forEach(walk); return
             case "switch": s.cases.forEach((c) => c.body.forEach(walk)); return
@@ -1480,6 +1469,7 @@ function ownStatement(body: Stmt[], k: "break" | "continue"): boolean {
             case "break":
             case "continue": return s.k === k
             case "if": return ownStatement(s.then, k) || ownStatement(s.else, k)
+            case "block": return ownStatement(s.body, k)
             case "switch": return s.cases.some((c) => ownStatement(c.body, k))
             default: return false
         }
@@ -1491,6 +1481,7 @@ function returnsIn(body: Stmt[]): boolean {
         switch (s.k) {
             case "return": return true
             case "if": return returnsIn(s.then) || returnsIn(s.else)
+            case "block": return returnsIn(s.body)
             case "for":
             case "while": return returnsIn(s.body)
             case "switch": return s.cases.some((c) => returnsIn(c.body))
