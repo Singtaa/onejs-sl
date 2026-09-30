@@ -162,7 +162,7 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
     turbulence: "Simplex creases layered in octaves, 1 to 4: fire, smoke, marble.",
     ridged: "Turbulence made bright at its creases: ridges, lightning, cracks.",
     tex2D: "The colour of texture s at the uv t, with straight alpha.",
-    tex2Dlod: "The colour of texture s at the uv t from mip level lod: 0 is the full size, 1 half, and so on.",
+    tex2Dlod: "Texture s at uv t from mip level lod: 0 is full size, 1 half, and a fraction blends the two.",
     sdf: "The signed distance from p to a shape, negative inside: `sdf.circle(p, r)`.",
     ramp: "t mapped through evenly spaced colour stops, from the first at 0 to the last at 1.",
 }

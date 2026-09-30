@@ -1037,8 +1037,8 @@ export interface Texture {
     sample(uv: Vec2): Vec4
     /**
      * The colour at `uv` from mip level `lod`: 0 is the full size texture, 1
-     * half, and a fraction blends two levels where the texture's filter does.
-     * A texture with no mips has only level 0.
+     * half, and a fraction blends the two levels either side, whatever the
+     * texture's filter mode. A texture with no mips has only level 0.
      */
     sampleLevel(uv: Vec2, lod: Num): Vec4
 }

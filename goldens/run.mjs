@@ -231,6 +231,16 @@ const anchors = {
             return level === 0 ? [0, 1, 2].map((ch) => encode(bilinear(u, v, ch))).concat(255) : [...mips[level - 1], 255]
         },
     },
+    // A level from 0 to 4.5 across: the level below and the level above,
+    // blended in linear light by the fraction; past the smallest, the smallest.
+    "lod-frac.sl": {
+        tolerance: 2,
+        expect: (u, v) => {
+            const level = u * 4.5, below = Math.floor(level), f = level - below
+            const at = (l, ch) => (l === 0 ? bilinear(u, v, ch) : decode(mips[Math.min(l, mips.length) - 1][ch]))
+            return [0, 1, 2].map((ch) => encode(at(below, ch) + (at(below + 1, ch) - at(below, ch)) * f)).concat(255)
+        },
+    },
 }
 /** A fixture compared at 0/255, here and by `--check`, and marked `exact` in goldens.json for a host. */
 const exact = (name) => anchors[name]?.tolerance === 0

@@ -519,6 +519,42 @@ export function readsOf(p: Program): SLReads {
     return out
 }
 
+/** Ops whose result is a whole number whatever they are given. */
+const ALWAYS_WHOLE = new Set<number>([SLOP.FLOOR, SLOP.CEIL, SLOP.ROUND, SLOP.SIGN])
+/** Ops whose result is a whole number when every operand they read is one. */
+const KEEPS_WHOLE = new Set<number>([
+    SLOP.CAST, SLOP.ADD, SLOP.SUB, SLOP.MUL, SLOP.NEG, SLOP.ABS, SLOP.MIN, SLOP.MAX, SLOP.CLAMP, SLOP.SATURATE,
+])
+
+/**
+ * Whether a value is a whole number in every component on every pixel, as far
+ * as its node says. An int, uint or bool is; so are a constant written whole,
+ * `floor`, `ceil`, `round` and `sign`, and sums, products, minimums and the
+ * like of whole numbers (a float32 sum or product of whole numbers is whole).
+ * Anything else is not known to be, a uniform float included.
+ *
+ * The emitters read it for `tex2Dlod`: a level known whole reads that level
+ * with one sample, and any other blends the level below and the level above by
+ * the fraction, so every backend draws a fraction the same way whatever the
+ * texture's filter between levels.
+ */
+export function isWhole(nodes: readonly SLNode[], ref: NodeRef, seen = new Map<NodeRef, boolean>()): boolean {
+    const known = seen.get(ref)
+    if (known !== undefined) return known
+    const n = valueAt(nodes, ref)
+    let whole = false
+    if (n.kind !== undefined) whole = true
+    else if (n.k === "const") whole = n.v.every(Number.isInteger)
+    else if (n.k === "swizzle") whole = isWhole(nodes, n.src, seen)
+    else if (n.k === "call") {
+        if (ALWAYS_WHOLE.has(n.op)) whole = true
+        else if (KEEPS_WHOLE.has(n.op)) whole = n.args.every((a) => isWhole(nodes, a, seen))
+        else if (n.op === SLOP.CHOOSE) whole = isWhole(nodes, n.args[1]!, seen) && isWhole(nodes, n.args[2]!, seen)
+    }
+    seen.set(ref, whole)
+    return whole
+}
+
 /** Structural key for hash consing. Order matters and is fixed by the node shape. */
 function keyOf(n: SLNode): string {
     const kind = "kind" in n && n.kind !== undefined ? `@${n.kind}` : ""
