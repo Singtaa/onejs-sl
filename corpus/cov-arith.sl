@@ -1,6 +1,5 @@
 // + - * / pow, unary -, rcp, min, max and clamp over continuous inputs. The
-// stepwise ops are in step.sl: together they need more than the VM's eight
-// registers.
+// stepwise ops are in cov-step.sl, a split made when the VM had eight registers.
 float4 main() {
     float2 q = (uv - 0.5) * 6.0;
     float a = pow(abs(q.x) * 0.3, 1.7) + rcp(abs(q.y) + 1.0) - (-q.x) * 0.1;

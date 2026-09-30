@@ -5,7 +5,7 @@
 // _Time.y. `uniform` declares the slot AND the name React binds against, and
 // `texture2D` does the same for a sampler.
 //
-// This program sits at exactly 8 of the VM's 8 registers, which is why it is
+// This program sat at exactly 8 of the VM's 8 registers, which is why it is
 // in the corpus: the VM refused a ninth live value. Compiled, there is no such
 // ceiling, and the same file draws the same in the editor, a player and a
 // browser, with no edit in between.

@@ -1,5 +1,5 @@
 // Trigonometry over continuous inputs. exp, log, sqrt and atan2 are in
-// exp.sl: together they need more than the VM's eight registers.
+// cov-exp.sl, a split made when the VM had eight registers.
 float4 main() {
     float2 q = (uv - 0.5) * 2.0;
     float a = sin(q.x * 5.0) * cos(q.y * 4.0) * 0.5 + 0.5;
