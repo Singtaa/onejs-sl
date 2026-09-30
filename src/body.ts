@@ -21,7 +21,7 @@
  * gives common subexpression elimination for free.
  */
 
-import { INT_BOUNDS, SLError, TYPE, valueAt, type InputName, type NodeRef, type StepInputName, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
+import { INT_BOUNDS, SLError, TYPE, isWhole, valueAt, type InputName, type NodeRef, type StepInputName, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
 import { libClosure, LIB_FUNCTIONS } from "./lib"
 import { LIB_HLSL } from "./lib/hlsl"
 import { SLOP } from "./ops"
@@ -63,9 +63,12 @@ export interface BodyTarget {
     sample: (slot: number, uv: string) => string
     /**
      * A float4 sample of the texture in `slot` at `uv` from mip level `lod`, a
-     * float expression: 0 is the full size texture, 1 half, and a fraction
-     * blends two levels where the texture's filter does. Otherwise the same
-     * contract as `sample`. `tex2Dlod` in a program; HLSL's
+     * float expression: 0 is the full size texture and 1 half. The body only
+     * asks for whole levels, or for a level it cannot prove whole, floored and
+     * floored plus one, which it blends by the fraction itself; so a fraction
+     * draws the same whatever the texture's filter between levels, and a host
+     * has no blending to do. A level past the smallest reads the smallest.
+     * Otherwise the same contract as `sample`. `tex2Dlod` in a program; HLSL's
      * `tex2Dlod(s, float4(uv, 0, lod))` and Metal's `sample(s, uv, level(lod))`.
      */
     sampleLevel: (slot: number, uv: string, lod: string) => string
@@ -336,7 +339,13 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.SAMPLE_LOD: {
                 const slot = Math.round(imm[0] ?? 0)
                 textures.add(slot)
-                return target.sampleLevel(slot, a[0]!, a[1]!)
+                // A fraction blends the level below and the level above,
+                // whatever the texture's filter between levels, as the web
+                // emitters do (`isWhole`). Past the smallest level both read the
+                // smallest, as a whole level past it does.
+                if (isWhole(p.nodes, n.args[1]!)) return target.sampleLevel(slot, a[0]!, a[1]!)
+                const below = `floor(${a[1]})`
+                return `lerp(${target.sampleLevel(slot, a[0]!, below)}, ${target.sampleLevel(slot, a[0]!, `${below} + 1.0`)}, frac(${a[1]}))`
             }
             case SLOP.SAMPLE_PREVIOUS:
                 if (target.previous === undefined) throw new SLError("this target keeps no previous frame, and the program samples it")

@@ -34,7 +34,7 @@
  */
 
 import { INT_LIMITS } from "./body"
-import { SLError, TYPE, valueAt, type NodeRef, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
+import { SLError, TYPE, isWhole, valueAt, type NodeRef, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
 import { inVaryingFlow, local, printBody, structure, type Syntax } from "./structure"
 import { libClosure, libIndex, LIB_FUNCTIONS, SDF_CALLS } from "./lib"
 import { LIB_GLSL } from "./lib/glsl"
@@ -261,9 +261,16 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             case SLOP.SAMPLE_LOD: {
                 const slot = Math.round(imm[0] ?? 0)
                 sampled.add(slot)
-                return W
-                    ? `textureSampleLevel(sl_tex${slot}, sl_samp${slot}, ${a[0]}, ${a[1]})`
-                    : `textureLod(sl_Tex${slot}, ${a[0]}, ${a[1]})`
+                const at = (level: string) => W
+                    ? `textureSampleLevel(sl_tex${slot}, sl_samp${slot}, ${a[0]}, ${level})`
+                    : `textureLod(sl_Tex${slot}, ${a[0]}, ${level})`
+                // A fraction blends the level below and the level above,
+                // whatever the texture's filter between levels, as the HLSL
+                // emitter does (`isWhole`). Past the smallest level both read
+                // the smallest, as a whole level past it does.
+                if (isWhole(p.nodes, n.args[1]!)) return at(a[1]!)
+                const below = `floor(${a[1]})`
+                return `mix(${at(below)}, ${at(`${below} + 1.0`)}, fract(${a[1]}))`
             }
             case SLOP.SAMPLE_PREVIOUS:
                 previous = true
