@@ -41,9 +41,14 @@ player. So parity is the test to keep green, not the parser's unit tests.
 | `ast.ts` | The node shapes, all of them, which is not many |
 | `parser.ts` | Pratt parser: shape only, HLSL precedence |
 | `check.ts` | Declarations, names, statement shape, budgets, recursion |
-| `lower.ts` | AST to IR through the EDSL: SSA, unrolling, `select`, inlining |
+| `lower.ts` | AST to IR through the EDSL: SSA, unrolling, branches and loops, inlining |
 | `builtins.ts` | What each name does, keyed by the spelling `ops.ts` gives it |
-| `prelude.ts` | The standard library, written in the language |
+| `prelude.ts`, `prelude-source.ts` | The standard library, written in the language |
+| `attributes.ts` | A uniform's `[Range]`, `[Toggle]` and the rest, read into its control |
+| `words.ts` | The keywords and type names, shared by the parser and `classify` |
+| `classify.ts` | Every token with its class, for an editor's highlighting |
+| `glsl.ts` | `fromGLSL`: a pasted GLSL shader as a `.sl` file |
+| `index.ts` | This folder's exports |
 | `onejs-unity`'s `src/esbuild/sl.mjs` | The loader: `import plasma from "./plasma.sl"` |
 | `../index.ts` and `../core.ts` | The package with the parser, and without it. See below |
 
@@ -68,9 +73,11 @@ It writes two things beside the code:
   recording stays for EDSL programs and for a build older than the loader; the
   editor reads every `*.sl.json` it can find.
 
-An empty manifest is written only over one that is already there. Deleting the
-last `.sl` file has to stop its shaders being generated, and a project that has
-never had one should not find a new file beside its bundle.
+With no `.sl` files, an empty manifest is written over one that is already
+there, since deleting the last `.sl` file has to stop its shaders being
+generated, and beside a bundle carrying `onejs-sl`, which has to name its hash
+scheme. A project that uses no shader language finds no new file beside its
+bundle.
 
 ### Why the parser is compiled rather than imported
 
@@ -201,7 +208,7 @@ Where the fix is certain, the error carries it as `fix`: a title and the text
 for the marked range, one click in an editor. A GLSL spelling that means the
 same in HLSL (`mix`, `fract`, `vec3`, `gl_FragCoord`, `iTime`, two argument
 `atan`) and a "did you mean" both have one. `mod` does not, since GLSL's floors
-and `%` truncates, and neither does `int`, since float would change what
+and `%` truncates, and neither does `ivec2`, since `float2` would change what
 dividing it does. That is Decision 1 kept as `Specs/SL_NEXT.md` 5 A has it:
 one spelling, and every hint a fix.
 
@@ -268,8 +275,10 @@ where they were, so the result reads as the shader it came from. What it does:
   the notes point at `rotate()`. A file with a `rotate` of its own is left
   alone, since the calls would reach it. `#define NAME value`
   becomes a const; any other directive is kept as a comment, with a note.
-- A name the language already means something by gets a `_` suffix, and an
-  `int` becomes a float (a for-loop counter stays an int), each with a note.
+- A name the language already means something by gets a `_` suffix, with a
+  note. `int`, `uint` and `bool` are kept, since they are types here too; their
+  vectors (`ivec2`, `uvec3`, `bvec4` and the rest) become float vectors, with a
+  note saying what changed.
 - What has no counterpart (`iFrameRate`, `texelFetch`, `dFdx`, a function
   returning nothing) is left in place with a note, for `errors` to point at.
 
