@@ -70,8 +70,12 @@ slots the body uses and the library functions it calls. The sample's contract
 is on `BodyTarget.sample`: straight alpha in and out, rgb in the space `colour`
 names (an sRGB texture decoded before filtering when it is `linear`), and
 filtering and wrapping left to the host, which OneJS's hosts take from the
-bound texture's own settings. OneJS's Unity shader is
-one frame over it (`hlsl.ts`); Magerie's compute kernel is another, and its
+bound texture's own settings. Between mip levels the body decides instead: a
+fractional `tex2Dlod` level blends the two levels either side by the fraction,
+whatever the texture's filter mode, since the body asks for both whole levels
+and blends them itself. A level it can prove whole (a whole constant, a
+`floor`, an int) costs one sample, and a level past the smallest reads the
+smallest. OneJS's Unity shader is one frame over it (`hlsl.ts`); Magerie's compute kernel is another, and its
 target is in `src/body.test.ts` so an opcode cannot change without the text
 Magerie compiles changing in front of a test.
 
@@ -149,11 +153,12 @@ what a WebGL player draws.
 
 `npm run goldens` draws it on WebGPU and WebGL2 in a Chrome with its own
 profile (set `CHROME` to choose one). The two backends must agree within 1/255
-over every pixel, and seven anchors must match arithmetic, not each other:
+over every pixel, and eight anchors must match arithmetic, not each other:
 `orient.sl` (orientation, and the linear to sRGB store), `hex.sl` (a hex colour
-stores as written), `texture.sl` (a texture's orientation and sRGB decode) and
+stores as written), `texture.sl` (a texture's orientation and sRGB decode),
 `lod.sl` (each mip level `tex2Dlod` reads, the texture's smaller levels being
-solid colours). `sdf-values.sl`, `fbm-values.sl` and `ramp-values.sl` are black unless a
+solid colours) and `lod-frac.sl` (a fractional level blends the two levels
+either side, on a texture sampled nearest between levels). `sdf-values.sl`, `fbm-values.sl` and `ramp-values.sl` are black unless a
 shape, a noise or a ramp draws differently with its parameters as values than
 as constants.
 A fixture that reads the previous frame, `frame` or `deltaTime` is stepped
