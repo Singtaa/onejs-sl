@@ -117,7 +117,8 @@ here is the one nothing else uses.
 **A scalar on the left of an operator broadcasts through a swizzle.** `uv * 8`
 is `uv.mul(8)`, one constant node of two components. `8 * uv` is
 `sl.float(8).mul(uv)`, a one component constant and a broadcast. Same picture,
-different graph, different hash. Write the vector on the left when it matters.
+different graph, and since 0.4.0 (`SL_HASH_VERSION` 2) the same hash. Write the
+vector on the left when it matters.
 
 **Literal arithmetic folds; a builtin call never does.** `2 * 3 + 1` is the
 constant 7 before the IR sees it. `sin(0.5)` is two instructions, because

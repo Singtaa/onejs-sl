@@ -461,9 +461,9 @@ export class Builder {
 /**
  * Nodes the result actually depends on, in order.
  *
- * Dead nodes are dropped rather than encoded. An author can produce them easily
+ * Dead nodes are dropped rather than emitted. An author can produce them easily
  * by computing something and not using it, and the hash already ignores them, so
- * encoding them would make the buffer disagree with its own hash about what the
+ * emitting them would make a shader disagree with its own hash about what the
  * program is.
  */
 export function reachable(nodes: SLNode[], result: NodeRef): NodeRef[] {
