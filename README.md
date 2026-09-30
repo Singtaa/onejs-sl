@@ -27,6 +27,11 @@ const plasma = sl.program(({ uv, time }) => {
 })
 ```
 
+`npm install onejs-sl`. The package ships TypeScript source (its `exports`
+point at `src/*.ts`): bundle it (esbuild, Vite) or run it with a TypeScript
+loader (`npx tsx script.ts`). Plain `node` cannot load `.ts` from
+`node_modules`.
+
 ## Entry points
 
 `"sideEffects": false`, and each backend is its own entry, so a host bundles
@@ -43,7 +48,9 @@ only what it calls.
 | `onejs-sl/emit/web` | `emitWGSL`, `emitGLSL`: OneJS's web frame |
 | `onejs-sl/goldens.json` | the goldens (below), as data |
 
-`src/entries.test.ts` pins every name, since removing one breaks a host.
+[`src/entries.test.ts`](https://github.com/Singtaa/onejs-sl/blob/main/src/entries.test.ts)
+(in the repository, not the npm package) pins every name, since removing one
+breaks a host.
 
 ## A host's own frame: `emitBody`
 
@@ -243,8 +250,9 @@ drew what had no shader yet; OneJS 3.8 deleted it.) `hlsl.ts` feeds OneJS's
 draws a program asks the compiled program for its
 `hlsl` (a lazy getter, never read in Play), records it into
 `Assets/OneJS/Recorded.sl.json`, generates the shader and
-moves the live material onto it. `manifest()` is still there for an app that
-would rather write its programs out at build time.
+moves the live material onto it. `manifest()`, in `onejs-unity/sl` and
+`onejs-unity/sl/compiler` rather than this package, is still there for an app
+that would rather write its programs out at build time.
 
 **A third and fourth backend, for the browser.** A player cannot compile a
 shader, but the page it runs in can. `web.ts` prints every program as WGSL and
