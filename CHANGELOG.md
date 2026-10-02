@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
+
+A fractional `tex2Dlod` level now blends the two levels either side on every backend. No existing program's hash changes, but a host now gets two whole-level samples and a blend where it got one fractional sample, so a host that blended levels itself would blend twice, which makes this a minor.
 
 - A fractional `tex2Dlod` level blends the two levels either side, whatever the texture's filter mode
 
