@@ -254,7 +254,7 @@ drew what had no shader yet; OneJS 3.8 deleted it.) `hlsl.ts` feeds OneJS's
 `Editor/SLShaderGenerator.cs`. Nobody writes a manifest for it: an editor that
 draws a program asks the compiled program for its
 `hlsl` (a lazy getter, never read in Play), records it into
-`Assets/OneJS/Recorded.sl.json`, generates the shader and
+`Assets/OneJS.Recorded.sl.json`, generates the shader and
 moves the live material onto it. `manifest()`, in `onejs-unity/sl` and
 `onejs-unity/sl/compiler` rather than this package, is still there for an app
 that would rather write its programs out at build time.
