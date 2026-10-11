@@ -139,6 +139,14 @@ describe("rewrites that keep the meaning", () => {
         expect(r.source).toContain("tex2Dlod(iChannel0, fragCoord / resolution.xy, 2.0)")
     })
 
+    it("reads a texel with tex2Dfetch and a size with textureSize, at full size", () => {
+        const r = compiles(image("vec2 s = vec2(textureSize(iChannel0, 0)); fragColor = texelFetch(iChannel0, ivec2(fragCoord), 0) + vec4(s, 0, 0);"))
+        expect(r.source).toContain("float2 s = float2(textureSize(iChannel0)); fragColor = tex2Dfetch(iChannel0, float2(fragCoord)) + float4(s, 0, 0);")
+        const level = convert(image("fragColor = texelFetch(iChannel0, ivec2(fragCoord), 1);"))
+        expect(level.source).toContain("tex2Dfetch(iChannel0, float2(fragCoord))")
+        expect(level.notes.some((n) => n.endsWith(": texelFetch reads level 1 in GLSL, and tex2Dfetch reads the full size texture here")), level.notes.join("\n")).toBe(true)
+    })
+
     it("keeps int, uint and bool, which are types here too, and says what an int vector became", () => {
         const r = compiles(image(
             "int n = 7 / 2; uint h = 5u * 3U; bool odd = (h & 1u) == 1u; float s = 0.0;" +
@@ -178,7 +186,6 @@ describe("rewrites that keep the meaning", () => {
 describe("what cannot be carried over", () => {
     it.each([
         ["iFrameRate", "fragColor = vec4(iFrameRate);", "iFrameRate has no counterpart: there is no frame rate"],
-        ["texelFetch", "fragColor = texelFetch(iChannel0, ivec2(fragCoord), 0);", "texelFetch has no counterpart"],
         ["dFdx", "fragColor = vec4(dFdx(fragCoord.x));", "dFdx has no counterpart: there are no derivatives"],
     ])("says %s has no counterpart, and leaves it for the errors", (_, body, text) => {
         const r = convert(image(body))

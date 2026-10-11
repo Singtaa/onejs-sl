@@ -40,7 +40,7 @@ only what it calls.
 | Entry | Contents |
 |---|---|
 | `onejs-sl` | `parse` and `analyze`, `diagnose` (every error in a file, not just the first), `classify` (every token with its class, comments kept, never throws) and `classifyLine` (the same a line at a time, for Monaco), `fromGLSL` (a pasted Shadertoy or WebGL shader as a `.sl` file, with notes on what did not carry over), the TypeScript form `sl`, the IR types, `SL_IR_VERSION`, `toJSON`/`fromJSON`, `SLParseError` (file, line, column, offset, length, the bare `text`, and a `fix` where one is certain) |
-| `onejs-sl/core` | the same without the parser: what a game needs at run time. Also the caps on one program, `UNIFORM_SLOTS` (16) and `TEXTURE_SLOTS` (4), which the parser and the builder enforce and a host can read |
+| `onejs-sl/core` | the same without the parser: what a game needs at run time. Also the caps on one program, `UNIFORM_SLOTS` (64) and `TEXTURE_SLOTS` (8), which the parser and the builder enforce and a host can read |
 | `onejs-sl/tables` | `BUILTINS`, `SL_HLSL`, `INPUTS`, `SL_SDF_SHAPES`, `SL_SDF_PARAMS`, `SL_KEYWORDS`, `SL_TYPES`, `TYPE_WIDTH`, `PRELUDE_NAMES`: what completion and highlighting read. `BUILTIN_PARAMS`, `SL_SDF_PARAM_NAMES` and `LIB_SIGNATURES` name every parameter, so an editor can show `lerp(x, y, s)`, and `BUILTIN_DOCS`, `INPUT_DOCS` and `PRELUDE_DOCS` give each a line for its tooltip |
 | `onejs-sl/compile` | `compile(program)`: what a host draws a program with. Its hash, its uniform and texture names in slot order, their defaults, and `hlsl`, `wgsl` and `glsl` as lazy getters. No budget |
 | `onejs-sl/emit/hlsl-body` | `emitBody`: a program as a function body for a host's own frame; `emitLibrary`: the library functions it calls |
@@ -75,7 +75,11 @@ fractional `tex2Dlod` level blends the two levels either side by the fraction,
 whatever the texture's filter mode, since the body asks for both whole levels
 and blends them itself. A level it can prove whole (a whole constant, a
 `floor`, an int) costs one sample, and a level past the smallest reads the
-smallest. OneJS's Unity shader is one frame over it (`hlsl.ts`); Magerie's compute kernel is another, and its
+smallest. A texture whose program sets its own sampler (`[Wrap(Repeat)]`,
+`[Filter(Point)]`) goes to `sampleWith` instead, with both halves filled in,
+and `textureSize` and `tex2Dfetch` to `size` and `fetch`; each is optional,
+and `emitBody` refuses a program that needs one a target lacks (CHANGELOG.md's
+0.9.0 entry says what a host implements). OneJS's Unity shader is one frame over it (`hlsl.ts`); Magerie's compute kernel is another, and its
 target is in `src/body.test.ts` so an opcode cannot change without the text
 Magerie compiles changing in front of a test.
 
@@ -153,12 +157,16 @@ what a WebGL player draws.
 
 `npm run goldens` draws it on WebGPU and WebGL2 in a Chrome with its own
 profile (set `CHROME` to choose one). The two backends must agree within 1/255
-over every pixel, and eight anchors must match arithmetic, not each other:
+over every pixel, and the anchors must match arithmetic, not each other:
 `orient.sl` (orientation, and the linear to sRGB store), `hex.sl` (a hex colour
 stores as written), `texture.sl` (a texture's orientation and sRGB decode),
 `lod.sl` (each mip level `tex2Dlod` reads, the texture's smaller levels being
-solid colours) and `lod-frac.sl` (a fractional level blends the two levels
-either side, on a texture sampled nearest between levels). `sdf-values.sl`, `fbm-values.sl` and `ramp-values.sl` are black unless a
+solid colours), `lod-frac.sl` (a fractional level blends the two levels
+either side, on a texture sampled nearest between levels), `wrap-repeat.sl`
+and `wrap-mirror.sl` (a program's own wrap over a texture the host binds
+clamped, the filter's footprint wrapping with it), `filter-point.sl` (its own
+point filter, to the byte, through `tex2D` and `tex2Dlod`) and `fetch.sl`
+(`tex2Dfetch` held at the edges and `textureSize`, to the byte). `sdf-values.sl`, `fbm-values.sl` and `ramp-values.sl` are black unless a
 shape, a noise or a ramp draws differently with its parameters as values than
 as constants.
 A fixture that reads the previous frame, `frame` or `deltaTime` is stepped
@@ -269,8 +277,8 @@ printed at build time; a `compile()` result has them as lazy getters, like
 `hlsl`. The element draws nothing until the compiled
 program is ready, and nothing after a compile error, which the page reports.
 The host contract (the frame block, the
-16 uniform slots, one binding pair per sampled texture) is written out at the
-top of `web.ts`.
+64 uniform slots, one binding pair per sampled texture, the note that names a
+program's own sampler) is written out at the top of `web.ts`.
 
 The emitters match the HLSL emitter's semantics rather than each language's
 own: `%` truncates like `fmod`, `pow` takes `abs` of its base, `asin` and
@@ -326,7 +334,7 @@ at module load, not at draw time:
 | A program returning something other than a `vec4` | "a program must return a vec4. Wrap it: sl.vec4(value, 1)" |
 | `vec4` given the wrong number of parts | "vec4 needs 4 components, got 3" |
 | One uniform name at two widths | "declared as both a float and a vec4" |
-| More than 16 uniforms or 4 textures | "this program declares 5 textures and a program may sample 4", the parser's words |
+| More than 64 uniforms or 8 textures | "this program declares 9 textures and a program may sample 8", the parser's words |
 | A value borrowed from another program | "a value from another program cannot be used in this one" |
 
 The caps are `UNIFORM_SLOTS` and `TEXTURE_SLOTS`: what OneJS binds to one
@@ -383,7 +391,10 @@ control flow (the `if` and `loop` nodes, a loop's `param`s and each result's
 none of them is still IR 3 and keeps its hash; one with an `if` statement is
 IR 4, since the statement is now a real branch rather than a select. IR 5 added
 the previous frame (`SAMPLE_PREVIOUS`) and the `frame` and `deltaTime` inputs;
-a program that reads none of them keeps the version and the hash it had.
+a program that reads none of them keeps the version and the hash it had. IR 6
+added `TEXTURE_SIZE` and `SAMPLE_FETCH`, and a texture's own sampler (`wrap`
+and `filter` on its `TextureDecl`); the sampler is in the hash only when a
+texture has one, so every other program keeps its hash.
 
 ## Control flow
 
@@ -490,6 +501,28 @@ already converts a colour uniform. Carrying them means declaring a scalar
 control as `float`, with a matching Properties line (`[ToggleUI]`, since
 `[Toggle]` also defines a keyword; `[Enum]` as name, value pairs), and the bridge
 setting it with `SetFloat`. `Specs/SL_NEXT.md` 1 keeps that as a later change.
+
+## Textures
+
+A program declares up to eight textures (`texture2D grain;`,
+`sl.texture("grain")`), which a host binds by slot. `tex2D(t, uv)` samples one
+as the bound texture is set, and `tex2Dlod(t, uv, lod)` at a mip level.
+
+A program can set the sampler itself: `[Wrap(Repeat)]`, `[Wrap(Mirror)]` or
+`[Wrap(Clamp)]`, and `[Filter(Point)]` or `[Filter(Linear)]`, before the
+declaration, or `sl.texture("grain", { wrap: "repeat", filter: "point" })`.
+Then every host samples it that way whatever the texture's own settings, and
+the half left out is clamp or linear, since a Unity inline sampler state and a
+WebGPU sampler each say both. A tiled noise texture no longer depends on
+somebody remembering its import settings. Linear is bilinear within the
+nearest mip level, as Unity's Bilinear is.
+
+`textureSize(t)` is the texture's width and height in pixels (`t.size()`), and
+`tex2Dfetch(t, pixel)` one texel, unfiltered and at full size (`t.fetch(pixel)`):
+pixel (0, 0) is the texel `uv` (0, 0) samples, and a pixel is floored and held
+inside the texture, so one past an edge reads the edge on every host rather
+than what a host's load returns out of range. `tex2Dfetch(t, fragCoord)` on a
+texture the size of the target reads it texel for texel.
 
 ## Colours
 

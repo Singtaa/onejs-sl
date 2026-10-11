@@ -98,10 +98,8 @@ const MISSING: Record<string, string> = {
     iFrameRate: "there is no frame rate",
     iDate: "there is no date",
     iChannelTime: "a texture has no time of its own",
-    iChannelResolution: "a texture's size cannot be read yet",
+    iChannelResolution: "write textureSize(iChannel0) for a channel's width and height",
     iSampleRate: "there is no audio",
-    texelFetch: "a texture cannot be read without filtering yet",
-    textureSize: "a texture's size cannot be read yet",
     dFdx: "there are no derivatives", dFdy: "there are no derivatives", fwidth: "there are no derivatives",
 }
 
@@ -620,6 +618,13 @@ export function fromGLSL(glsl: string, options: { file?: string } = {}): FromGLS
                     call = `pow(2.0, ${a[0]})`
                 } else if (name === "log2" && a.length === 1) {
                     call = `(log(${a[0]}) * 1.4426950408889634)`
+                } else if ((name === "texelFetch" && a.length === 3) || (name === "textureSize" && a.length === 2)) {
+                    // Both read the full size texture here, so the level goes.
+                    const level = a[a.length - 1]!
+                    if (!/^0(\.0*)?$/.test(level)) {
+                        note(t.line, `${name} reads level ${level} in GLSL, and ${name === "texelFetch" ? "tex2Dfetch" : name} reads the full size texture here`)
+                    }
+                    call = name === "texelFetch" ? `tex2Dfetch(${a[0]}, ${a[1]})` : `textureSize(${a[0]})`
                 }
                 if (call !== null) { out += call; i = close; continue }
             }

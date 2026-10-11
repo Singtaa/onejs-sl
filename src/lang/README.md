@@ -169,8 +169,8 @@ recorded gap, not an oversight, and each has its own error message rather than
 | `rgb2hsv` | The opcode is numbered and **no backend implements it**; every emitter throws on it. |
 | `fbm`'s simplex base | `sl.fbm(p, octaves, "simplex")` picks the base with a string, and the language has no strings. `fbm(p, octaves)` is the value base, and `turbulence` and `ridged` are the simplex family. |
 
-A `.sl` file and the EDSL are held to the same caps, `UNIFORM_SLOTS` (16) and
-`TEXTURE_SLOTS` (4), reported at the declaration in one wording (`ir.ts`'s
+A `.sl` file and the EDSL are held to the same caps, `UNIFORM_SLOTS` (64) and
+`TEXTURE_SLOTS` (8), reported at the declaration in one wording (`ir.ts`'s
 `tooManyUniforms` and `tooManyTextures`).
 
 ## Attributes
@@ -192,6 +192,16 @@ so its errors come from lowering, marked on the attribute at fault.
 What they produce is metadata on the uniform (`range`, `toggle`, `options`,
 `header`, `label`, `hide`), which the hash never reads. `[Color]` is the
 exception, because it changes the reads: it is the same as a hex default.
+
+A texture takes two of its own, which are not metadata: `[Wrap(Repeat)]`,
+`[Wrap(Mirror)]` or `[Wrap(Clamp)]`, and `[Filter(Point)]` or `[Filter(Linear)]`,
+read by `readTextureAttributes`. They change the shader (a sampler the program
+owns rather than the bound texture's), so they are in the hash and make a
+program IR 6; the half left out is clamp or linear (`samplingOf`). Unity's
+`Bilinear` and `WrapMode` are offered as fixes, and `Trilinear` and
+`MirrorOnce` are refused with why: no backend's per program sampler blends
+levels, and WebGPU has no mirror once. A uniform's attribute on a texture, or
+a texture's on a uniform, says which one it belongs on.
 
 ## Errors
 
@@ -264,7 +274,9 @@ where they were, so the result reads as the shader it came from. What it does:
   the inputs. So do the calls that need an
   expression: `mod` floors (`a - b * floor(a / b)`, never `%`, which
   truncates), and `atan`, `inversesqrt`, `radians`, `degrees`, `exp2` and
-  `log2` become what they compute.
+  `log2` become what they compute. `texelFetch(t, p, 0)` is
+  `tex2Dfetch(t, p)` and `textureSize(t, 0)` is `textureSize(t)`; another
+  level gets a note, since both read the full size texture.
 - `mainImage` becomes `float4 main()`, with its colour parameter as a local it
   returns; `void main()` writing `gl_FragColor` or a WebGL2 `out vec4` does the
   same. Shadertoy's `uv = fragCoord / iResolution.xy` line is dropped, since
