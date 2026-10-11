@@ -13,13 +13,13 @@ A program can hold 64 uniforms and 8 textures, say how it samples a texture, and
 - `fromGLSL` turns `texelFetch` and `textureSize` into `tex2Dfetch` and `textureSize`
 - `classifyLine` classifies a line at a time from the state the line before ended in, for an editor like Monaco
 - `fromGLSL` declares a texture channel once when the shader declares it too
-- The goldens anchor `wrap-repeat.sl`, `wrap-mirror.sl`, `filter-point.sl` and `fetch.sl` to arithmetic
+- The goldens anchor `wrap-repeat.sl`, `wrap-mirror.sl`, `filter-point.sl`, `fetch.sl` and `uniforms-64.sl` to arithmetic
 
 ### What a host implements
 
 A host that draws only programs it compiles from text (`compile`) gets all of this from the emitters. One with a frame of its own:
 
-- **Caps.** 64 uniform slots of a float4 each, and texture slots 0 to 7. The web frame's previous frame moves with them, to WGSL bindings 17 and 18 (`1 + 2 * TEXTURE_SLOTS`), and a GLSL host should bind it on the unit after the eighth texture's.
+- **Caps.** 64 uniform slots of a float4 each, and texture slots 0 to 7. The web frame's uniform block stays 16 slots for a program with 16 uniforms or fewer, so an older WebGPU host's buffer still fits it; a web host fills all 64 either way. The web frame's previous frame moves with them, to WGSL bindings 17 and 18 (`1 + 2 * TEXTURE_SLOTS`), and a GLSL host should bind it on the unit after the eighth texture's.
 - **`BodyTarget.sampleWith(slot, uv, lod, sampling)`**, for a texture whose program sets its sampler. `lod` is null for a plain sample and a level expression otherwise; `sampling` always has both halves, `wrap` one of `repeat`, `clamp`, `mirror` and `filter` one of `point`, `linear`. The sampler is the program's whatever the bound texture's settings: repeat and mirror wrap the filter's footprint too, point reads the nearest texel and level, linear blends four texels within the nearest level. Without it `emitBody` refuses such a program.
 - **`BodyTarget.size(slot)`**, a float2 of the texture's full size in pixels, and **`BodyTarget.fetch(slot, pixel)`**, a float4 of one texel at full size, unfiltered, in the space `colour` names. `pixel` arrives floored and held inside the texture, so `fetch` only converts and loads (`t.Load(int3(pixel, 0))`, Metal's `t.read(uint2(pixel))`). `fetch` needs `size`. Without them `emitBody` refuses a program that uses them.
 - **The web frame.** A slot the program samples with its own sampler ends its declaration with `// sampler <wrap> <filter>` (the `sl_samp<slot>` line in WGSL, the `sl_Tex<slot>` line in GLSL), which the host reads to build that slot's sampler. A WGSL slot that is only measured or fetched from declares its texture and no sampler, so the bind group leaves the sampler out.

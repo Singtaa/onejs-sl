@@ -218,6 +218,8 @@ const bilinear = (u, v, ch, wrap = WRAP.clamp) => {
 const anchors = {
     "orient.sl": { tolerance: 1, expect: (u, v) => [encode(u), encode(v), 0, 255] },
     "hex.sl": { tolerance: 0, expect: () => [255, 128, 64, 255] },
+    // Red when all 64 uniform slots arrive with their defaults, green when one does not.
+    "uniforms-64.sl": { tolerance: 0, expect: () => [255, 0, 0, 255] },
     // Filtering in linear light is to the GPU's own precision, hence 2.
     "texture.sl": { tolerance: 2, expect: (u, v) => [0, 1, 2].map((ch) => encode(bilinear(u, v, ch))).concat(255) },
     "probe-hash.sl": { tolerance: 0, expect: (u, v, x, y) => probeProgramPixel(x, y) },

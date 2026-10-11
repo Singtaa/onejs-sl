@@ -95,18 +95,32 @@ describe("the web emitters", () => {
         }
     })
 
+    // OneJS 3.9.8's WebGPU host binds a buffer of 16 slots, and a block
+    // larger than its buffer fails validation: a program that fits in 16 has
+    // to keep declaring 16, so it still draws there.
+    it("declare 16 uniform slots unless the program has more", () => {
+        const decls = (n: number) => Array.from({ length: n }, (_, i) => `uniform float u${i} = 0;`).join("\n")
+        const sum = (n: number) => Array.from({ length: n }, (_, i) => `u${i}`).join(" + ")
+        for (const [n, slots] of [[1, 16], [16, 16], [17, WEB_UNIFORM_SLOTS], [WEB_UNIFORM_SLOTS, WEB_UNIFORM_SLOTS]] as const) {
+            const p = parse(`${decls(n)}\nfloat4 main() { return float4(${sum(n)}, 0, 0, 1); }`, { file: "slots.sl" })
+            expect(emitGLSL(p)).toContain(`uniform vec4 sl_U[${slots}];`)
+            expect(emitWGSL(p)).toContain(`u: array<vec4f, ${slots}>`)
+        }
+        expect(WEB_UNIFORM_SLOTS).toBe(64)
+    })
+
     it("print a parsed program against the host's fixed layout", () => {
         const p = parse(SOURCE, { file: "star.sl" })
         const glsl = emitGLSL(p)
         const wgsl = emitWGSL(p)
 
         expect(glsl.startsWith("#version 300 es\n")).toBe(true)
-        expect(glsl).toContain(`uniform vec4 sl_U[${WEB_UNIFORM_SLOTS}];`)
+        expect(glsl).toContain("uniform vec4 sl_U[16];")
         expect(glsl).toContain("uniform sampler2D sl_Tex0;")
         expect(glsl).toContain("texture(sl_Tex0, ")
         expect(glsl).toContain("sdStar(")
 
-        expect(wgsl).toContain(`u: array<vec4f, ${WEB_UNIFORM_SLOTS}>`)
+        expect(wgsl).toContain("u: array<vec4f, 16>")
         expect(wgsl).toContain("@group(0) @binding(1) var sl_samp0: sampler;")
         expect(wgsl).toContain("@group(0) @binding(2) var sl_tex0: texture_2d<f32>;")
         expect(wgsl).toContain("@vertex fn sl_vs(")

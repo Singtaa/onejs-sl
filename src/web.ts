@@ -14,7 +14,10 @@
  *
  *   sl_Res   (target width, target height, seconds, frame)
  *   sl_Opt   (1 in a Linear colour space project else 0, 1 to flip uv.y, deltaTime, 0)
- *   sl_U[64] uniform slots, each a vec4, in the program's slot order
+ *   sl_U     uniform slots, each a vec4, in the program's slot order: 16 of
+ *            them, or WEB_UNIFORM_SLOTS for a program with more than 16
+ *            uniforms. A host fills WEB_UNIFORM_SLOTS whatever the program
+ *            declares, which both languages allow.
  *   textures by slot: GLSL `sl_Tex<slot>`; WGSL `sl_tex<slot>` at binding
  *            2 + 2 * slot with its own sampler `sl_samp<slot>` at 1 + 2 * slot,
  *            all in group 0 beside the frame block at binding 0. Only the
@@ -52,8 +55,20 @@ import { INPUT_ID, SLOP, TEXTURE_SLOTS, UNIFORM_SLOTS } from "./ops"
 
 export type WebLanguage = "glsl" | "wgsl"
 
-/** Uniform slots the host always provides, so every program shares one layout. */
+/** Uniform slots a host provides, so one buffer fits every program. */
 export const WEB_UNIFORM_SLOTS = UNIFORM_SLOTS
+
+/**
+ * The block a program with 16 uniforms or fewer declares: the size it had
+ * before onejs-sl 0.9 raised the cap. A WebGPU host before then (OneJS 3.9.8)
+ * binds a buffer of exactly this many slots, which a larger block fails to
+ * validate against, so a program that fits keeps drawing there.
+ */
+const BASE_UNIFORM_SLOTS = 16
+
+function uniformBlock(p: Program): number {
+    return p.uniforms.length > BASE_UNIFORM_SLOTS ? WEB_UNIFORM_SLOTS : BASE_UNIFORM_SLOTS
+}
 
 export function emitGLSL(p: Program): string {
     return emitWeb(p, "glsl")
@@ -408,7 +423,7 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             `@group(0) @binding(${1 + 2 * TEXTURE_SLOTS}) var sl_prevSamp: sampler;\n` +
             `@group(0) @binding(${2 + 2 * TEXTURE_SLOTS}) var sl_prev: texture_2d<f32>;`] : []].join("\n")
         return `${header}
-struct SLFrame { res: vec4f, opt: vec4f, u: array<vec4f, ${WEB_UNIFORM_SLOTS}> }
+struct SLFrame { res: vec4f, opt: vec4f, u: array<vec4f, ${uniformBlock(p)}> }
 @group(0) @binding(0) var<uniform> sl: SLFrame;
 ${bindings}
 ${library}
@@ -431,7 +446,7 @@ precision highp float;
 precision highp int;
 uniform vec4 sl_Res;
 uniform vec4 sl_Opt;
-uniform vec4 sl_U[${WEB_UNIFORM_SLOTS}];
+uniform vec4 sl_U[${uniformBlock(p)}];
 ${samplers}
 out vec4 sl_Out;
 ${library}

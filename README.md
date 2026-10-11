@@ -166,7 +166,7 @@ either side, on a texture sampled nearest between levels), `wrap-repeat.sl`
 and `wrap-mirror.sl` (a program's own wrap over a texture the host binds
 clamped, the filter's footprint wrapping with it), `filter-point.sl` (its own
 point filter, to the byte, through `tex2D` and `tex2Dlod`) and `fetch.sl`
-(`tex2Dfetch` held at the edges and `textureSize`, to the byte). `sdf-values.sl`, `fbm-values.sl` and `ramp-values.sl` are black unless a
+(`tex2Dfetch` held at the edges and `textureSize`, to the byte), and `uniforms-64.sl` (every uniform slot arrives). `sdf-values.sl`, `fbm-values.sl` and `ramp-values.sl` are black unless a
 shape, a noise or a ramp draws differently with its parameters as values than
 as constants.
 A fixture that reads the previous frame, `frame` or `deltaTime` is stepped
@@ -277,7 +277,7 @@ printed at build time; a `compile()` result has them as lazy getters, like
 `hlsl`. The element draws nothing until the compiled
 program is ready, and nothing after a compile error, which the page reports.
 The host contract (the frame block, the
-64 uniform slots, one binding pair per sampled texture, the note that names a
+uniform block, one binding pair per sampled texture, the note that names a
 program's own sampler) is written out at the top of `web.ts`.
 
 The emitters match the HLSL emitter's semantics rather than each language's
