@@ -490,6 +490,8 @@ export function fromGLSL(glsl: string, options: { file?: string } = {}): FromGLS
     // ---------- the rewrite ----------
 
     const textures = new Set<string>()
+    /** Channels the shader declares itself, as a WebGL port of a Shadertoy shader does, which need no second declaration. */
+    const declaredChannels = new Set<string>()
     let mouse = false
     let uvDropped = false
 
@@ -530,6 +532,8 @@ export function fromGLSL(glsl: string, options: { file?: string } = {}): FromGLS
                 // `uniform sampler2D tex;` is `texture2D tex;`.
                 out += "texture2D"
                 i = skip(i + 1)
+                const declares = toks[skip(i + 1)]?.text ?? ""
+                if (/^iChannel\d$/.test(declares)) declaredChannels.add(declares)
                 continue
             }
             if (name === "sampler2D") { out += "texture2D"; continue }
@@ -683,7 +687,7 @@ export function fromGLSL(glsl: string, options: { file?: string } = {}): FromGLS
         note(at >= 0 ? toks[at]!.line : 1, "the uv line is dropped: fragCoord / resolution is the input uv, y up")
     }
 
-    const declared = [...textures].sort().map((t) => `texture2D ${t};`)
+    const declared = [...textures].filter((t) => !declaredChannels.has(t)).sort().map((t) => `texture2D ${t};`)
     if (mouse) declared.unshift("uniform float4 mouse;")
     const source = (declared.length > 0 ? declared.join("\n") + "\n" : "") + body.replace(/^\n+/, "")
     const lineOf = (n: string) => Number(/^line (\d+)/.exec(n)?.[1] ?? 0)

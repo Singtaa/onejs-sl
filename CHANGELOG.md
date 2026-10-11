@@ -3,6 +3,7 @@
 ## Unreleased
 
 - `classifyLine` classifies a line at a time from the state the line before ended in, for an editor like Monaco
+- `fromGLSL` declares a texture channel once when the shader declares it too
 
 ## 0.8.0
 

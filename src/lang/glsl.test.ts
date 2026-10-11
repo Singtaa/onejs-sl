@@ -128,6 +128,12 @@ describe("rewrites that keep the meaning", () => {
         expect(r.source).toContain("tex2D(iChannel0, fragCoord / resolution.xy)")
     })
 
+    it("declares a texture channel once when the shader declares it too", () => {
+        // WebGL ports of Shadertoy shaders spell out the uniforms Shadertoy supplies.
+        const r = compiles(image("fragColor = texture(iChannel0, fragCoord / iResolution.xy);", "uniform sampler2D iChannel0;"))
+        expect(r.source.match(/texture2D iChannel0;/g)).toHaveLength(1)
+    })
+
     it("reads a mip level with tex2Dlod, whose arguments are textureLod's", () => {
         const r = compiles(image("fragColor = textureLod(iChannel0, fragCoord / iResolution.xy, 2.0);"))
         expect(r.source).toContain("tex2Dlod(iChannel0, fragCoord / resolution.xy, 2.0)")
