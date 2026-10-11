@@ -15,8 +15,9 @@
  * next time it is generated.
  */
 
-import { SLError, SL_HASH_VERSION, readsOf, type Program } from "./ir"
+import { SLError, SL_HASH_VERSION, readsOf, reachable, samplingOf, type Program, type TextureSampling } from "./ir"
 import { emitBody, lit, type BodyTarget } from "./body"
+import { SLOP } from "./ops"
 
 /** The property name a uniform gets. Prefixed so it cannot collide with ours. */
 export function uniformProperty(name: string): string {
@@ -49,6 +50,7 @@ export function emitShader(p: Program, options: EmitOptions = {}): string {
     const include = options.include ?? "SLCommon.cginc"
     const body = emitFragmentBody(p)
     const reads = readsOf(p)
+    const use = textureUse(p)
 
     const props: string[] = [
         `        _Secs ("Seconds", Float) = 0`,
@@ -68,7 +70,22 @@ export function emitShader(p: Program, options: EmitOptions = {}): string {
     }
     for (const t of p.textures) {
         props.push(`        _Tex${t.slot} ("${t.name}", 2D) = "white" {}`)
-        decls.push(`            sampler2D _Tex${t.slot};`)
+        // A texture sampled as it is set is the sampler2D it always was, so
+        // every program before IR 6 prints the shader it always did. One the
+        // program sets a sampler for, or fetches from, is a Texture2D: the
+        // inline sampler state or the Load needs the texture on its own.
+        if (!use.object.has(t.slot)) decls.push(`            sampler2D _Tex${t.slot};`)
+        else {
+            decls.push(`            Texture2D _Tex${t.slot};`)
+            // Its own settings, by Unity's naming rule, for a plain sample.
+            if (use.plain.has(t.slot)) decls.push(`            SamplerState sampler_Tex${t.slot};`)
+        }
+        // Unity fills it from the bound texture: (1 / width, 1 / height, width, height).
+        if (use.sized.has(t.slot)) decls.push(`            float4 _Tex${t.slot}_TexelSize;`)
+    }
+    // Unity's inline sampler states: the name says the filter and the wrap.
+    for (const name of [...new Set(p.textures.map(samplingOf).filter((s) => s !== null).map(inlineSampler))].sort()) {
+        decls.push(`            SamplerState ${name};`)
     }
     // Only for a program that samples it, so every other program's shader is
     // the text it always was. Transparent black is the previous frame's clear
@@ -143,6 +160,7 @@ ${body}
  * shader compile, so this target always emits it.
  */
 function unityTarget(p: Program): BodyTarget {
+    const use = textureUse(p)
     return {
         // `_Res` is the TARGET's size, set by the host, not `_ScreenParams`.
         //
@@ -164,8 +182,15 @@ function unityTarget(p: Program): BodyTarget {
             deltaTime: "_Res.w",
         },
         uniform: (slot) => uniformProperty(p.uniforms[slot]!.name),
-        sample: (slot, uv) => `tex2D(_Tex${slot}, ${uv})`,
-        sampleLevel: (slot, uv, lod) => `tex2Dlod(_Tex${slot}, float4(${uv}, 0.0, ${lod}))`,
+        sample: (slot, uv) => use.object.has(slot) ? `_Tex${slot}.Sample(sampler_Tex${slot}, ${uv})` : `tex2D(_Tex${slot}, ${uv})`,
+        sampleLevel: (slot, uv, lod) => use.object.has(slot)
+            ? `_Tex${slot}.SampleLevel(sampler_Tex${slot}, ${uv}, ${lod})`
+            : `tex2Dlod(_Tex${slot}, float4(${uv}, 0.0, ${lod}))`,
+        sampleWith: (slot, uv, lod, s) => lod === null
+            ? `_Tex${slot}.Sample(${inlineSampler(s)}, ${uv})`
+            : `_Tex${slot}.SampleLevel(${inlineSampler(s)}, ${uv}, ${lod})`,
+        size: (slot) => `_Tex${slot}_TexelSize.zw`,
+        fetch: (slot, pixel) => `_Tex${slot}.Load(int3(${pixel}, 0))`,
         // Flipped as this frame flipped the uv it wrote at, so a read at a
         // pixel's own uv is that pixel whichever way the host's target runs.
         previous: (uv) => `tex2Dlod(_Prev, float4(${uv} * float2(1.0, 1.0 - 2.0 * _FlipY) + float2(0.0, _FlipY), 0.0, 0.0))`,
@@ -173,6 +198,36 @@ function unityTarget(p: Program): BodyTarget {
         indent: "                ",
         loopAttribute: "[loop]",
     }
+}
+
+/**
+ * An inline sampler state's name. Unity reads the filter and the wrap from the
+ * name itself ("point" or "linear", "clamp", "repeat" or "mirror").
+ */
+function inlineSampler(s: TextureSampling): string {
+    return `sl_sampler_${s.filter}_${s.wrap}`
+}
+
+/**
+ * How the program reaches each texture slot, which decides how the shader
+ * declares it. `object`: declared a Texture2D, because the program sets its
+ * sampler or fetches from it. `plain`: an object sampled with its own
+ * settings, which needs Unity's `sampler_` state. `sized`: reads `_TexelSize`,
+ * as `textureSize` and a fetch's bounds do.
+ */
+function textureUse(p: Program): { object: Set<number>; plain: Set<number>; sized: Set<number> } {
+    const fetched = new Set<number>(), sampled = new Set<number>(), sized = new Set<number>()
+    for (const ref of reachable(p.nodes, p.result)) {
+        const n = p.nodes[ref]!
+        if (n.k !== "call") continue
+        const slot = Math.round(n.imm?.[0] ?? 0)
+        if (n.op === SLOP.SAMPLE || n.op === SLOP.SAMPLE_LOD) sampled.add(slot)
+        else if (n.op === SLOP.TEXTURE_SIZE) sized.add(slot)
+        else if (n.op === SLOP.SAMPLE_FETCH) { fetched.add(slot); sized.add(slot) }
+    }
+    const object = new Set(p.textures.filter((t) => samplingOf(t) !== null || fetched.has(t.slot)).map((t) => t.slot))
+    const plain = new Set([...sampled].filter((slot) => object.has(slot) && samplingOf(p.textures[slot]!) === null))
+    return { object, plain, sized }
 }
 
 /** The straight line body: one local per reachable node, in order. */

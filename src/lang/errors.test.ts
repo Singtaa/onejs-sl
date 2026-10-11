@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { SLParseError } from "./lexer"
 import { parse } from "./index"
+import { TEXTURE_SLOTS, UNIFORM_SLOTS } from "../ops"
 
 /**
  * Every refusal, with a place in the file.
@@ -199,19 +200,19 @@ describe("no message names the VM", () => {
 
 describe("caps", () => {
     it("reports too many uniforms at the one that went over", () => {
-        const decls = Array.from({ length: 17 }, (_, i) => `uniform float u${i} = 0;`).join("\n")
+        const decls = Array.from({ length: UNIFORM_SLOTS + 1 }, (_, i) => `uniform float u${i} = 0;`).join("\n")
         const e = refuse(`${decls}\nfloat4 main() { return float4(u0, 0, 0, 1); }`)
-        expect(e.message).toContain("a program may hold 16")
+        expect(e.message).toContain(`a program may hold ${UNIFORM_SLOTS}`)
         expect(e.message).not.toMatch(/\bVM\b/)
-        expect(e.line).toBe(17)
+        expect(e.line).toBe(UNIFORM_SLOTS + 1)
     })
 
-    it("reports too many textures, and why a fifth cannot work", () => {
-        const decls = Array.from({ length: 5 }, (_, i) => `texture2D t${i};`).join("\n")
+    it("reports too many textures, and why one more cannot work", () => {
+        const decls = Array.from({ length: TEXTURE_SLOTS + 1 }, (_, i) => `texture2D t${i};`).join("\n")
         const e = refuse(`${decls}\nfloat4 main() { return tex2D(t0, uv); }`)
-        expect(e.message).toContain("two pictures from one file")
+        expect(e.message).toContain("no slot to be bound in")
         expect(e.message).not.toMatch(/\bVM\b/)
-        expect(e.line).toBe(5)
+        expect(e.line).toBe(TEXTURE_SLOTS + 1)
     })
 })
 

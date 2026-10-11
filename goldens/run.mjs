@@ -122,6 +122,7 @@ const evaluate = async (expression) => {
 await send("Page.navigate", { url: `http://127.0.0.1:${server.address().port}/` })
 for (let i = 0; i < 50 && (await evaluate("typeof window.goldens").catch(() => "")) !== "object"; i++) await sleep(100)
 
+await evaluate(`goldens.layout(${vm.runInContext("JSON.stringify(__goldens.LAYOUT)", context)})`)
 const draw = {}
 for (const backend of ["webgpu", "webgl2"]) {
     draw[backend] = await evaluate(`goldens.render(${JSON.stringify(backend)}, ${JSON.stringify(fixtures)}, ${JSON.stringify(TIMES)}, ${JSON.stringify(STEPS)})`)
@@ -197,15 +198,22 @@ for (const name of stepped) {
 // The anchors, against arithmetic.
 const encode = (c) => Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055))
 const decode = (b) => { const c = b / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4) }
-const texel = (x, y, ch) => {
-    const cx = Math.min(7, Math.max(0, x)), cy = Math.min(7, Math.max(0, y))
-    return decode(textureBytes[(cy * 8 + cx) * 4 + ch])
+// A texel index outside 0 to 7 under each wrap: held at the edge, tiled, or
+// tiled with every other tile reversed.
+const WRAP = {
+    clamp: (i) => Math.min(7, Math.max(0, i)),
+    repeat: (i) => ((i % 8) + 8) % 8,
+    mirror: (i) => { const m = ((i % 16) + 16) % 16; return m < 8 ? m : 15 - m },
 }
-const bilinear = (u, v, ch) => {
+const texelByte = (x, y, ch, wrap = WRAP.clamp) => textureBytes[(wrap(y) * 8 + wrap(x)) * 4 + ch]
+const texel = (x, y, ch, wrap = WRAP.clamp) => decode(texelByte(x, y, ch, wrap))
+// The filter's footprint wraps as the coordinate does, so a tiled texture has no seam.
+const bilinear = (u, v, ch, wrap = WRAP.clamp) => {
     const x = u * 8 - 0.5, y = v * 8 - 0.5
     const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0
     const lerp = (a, b, f) => a + (b - a) * f
-    return lerp(lerp(texel(x0, y0, ch), texel(x0 + 1, y0, ch), fx), lerp(texel(x0, y0 + 1, ch), texel(x0 + 1, y0 + 1, ch), fx), fy)
+    return lerp(lerp(texel(x0, y0, ch, wrap), texel(x0 + 1, y0, ch, wrap), fx),
+        lerp(texel(x0, y0 + 1, ch, wrap), texel(x0 + 1, y0 + 1, ch, wrap), fx), fy)
 }
 const anchors = {
     "orient.sl": { tolerance: 1, expect: (u, v) => [encode(u), encode(v), 0, 255] },
@@ -223,6 +231,26 @@ const anchors = {
     "int-ops.sl": { tolerance: 0, expect: (u, v) => intOpsPixel(u, v) },
     // A loop leaving at its turn limit, exactly; green and blue are stored floats, so within 1.
     "loop-cap.sl": { tolerance: 1, expect: (u, v) => loopCapLinear(u, v).map(encode).concat(255) },
+    // The program's own sampler over a host that binds the texture linear and
+    // clamped: three tiles each way, wrapped as the attribute says.
+    "wrap-repeat.sl": { tolerance: 2, expect: (u, v) => [0, 1, 2].map((ch) => encode(bilinear(u * 3 - 1, v * 3 - 1, ch, WRAP.repeat))).concat(255) },
+    "wrap-mirror.sl": { tolerance: 2, expect: (u, v) => [0, 1, 2].map((ch) => encode(bilinear(u * 3 - 1, v * 3 - 1, ch, WRAP.mirror))).concat(255) },
+    // Point and repeat: the nearest texel, never on a texel's edge at a pixel's centre, as stored.
+    "filter-point.sl": {
+        tolerance: 0,
+        expect: (u, v) => [0, 1, 2].map((ch) => texelByte(Math.floor((u * 2 - 0.5) * 8), Math.floor((v * 2 - 0.5) * 8), ch, WRAP.repeat)).concat(255),
+    },
+    // Fetched texels as stored on the left, held at the edge past it, and the
+    // texture sampled at texel centres on the right; blue is the width over 16.
+    "fetch.sl": {
+        tolerance: 0,
+        expect: (u, v) => {
+            const rg = u < 0.5
+                ? [0, 1].map((ch) => texelByte(Math.floor(u * 10 - 1), Math.floor(v * 10 - 1), ch))
+                : [0, 1].map((ch) => texelByte(Math.floor(u * 8), Math.floor(v * 8), ch))
+            return [...rg, encode(0.5), 255]
+        },
+    },
     // Four bands, each one mip level: the image, then the three solid levels.
     "lod.sl": {
         tolerance: 2,

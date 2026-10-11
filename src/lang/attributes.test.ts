@@ -216,9 +216,13 @@ describe("what each refusal says, and marks", () => {
         expect(refusal("[IntRange(0, 4)] uniform float n = 0;").text).toMatch(/Did you mean Range\?; a whole number slider is \[Range\(min, max, 1\)\]$/)
     })
 
-    it("refuses an attribute on anything but a uniform", () => {
+    it("refuses an attribute on anything but a uniform or a texture, and a uniform's on a texture", () => {
+        expect(errors("[Range(0, 1)] const float k = 1;")).toEqual([
+            "1:1 an attribute belongs on a uniform or a texture, as in `[Range(0, 1)] uniform float amount = 0.5;` or " +
+            "`[Wrap(Repeat)] texture2D grain;`, and this one is followed by \"const\"",
+        ])
         expect(errors("[Range(0, 1)] texture2D noise;")).toEqual([
-            "1:1 an attribute belongs on a uniform, as in `[Range(0, 1)] uniform float amount = 0.5;`, and this one is followed by \"texture2D\"",
+            "1:2 [Range] is for a uniform; a texture takes [Wrap(Repeat)], [Wrap(Mirror)], [Wrap(Clamp)] and [Filter(Point)], [Filter(Linear)]",
         ])
     })
 

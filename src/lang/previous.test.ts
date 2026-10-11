@@ -3,7 +3,7 @@ import { compile } from "../compile"
 import { emitBody, type BodyTarget } from "../body"
 import { emitShader } from "../hlsl"
 import { readsOf, SL_IR_VERSION, type Program } from "../ir"
-import { SLOP } from "../ops"
+import { SLOP, TEXTURE_SLOTS } from "../ops"
 import { fromJSON, toJSON } from "../serial"
 import * as sl from "../sl"
 import { emitGLSL, emitWGSL } from "../web"
@@ -59,7 +59,7 @@ describe("frame, deltaTime and previous", () => {
     it("make a program IR 5, and say which a host has to keep", () => {
         const p = parse(TRAIL)
         expect(p.version).toBe(5)
-        expect(SL_IR_VERSION).toBe(5)
+        expect(SL_IR_VERSION).toBeGreaterThanOrEqual(5)
         expect(compile(p).reads).toEqual({ previous: true, frame: false, deltaTime: false })
         expect(compile(parse(main("return float4(frame, deltaTime, 0, 1);"))).reads).toEqual({ previous: false, frame: true, deltaTime: true })
     })
@@ -130,8 +130,9 @@ describe("the emitters", () => {
 
     it("give the web frame the step in sl_Res.w and sl_Opt.z and the previous frame its own binding", () => {
         const wgsl = emitWGSL(p), glsl = emitGLSL(p)
-        expect(wgsl).toContain("@group(0) @binding(9) var sl_prevSamp: sampler;")
-        expect(wgsl).toContain("@group(0) @binding(10) var sl_prev: texture_2d<f32>;")
+        // The two bindings after the last texture slot's, whatever the program declares.
+        expect(wgsl).toContain(`@group(0) @binding(${1 + 2 * TEXTURE_SLOTS}) var sl_prevSamp: sampler;`)
+        expect(wgsl).toContain(`@group(0) @binding(${2 + 2 * TEXTURE_SLOTS}) var sl_prev: texture_2d<f32>;`)
         expect(wgsl).toContain("sl.res.w")
         expect(wgsl).toContain("sl.opt.z")
         expect(wgsl).toContain("textureSampleLevel(sl_prev, sl_prevSamp, ")

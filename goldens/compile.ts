@@ -3,7 +3,7 @@
  * from the package's own emitters, and its uniform defaults. Bundled and run in
  * Node by `run.mjs`; the page never sees a compiler.
  */
-import { parse, readsOf, sl, SL_IR_VERSION } from "../src/index"
+import { parse, readsOf, sl, SL_IR_VERSION, TEXTURE_SLOTS, UNIFORM_SLOTS } from "../src/index"
 import { emitGLSL, emitWGSL } from "../src/emit/web"
 import { LIB_GLSL } from "../src/lib/glsl"
 import { LIB_WGSL } from "../src/lib/wgsl"
@@ -16,6 +16,9 @@ import probeSource from "./probes.hlsl"
 
 export { SL_SDF_PARAMS } from "../src/core"
 export { SL_IR_VERSION }
+
+/** The slot counts the page lays its frame out by. */
+export const LAYOUT = { uniforms: UNIFORM_SLOTS, textures: TEXTURE_SLOTS }
 
 /**
  * The whole translated library in OneJS's web frame, once per language.

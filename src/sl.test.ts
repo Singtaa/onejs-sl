@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { parse, sl, type Float } from "./index"
 import { SLError, TYPE, hashProgram, valueAt, type SLNode, type ValueNode } from "./ir"
-import { SLOP } from "./ops"
+import { SLOP, TEXTURE_SLOTS, UNIFORM_SLOTS } from "./ops"
 import { SL_SDF_SHAPES } from "./shapes"
 import { compile } from "./compile"
 
@@ -191,21 +191,21 @@ describe("uniforms", () => {
         expect(p.uniforms[0]).toEqual({ name: "k", type: TYPE.FLOAT, value: [1] })
     })
 
-    it("refuses a seventeenth uniform where it is declared, as the parser does", () => {
+    it("refuses a uniform past the cap where it is declared, as the parser does", () => {
         let declared = 0
         expect(() => sl.program(() => {
-            for (let i = 0; i < 17; i++) { sl.uniform.float("u" + i); declared++ }
+            for (let i = 0; i <= UNIFORM_SLOTS; i++) { sl.uniform.float("u" + i); declared++ }
             return sl.vec4(0, 0, 0, 1)
-        })).toThrow(/this program declares 17 uniforms and a program may hold 16\..*Pack related values into a vec4\./s)
-        expect(declared).toBe(16)
+        })).toThrow(new RegExp(`this program declares ${UNIFORM_SLOTS + 1} uniforms and a program may hold ${UNIFORM_SLOTS}\\..*Pack related values into a vec4\\.`, "s"))
+        expect(declared).toBe(UNIFORM_SLOTS)
     })
 
-    it("holds sixteen uniforms, and reading one again declares nothing", () => {
+    it("holds as many uniforms as the cap, and reading one again declares nothing", () => {
         const p = sl.program(() => {
-            for (let i = 0; i < 16; i++) sl.uniform.float("u" + i)
+            for (let i = 0; i < UNIFORM_SLOTS; i++) sl.uniform.float("u" + i)
             return sl.vec4(sl.uniform.float("u0"), 0, 0, 1)
         })
-        expect(p.uniforms.length).toBe(16)
+        expect(p.uniforms.length).toBe(UNIFORM_SLOTS)
     })
 
     it("refuses one name declared at two widths", () => {
@@ -225,15 +225,15 @@ describe("textures", () => {
         expect(p.textures.length).toBe(1)
     })
 
-    it("refuses a fifth texture where it is declared, as the parser does", () => {
-        // compile() in 0.2.0 dropped the check encode made, so a fifth texture
-        // compiled and then sampled nothing on a native host.
+    it("refuses a texture past the cap where it is declared, as the parser does", () => {
+        // compile() in 0.2.0 dropped the check encode made, so a texture past
+        // the cap compiled and then sampled nothing on a native host.
         let declared = 0
         expect(() => sl.program(({ uv }) => {
-            for (let i = 0; i < 5; i++) { sl.texture("t" + i); declared++ }
+            for (let i = 0; i <= TEXTURE_SLOTS; i++) { sl.texture("t" + i); declared++ }
             return sl.vec4(uv, 0, 1)
-        })).toThrow(/this program declares 5 textures and a program may sample 4\..*two pictures from one program/s)
-        expect(declared).toBe(4)
+        })).toThrow(new RegExp(`this program declares ${TEXTURE_SLOTS + 1} textures and a program may sample ${TEXTURE_SLOTS}\\..*rather than drawn blank`, "s"))
+        expect(declared).toBe(TEXTURE_SLOTS)
     })
 
     it("counts a texture declared twice once", () => {

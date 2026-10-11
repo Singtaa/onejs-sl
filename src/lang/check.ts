@@ -34,7 +34,7 @@ import { SL_GLSL_HINT } from "../ops"
 import { BUILTINS, NOT_YET } from "./builtins"
 import { SL_SDF_SHAPES } from "../shapes"
 import { TYPE_WIDTH, type Expr, type FuncDecl, type Stmt, type Unit } from "./ast"
-import { readAttributes } from "./attributes"
+import { readAttributes, readTextureAttributes } from "./attributes"
 import { SLParseError, type Pos, type SLFix } from "./lexer"
 
 const INPUT_NAMES = new Set(Object.keys(INPUTS))
@@ -68,7 +68,7 @@ const GLSL_RENAMES = new Set([
 ])
 
 /** The builtins whose first argument is a texture, which is not a value anywhere else. */
-const SAMPLES = new Set(["tex2D", "tex2Dlod"])
+const SAMPLES = new Set(["tex2D", "tex2Dlod", "textureSize", "tex2Dfetch"])
 
 const rename = (from: string, to: string): SLFix => ({ title: `Replace ${from} with ${to}`, replacement: to })
 
@@ -188,6 +188,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
             const clash = valueClash(t.name)
             if (clash !== null) fail(`"${t.name}" already names ${clash}`, t.pos, t.name.length)
         })
+        for (const p of readTextureAttributes(t).problems) attempt(() => fail(p.message, p.pos, p.length, p.fix))
         if (!textures.has(t.name)) textures.set(t.name, t)
     }
     attempt(() => {
@@ -512,7 +513,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                 if (textures.has(e.name)) {
                     fail(
                         `"${e.name}" is a texture, and a texture is only ever the first argument of ` +
-                        `tex2D or tex2Dlod. Write \`tex2D(${e.name}, uv)\``,
+                        `tex2D, tex2Dlod, tex2Dfetch or textureSize. Write \`tex2D(${e.name}, uv)\``,
                         e.pos, e.name.length,
                     )
                 }
@@ -636,11 +637,18 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
                         e.pos,
                     )
                 }
+                if (previous && n === "textureSize") {
+                    fail("previous is the size this program draws at, which is `resolution`", e.pos)
+                }
+                if (previous && n === "tex2Dfetch") {
+                    fail("previous is read at a uv: `tex2D(previous, uv)`, or `tex2D(previous, (pixel + 0.5) / resolution)` for a pixel", e.pos)
+                }
                 if (!previous && (tex === undefined || tex.k !== "ident" || !textures.has(tex.name))) {
-                    const lod = n === "tex2Dlod" ? ", 0" : ""
+                    const rest = n === "tex2Dlod" ? "uv, 0" : n === "textureSize" ? "" : n === "tex2Dfetch" ? "pixel" : "uv"
+                    const verb = n === "textureSize" ? "measures" : n === "tex2Dfetch" ? "reads" : "samples"
                     fail(
-                        `${n} samples a texture declared in this file, as in \`texture2D grain;\` ` +
-                        `then \`${n}(grain, uv${lod})\``,
+                        `${n} ${verb} a texture declared in this file, as in \`texture2D grain;\` ` +
+                        `then \`${n}(grain${rest === "" ? "" : ", " + rest})\``,
                         (tex ?? e).pos,
                     )
                 }

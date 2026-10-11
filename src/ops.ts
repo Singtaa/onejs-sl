@@ -26,16 +26,21 @@
  * for a host to read.
  *
  * They are what OneJS draws a program with. It keeps a program's uniforms in
- * 16 slots in the editor, a native player and a browser alike
- * (`SLProgramBridge.MaxUniforms`, the web frame's `sl_U`), and binds four
- * textures in the editor and a native player (`_Tex0` to `_Tex3`). A program
- * past either has something with no slot of its own, which one host would drop
- * and another would draw, so the parser and the builder both refuse it at the
- * declaration, the parser with a file and a line. `Specs/SL_NEXT.md` section 8
- * proposes raising both.
+ * 64 slots in the editor, a native player and a browser alike
+ * (`SLProgramBridge.MaxUniforms`, the web frame's `sl_U`), and binds eight
+ * textures everywhere (`_Tex0` to `_Tex7`). A program past either has
+ * something with no slot of its own, which one host would drop and another
+ * would draw, so the parser and the builder both refuse it at the declaration,
+ * the parser with a file and a line.
+ *
+ * Both sit inside every backend's minimum (`Specs/SL_NEXT.md` 8). Eight
+ * textures and the previous frame are nine sampled textures and at most nine
+ * samplers, where WebGPU, WebGL2, OpenGL ES 3 and Direct3D 11 all guarantee 16
+ * a fragment stage. 64 float4s are 1 KB of uniforms, where WebGL2 and OpenGL
+ * ES 3 guarantee 224 vectors and WebGPU 64 KB.
  */
-export const UNIFORM_SLOTS = 16
-export const TEXTURE_SLOTS = 4
+export const UNIFORM_SLOTS = 64
+export const TEXTURE_SLOTS = 8
 
 /** Input ids, which the web emitter switches on. */
 export const INPUT_ID: Record<string, number> = {
@@ -149,6 +154,11 @@ export const SLOP = {
     // What this program drew the frame before, at a uv (IR 5). No slot: the
     // host keeps it, and a program that never reads it has none.
     SAMPLE_PREVIOUS: 146,
+    // IR 6. A texture's size in pixels, a float2, its slot the one immediate.
+    TEXTURE_SIZE: 147,
+    // IR 6. One texel, unfiltered, at a float2 pixel: floored and held inside
+    // the texture, so every backend reads the same texel at every pixel.
+    SAMPLE_FETCH: 148,
 } as const
 
 export type SLOpCode = (typeof SLOP)[keyof typeof SLOP]
@@ -191,6 +201,7 @@ export const SL_ARITY: Record<number, number> = {
     [SLOP.VORONOI]: 1, [SLOP.TURBULENCE]: -1, [SLOP.RIDGED]: -1,
 
     [SLOP.SAMPLE]: 1, [SLOP.SAMPLE_LOD]: 2, [SLOP.SAMPLE_PREVIOUS]: 1,
+    [SLOP.TEXTURE_SIZE]: 0, [SLOP.SAMPLE_FETCH]: 1,
 }
 
 /** Name per opcode, for error messages and for the HLSL emitter's comments. */
@@ -316,6 +327,8 @@ export const SL_HLSL: Record<number, SLSurface> = {
     [SLOP.SAMPLE]: { call: "tex2D" },
     [SLOP.SAMPLE_LOD]: { call: "tex2Dlod" },
     [SLOP.SAMPLE_PREVIOUS]: { syntax: "tex2D(previous, uv)" },
+    [SLOP.TEXTURE_SIZE]: { call: "textureSize" },
+    [SLOP.SAMPLE_FETCH]: { call: "tex2Dfetch" },
 }
 
 /**
@@ -347,6 +360,7 @@ export const SL_GLSL_HINT: Record<string, string> = {
     mod: "%",
     texture: "tex2D",
     textureLod: "tex2Dlod",
+    texelFetch: "tex2Dfetch",
     vec2: "float2",
     vec3: "float3",
     vec4: "float4",

@@ -212,17 +212,18 @@ class Parser {
 
         if (t.text === "[") {
             const attrs = this.parseAttributes()
+            if (this.at("texture2D")) { unit.textures.push(this.parseTexture(attrs)); return }
             if (!this.at("uniform")) {
                 this.fail(
-                    `an attribute belongs on a uniform, as in \`[Range(0, 1)] uniform float amount = 0.5;\`, ` +
-                    `and this one is followed by ${describe(this.peek())}`, t,
+                    `an attribute belongs on a uniform or a texture, as in \`[Range(0, 1)] uniform float amount = 0.5;\` ` +
+                    `or \`[Wrap(Repeat)] texture2D grain;\`, and this one is followed by ${describe(this.peek())}`, t,
                 )
             }
             unit.uniforms.push(this.parseUniform(attrs))
             return
         }
         if (t.text === "uniform") { unit.uniforms.push(this.parseUniform([])); return }
-        if (t.text === "texture2D") { unit.textures.push(this.parseTexture()); return }
+        if (t.text === "texture2D") { unit.textures.push(this.parseTexture([])); return }
         if (t.text === "const") { unit.consts.push(this.parseConst()); return }
         if (t.kind === "ident") {
             const fn = this.parseFunction()
@@ -277,7 +278,7 @@ class Parser {
         this.fail(`expected a number, a word or a "string" as an attribute's argument, got ${describe(t)}`, t)
     }
 
-    private parseTexture(): TextureDecl {
+    private parseTexture(attrs: Attribute[]): TextureDecl {
         const kw = this.next()
         const name = this.expectName("a texture name")
         if (this.at("=")) {
@@ -287,7 +288,7 @@ class Parser {
             )
         }
         this.expect(";", "after a texture declaration")
-        return { name: name.text, pos: kw }
+        return { name: name.text, attrs, pos: kw }
     }
 
     private parseConst(): Extract<Stmt, { k: "const" }> {

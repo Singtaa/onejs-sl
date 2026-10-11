@@ -11,8 +11,12 @@
  *
  * The host contract is the one `src/web.ts` states and OneJS's
  * `OneJSSLWeb.jslib` implements: `res` = (width, height, seconds, 0), `opt` =
- * (1 for a Linear project, 1 to flip uv.y, 0, 0), 16 float4 uniform slots, and
- * per sampled slot a sampler at binding 1 + 2s and a texture at 2 + 2s.
+ * (1 for a Linear project, 1 to flip uv.y, 0, 0), the language's uniform slots
+ * as float4s, and per slot read a texture at binding 2 + 2s and, when the
+ * program samples it, a sampler at 1 + 2s. The sampler is linear and clamped,
+ * as the texture is set, unless the declaration ends `// sampler <wrap>
+ * <filter>`, in which case it is that. The slot counts come from the package
+ * (`layout`), so a cap that moves moves here too.
  *
  * Rows come back top first on both backends: WebGPU's framebuffer y runs down,
  * so it draws with the flip; WebGL2's runs up, so it draws without one and the
@@ -29,7 +33,18 @@
  * what the element shows. Both the stored bytes and the raw history come back.
  */
 const SIZE = 64
-const SLOTS = 16
+/** The language's uniform and texture slots, set by `run.mjs` from the package before anything draws. */
+let SLOTS = null
+let TEXTURE_SLOTS = null
+const laidOut = () => {
+    if (SLOTS === null) throw new Error("goldens.layout was not called with the package's slot counts")
+}
+
+/** A program's own sampler for a slot, from its declaration's note, or null to sample as the texture is set. */
+function samplerNote(source, slot) {
+    const m = new RegExp(`sl_(?:samp|Tex)${slot}\\b[^\\n]*// sampler (repeat|clamp|mirror) (point|linear)`).exec(source)
+    return m === null ? null : { wrap: m[1], filter: m[2] }
+}
 
 /**
  * The texture every sampled slot gets: 8 x 8, opaque, stored sRGB, and defined
@@ -105,6 +120,11 @@ async function webgpu(fixtures, times, steps) {
         device.queue.writeTexture({ texture: tex, mipLevel: level }, mipBytes(level), { bytesPerRow: size * 4 }, [size, size])
     }
     const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" })
+    const address = { repeat: "repeat", clamp: "clamp-to-edge", mirror: "mirror-repeat" }
+    const ownSampler = (note) => device.createSampler({
+        magFilter: note.filter === "point" ? "nearest" : "linear", minFilter: note.filter === "point" ? "nearest" : "linear",
+        mipmapFilter: "nearest", addressModeU: address[note.wrap], addressModeV: address[note.wrap],
+    })
     const history = [0, 1].map(() => device.createTexture({
         size: [SIZE, SIZE], format: HISTORY,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
@@ -149,7 +169,11 @@ async function webgpu(fixtures, times, steps) {
         const entries = [{ binding: 0, resource: { buffer: ubo } }]
         for (const m of fx.wgsl.matchAll(/var sl_tex(\d+)/g)) {
             const s = Number(m[1])
-            entries.push({ binding: 1 + 2 * s, resource: sampler }, { binding: 2 + 2 * s, resource: tex.createView() })
+            entries.push({ binding: 2 + 2 * s, resource: tex.createView() })
+            // A slot only measured or fetched from declares no sampler.
+            if (!fx.wgsl.includes(`var sl_samp${s}:`)) continue
+            const note = samplerNote(fx.wgsl, s)
+            entries.push({ binding: 1 + 2 * s, resource: note === null ? sampler : ownSampler(note) })
         }
         if (stepped(fx)) {
             // One group per half drawn into, the other half bound as the previous frame.
@@ -286,8 +310,9 @@ void main() { o = texelFetch(h, ivec2(gl_FragCoord.xy), 0); }`, "the display pas
     gl.linkProgram(display)
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
     const floats = new Float32Array(SIZE * SIZE * 4)
-    /** The unit the previous frame is bound on, after the four texture slots'. */
-    const PREVIOUS_UNIT = 4
+    /** The unit the previous frame is bound on, after the texture slots'. */
+    const PREVIOUS_UNIT = TEXTURE_SLOTS
+    const wraps = { repeat: gl.REPEAT, clamp: gl.CLAMP_TO_EDGE, mirror: gl.MIRRORED_REPEAT }
 
     const out = {}
     const stepsOut = {}
@@ -303,6 +328,17 @@ void main() { o = texelFetch(h, ivec2(gl_FragCoord.xy), 0); }`, "the display pas
             gl.activeTexture(gl.TEXTURE0 + unit)
             gl.bindTexture(gl.TEXTURE_2D, tex)
             gl.uniform1i(gl.getUniformLocation(prog, `sl_Tex${unit}`), unit)
+            // A sampler object overrides the texture's own settings, as OneJS's host does.
+            const note = samplerNote(fx.glsl, unit)
+            let own = null
+            if (note !== null) {
+                own = gl.createSampler()
+                gl.samplerParameteri(own, gl.TEXTURE_WRAP_S, wraps[note.wrap])
+                gl.samplerParameteri(own, gl.TEXTURE_WRAP_T, wraps[note.wrap])
+                gl.samplerParameteri(own, gl.TEXTURE_MAG_FILTER, note.filter === "point" ? gl.NEAREST : gl.LINEAR)
+                gl.samplerParameteri(own, gl.TEXTURE_MIN_FILTER, note.filter === "point" ? gl.NEAREST_MIPMAP_NEAREST : gl.LINEAR_MIPMAP_NEAREST)
+            }
+            gl.bindSampler(unit, own)
         }
         if (stepped(fx)) {
             for (const h of history) {
@@ -389,7 +425,12 @@ window.goldens = {
     compiles,
     textureBytes: () => Array.from(textureBytes()),
     mips: MIPS,
+    layout(l) {
+        SLOTS = l.uniforms
+        TEXTURE_SLOTS = l.textures
+    },
     async render(backend, fixtures, times, steps = { count: 0, dt: 0, record: [] }) {
+        laidOut()
         document.getElementById("status").textContent = `rendering on ${backend}`
         const r = backend === "webgpu" ? await webgpu(fixtures, times, steps) : await webgl2(fixtures, times, steps)
         document.getElementById("status").textContent = `done on ${backend}`

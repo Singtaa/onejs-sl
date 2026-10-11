@@ -58,7 +58,7 @@ import type { SlSdfKind } from "../shapes"
 import * as sl from "../sl"
 import { Val, type Num } from "../sl"
 import { TYPE_KIND, TYPE_WIDTH, type BinaryOp, type Expr, type FuncDecl, type Stmt, type TypeName } from "./ast"
-import { readAttributes } from "./attributes"
+import { readAttributes, readTextureAttributes } from "./attributes"
 import { BUILTINS } from "./builtins"
 import { terminates, type Checked } from "./check"
 import { SLParseError, type Pos } from "./lexer"
@@ -288,7 +288,10 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
                 global.declare(u.name, { width, kind: TYPE_KIND[u.type], value })
             }
 
-            for (const t of unit.textures) samplers.set(t.name, at(t.pos, () => sl.texture(t.name)))
+            // The checker reported any attribute it could not read; what it could goes in.
+            for (const t of unit.textures) {
+                samplers.set(t.name, at(t.pos, () => sl.texture(t.name, readTextureAttributes(t).sampling)))
+            }
             // Unless the file declared a texture of its own by the name. The
             // checker refuses tex2Dlod on it, and anything else that took the
             // name, before lowering could reach either.
@@ -296,6 +299,8 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
                 samplers.set(PREVIOUS, {
                     sample: (uv) => inputs.previous.sample(uv),
                     sampleLevel: () => { throw new Error("tex2Dlod(previous) reached lowering; the checker refuses it") },
+                    size: () => { throw new Error("textureSize(previous) reached lowering; the checker refuses it") },
+                    fetch: () => { throw new Error("tex2Dfetch(previous) reached lowering; the checker refuses it") },
                 })
             }
 
@@ -1159,6 +1164,16 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
 
         if (n === "int" || n === "uint" || n === "bool") return convert(n, e, scope)
         if (n in TYPE_WIDTH) return construct(n as TypeName, floats(e.args), e.pos)
+
+        if (n === "textureSize" || n === "tex2Dfetch") {
+            const tex = samplers.get((e.args[0] as Extract<Expr, { k: "ident" }>).name)!
+            if (n === "textureSize") return at(e.pos, () => tex.size() as unknown as Val)
+            const pixel = toFloat(lowerExpr(e.args[1]!, scope), e.args[1]!.pos)
+            if (typeof pixel === "number" || pixel.width !== 2) {
+                fail("tex2Dfetch reads at a float2 pixel, as in tex2Dfetch(t, fragCoord)", e.args[1]!.pos)
+            }
+            return at(e.pos, () => tex.fetch(pixel as never) as unknown as Val)
+        }
 
         if (n === "tex2D" || n === "tex2Dlod") {
             const texName = (e.args[0] as Extract<Expr, { k: "ident" }>).name

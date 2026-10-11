@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { parse, sl, SL_SDF_PARAMS } from "./index"
 import { compile } from "./compile"
+import { TEXTURE_SLOTS, UNIFORM_SLOTS } from "./ops"
 import { uniformDefaults } from "./sl"
 // @ts-expect-error: plain JavaScript tooling, shared with the QuickJS run and the goldens runner
 import { fixtureSources } from "../corpus/fixtures.mjs"
@@ -47,20 +48,21 @@ describe("compile holds a program to the caps", () => {
     // was made, so this is the check nothing can go around.
     const base = parse("texture2D t0;\nuniform float u0 = 0;\nfloat4 main() { return tex2D(t0, uv) * u0; }")
 
-    it("refuses a fifth texture", () => {
-        const textures = Array.from({ length: 5 }, (_, i) => ({ name: "t" + i, slot: i }))
-        expect(() => compile({ ...base, textures })).toThrow(/this program declares 5 textures and a program may sample 4\./)
+    it("refuses a texture past the cap", () => {
+        const textures = Array.from({ length: TEXTURE_SLOTS + 1 }, (_, i) => ({ name: "t" + i, slot: i }))
+        expect(() => compile({ ...base, textures })).toThrow(`this program declares ${TEXTURE_SLOTS + 1} textures and a program may sample ${TEXTURE_SLOTS}.`)
     })
 
-    it("refuses a seventeenth uniform", () => {
-        const uniforms = Array.from({ length: 17 }, (_, i) => ({ name: "u" + i, type: 1 as const, value: [0] }))
-        expect(() => compile({ ...base, uniforms })).toThrow(/this program declares 17 uniforms and a program may hold 16\./)
+    it("refuses a uniform past the cap", () => {
+        const uniforms = Array.from({ length: UNIFORM_SLOTS + 1 }, (_, i) => ({ name: "u" + i, type: 1 as const, value: [0] }))
+        expect(() => compile({ ...base, uniforms })).toThrow(`this program declares ${UNIFORM_SLOTS + 1} uniforms and a program may hold ${UNIFORM_SLOTS}.`)
     })
 
-    it("takes a program at both caps", () => {
-        const textures = Array.from({ length: 4 }, (_, i) => ({ name: "t" + i, slot: i }))
-        const uniforms = Array.from({ length: 16 }, (_, i) => ({ name: "u" + i, type: 1 as const, value: [0] }))
-        expect(compile({ ...base, textures, uniforms }).textures).toHaveLength(4)
+    it("takes a program at both caps, which are 64 uniforms and 8 textures", () => {
+        expect([UNIFORM_SLOTS, TEXTURE_SLOTS]).toEqual([64, 8])
+        const textures = Array.from({ length: TEXTURE_SLOTS }, (_, i) => ({ name: "t" + i, slot: i }))
+        const uniforms = Array.from({ length: UNIFORM_SLOTS }, (_, i) => ({ name: "u" + i, type: 1 as const, value: [0] }))
+        expect(compile({ ...base, textures, uniforms }).textures).toHaveLength(TEXTURE_SLOTS)
     })
 })
 

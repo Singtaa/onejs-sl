@@ -14,11 +14,20 @@
  *
  *   sl_Res   (target width, target height, seconds, frame)
  *   sl_Opt   (1 in a Linear colour space project else 0, 1 to flip uv.y, deltaTime, 0)
- *   sl_U[16] uniform slots, each a vec4, in the program's slot order
+ *   sl_U[64] uniform slots, each a vec4, in the program's slot order
  *   textures by slot: GLSL `sl_Tex<slot>`; WGSL `sl_tex<slot>` at binding
  *            2 + 2 * slot with its own sampler `sl_samp<slot>` at 1 + 2 * slot,
  *            all in group 0 beside the frame block at binding 0. Only the
- *            slots the program samples are declared.
+ *            slots the program reads are declared, and in WGSL a slot's
+ *            sampler only when the program samples it, rather than only
+ *            measuring it (`textureSize`) or fetching from it (`tex2Dfetch`).
+ *   a texture's sampler, when its program sets one (`[Wrap(Repeat)]`,
+ *            `[Filter(Point)]`, IR 6): its declaration line ends
+ *            `// sampler <wrap> <filter>`, the sampler's in WGSL and the
+ *            sampler2D's in GLSL, wrap one of repeat, clamp, mirror and filter
+ *            point or linear. The host samples that slot so, whatever the
+ *            bound texture's own settings; with no such comment, as those
+ *            settings say. `samplingOf` in ir.ts says what each word means.
  *   the previous frame, only for a program that samples it: GLSL `sl_Prev`;
  *            WGSL `sl_prev` with its sampler `sl_prevSamp`, at the two
  *            bindings after the last texture slot's, whatever the program
@@ -34,7 +43,7 @@
  */
 
 import { INT_LIMITS } from "./body"
-import { SLError, TYPE, isWhole, valueAt, type NodeRef, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
+import { SLError, TYPE, isWhole, samplingOf, valueAt, type NodeRef, type Program, type TextureDecl, type SLKind, type SLType, type ValueNode } from "./ir"
 import { inVaryingFlow, local, printBody, structure, type Syntax } from "./structure"
 import { libClosure, libIndex, LIB_FUNCTIONS, SDF_CALLS } from "./lib"
 import { LIB_GLSL } from "./lib/glsl"
@@ -59,9 +68,12 @@ function emitWeb(p: Program, lang: WebLanguage): string {
     const need = new Set<number>()
     const smoothsteps = new Set<SLType>()
     const sampled = new Set<number>()
+    /** Slots read without a sampler: measured or fetched from. */
+    const loaded = new Set<number>()
     /** Whether the body samples the previous frame, which declares its binding. */
     let previous = false
     const shape = structure(p)
+    const size = (slot: number) => W ? `vec2f(textureDimensions(sl_tex${slot}))` : `vec2(textureSize(sl_Tex${slot}, 0))`
     const T = (t: SLType) => (W ? (t === 1 ? "f32" : `vec${t}f`) : t === 1 ? "float" : `vec${t}`)
     /** A value's type in this language, its kind included. */
     const typeName = (n: { type: SLType; kind?: SLKind }): string => {
@@ -272,6 +284,20 @@ function emitWeb(p: Program, lang: WebLanguage): string {
                 const below = `floor(${a[1]})`
                 return `mix(${at(below)}, ${at(`${below} + 1.0`)}, fract(${a[1]}))`
             }
+            case SLOP.TEXTURE_SIZE: {
+                const slot = Math.round(imm[0] ?? 0)
+                loaded.add(slot)
+                return size(slot)
+            }
+            case SLOP.SAMPLE_FETCH: {
+                const slot = Math.round(imm[0] ?? 0)
+                loaded.add(slot)
+                // Floored and held inside, as the HLSL body does: a load out of
+                // range is undefined in GLSL and implementation defined in WGSL.
+                return W
+                    ? `textureLoad(sl_tex${slot}, vec2i(clamp(floor(${a[0]}), vec2f(0.0), ${size(slot)} - 1.0)), 0)`
+                    : `texelFetch(sl_Tex${slot}, ivec2(clamp(floor(${a[0]}), vec2(0.0), ${size(slot)} - 1.0)), 0)`
+            }
             case SLOP.SAMPLE_PREVIOUS:
                 previous = true
                 // Flipped as this frame flipped the uv it wrote at, so a read at
@@ -363,15 +389,20 @@ function emitWeb(p: Program, lang: WebLanguage): string {
     const body = printBody(p, shape, syntax, expr, "    ").join("\n")
     const library = [...[...smoothsteps].sort().map((w) => smoothstep(w, lang)), ...librarySource(need, lang)].join("\n")
     const header = `// GENERATED from a shader language program (${p.hash}). Do not edit.`
-    // Only the textures the program samples. WebGPU's automatic layout leaves
-    // out a binding the shader never reads, and a bind group that supplies one
-    // anyway does not validate; the host reads these declarations back to know
-    // which slots to bind.
-    const textures = p.textures.filter((t) => sampled.has(t.slot))
+    // Only the textures the program reads, and in WGSL only the samplers it
+    // samples with. WebGPU's automatic layout leaves out a binding the shader
+    // never reads, and a bind group that supplies one anyway does not
+    // validate; the host reads these declarations back to know what to bind.
+    const textures = p.textures.filter((t) => sampled.has(t.slot) || loaded.has(t.slot))
+    /** The comment that says a texture's sampler is the program's own, for a slot it samples. */
+    const samplerNote = (t: TextureDecl) => {
+        const s = sampled.has(t.slot) ? samplingOf(t) : null
+        return s === null ? "" : ` // sampler ${s.wrap} ${s.filter}`
+    }
 
     if (W) {
         const bindings = [...textures.map((t) =>
-            `@group(0) @binding(${1 + 2 * t.slot}) var sl_samp${t.slot}: sampler;\n` +
+            (sampled.has(t.slot) ? `@group(0) @binding(${1 + 2 * t.slot}) var sl_samp${t.slot}: sampler;${samplerNote(t)}\n` : "") +
             `@group(0) @binding(${2 + 2 * t.slot}) var sl_tex${t.slot}: texture_2d<f32>;`),
         ...previous ? [
             `@group(0) @binding(${1 + 2 * TEXTURE_SLOTS}) var sl_prevSamp: sampler;\n` +
@@ -393,7 +424,7 @@ ${body}
 }
 `
     }
-    const samplers = [...textures.map((t) => `uniform sampler2D sl_Tex${t.slot};`), ...previous ? ["uniform sampler2D sl_Prev;"] : []].join("\n")
+    const samplers = [...textures.map((t) => `uniform sampler2D sl_Tex${t.slot};${samplerNote(t)}`), ...previous ? ["uniform sampler2D sl_Prev;"] : []].join("\n")
     return `#version 300 es
 ${header}
 precision highp float;

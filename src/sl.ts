@@ -25,7 +25,8 @@
 import { parseColor as parseHex } from "./color"
 import {
     Builder, INPUTS, RAMP_STOP_COMPUTED, STEP_INPUTS, SLError, TYPE, hashProgram, programVersion, truncateHeld, widthName, writtenColour,
-    type HostInputName, type InputName, type NodeRef, type Program, type SLKind, type SLNode, type SLType, type UniformControl,
+    type HostInputName, type InputName, type NodeRef, type Program, type SLKind, type SLNode, type SLType, type TextureFilter,
+    type TextureWrap, type UniformControl,
 } from "./ir"
 import { SLOP, SL_HLSL, SL_NAME, type SLOpCode } from "./ops"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
@@ -561,7 +562,7 @@ export function program(fn: (inputs: ProgramInputs) => Vec4): Program {
         }
         const nodes: SLNode[] = b.nodes.slice()
         return {
-            version: programVersion(nodes, out.ref),
+            version: programVersion(nodes, out.ref, b.textures),
             nodes,
             result: out.ref,
             uniforms: b.uniforms.slice(),
@@ -1033,7 +1034,10 @@ export const uniform = {
 }
 
 export interface Texture {
-    /** The colour at `uv`, filtered as the texture's own settings say. */
+    /**
+     * The colour at `uv`, filtered and wrapped as the texture's own settings
+     * say, or as `sl.texture`'s sampling says when it was given one.
+     */
     sample(uv: Vec2): Vec4
     /**
      * The colour at `uv` from mip level `lod`: 0 is the full size texture, 1
@@ -1041,11 +1045,31 @@ export interface Texture {
      * texture's filter mode. A texture with no mips has only level 0.
      */
     sampleLevel(uv: Vec2, lod: Num): Vec4
+    /** The texture's width and height in pixels, at full size. `textureSize(t)` in a `.sl` file. */
+    size(): Vec2
+    /**
+     * One texel, unfiltered, at a pixel: (0, 0) is the texel `uv` (0, 0)
+     * samples. The pixel is floored and held inside the texture, so a pixel
+     * past an edge reads the edge on every host. Full size only, and the
+     * sampling settings do not apply. `tex2Dfetch(t, pixel)` in a `.sl` file.
+     */
+    fetch(pixel: Vec2): Vec4
 }
 
-export function texture(name: string): Texture {
+/**
+ * How a program samples a texture, when it should not follow the bound
+ * texture's own settings. Either half set, the program owns the sampler and
+ * the other half is clamp or linear. `[Wrap(Repeat)]` and `[Filter(Point)]`
+ * in a `.sl` file.
+ */
+export interface TextureSamplingOptions {
+    wrap?: TextureWrap
+    filter?: TextureFilter
+}
+
+export function texture(name: string, sampling: TextureSamplingOptions = {}): Texture {
     const b = ctx()
-    const slot = b.texture(name)
+    const slot = b.texture(name, sampling)
     return {
         sample(uv: Vec2): Vec4 {
             if (uv.owner !== b) throw new SLError("a value from another program cannot be used in this one")
@@ -1059,6 +1083,16 @@ export function texture(name: string): Texture {
                 if (level.width !== 1) throw new SLError(`a mip level is one number, and this is a ${widthName(level.width)}`)
             }
             return mk(b, b.call(SLOP.SAMPLE_LOD, TYPE.VEC4, [uv.ref, typeof level === "number" ? level : level.ref], [slot]), TYPE.VEC4)
+        },
+        size(): Vec2 {
+            return mk(b, b.call(SLOP.TEXTURE_SIZE, TYPE.VEC2, [], [slot]), TYPE.VEC2)
+        },
+        fetch(pixel: Vec2): Vec4 {
+            if (pixel.owner !== b) throw new SLError("a value from another program cannot be used in this one")
+            if (pixel.width !== TYPE.VEC2 || pixel.kind !== undefined) {
+                throw new SLError(`a texel is fetched at a float2 pixel, and this is ${pixel.kind === undefined ? `a ${widthName(pixel.width)}` : `an ${pixel.kind}`}`)
+            }
+            return mk(b, b.call(SLOP.SAMPLE_FETCH, TYPE.VEC4, [pixel.ref], [slot]), TYPE.VEC4)
         },
     }
 }

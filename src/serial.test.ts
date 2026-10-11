@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { sl } from "./index"
 import { SL_IR_VERSION, hashProgram, programVersion } from "./ir"
 import { fromJSON, toJSON } from "./serial"
+import { TEXTURE_SLOTS, UNIFORM_SLOTS } from "./ops"
 
 const plasma = () => sl.program(({ uv, time }) => {
     const k = sl.uniform.float("k", 0.5)
@@ -110,21 +111,21 @@ describe("opcodes", () => {
 describe("the caps", () => {
     // 0.2.0's builder wrote these; the builder refuses them now, so a stored
     // one is the way they still arrive.
-    it("refuses a program with a fifth texture", () => {
+    it("refuses a program with a texture past the cap", () => {
         const j = toJSON(sl.program(({ uv }) => {
-            for (let i = 0; i < 4; i++) sl.texture("t" + i)
+            for (let i = 0; i < TEXTURE_SLOTS; i++) sl.texture("t" + i)
             return sl.vec4(uv, 0, 1)
         }))
-        const five = { ...j, textures: [...j.textures, { name: "t4", slot: 4 }], hash: undefined }
-        expect(() => fromJSON(five)).toThrow(/this program declares 5 textures and a program may sample 4\./)
+        const over = { ...j, textures: [...j.textures, { name: "tx", slot: TEXTURE_SLOTS }], hash: undefined }
+        expect(() => fromJSON(over)).toThrow(`this program declares ${TEXTURE_SLOTS + 1} textures and a program may sample ${TEXTURE_SLOTS}.`)
     })
 
-    it("refuses a program with a seventeenth uniform", () => {
+    it("refuses a program with a uniform past the cap", () => {
         const j = toJSON(sl.program(() => {
-            for (let i = 0; i < 16; i++) sl.uniform.float("u" + i)
+            for (let i = 0; i < UNIFORM_SLOTS; i++) sl.uniform.float("u" + i)
             return sl.vec4(0, 0, 0, 1)
         }))
-        const seventeen = { ...j, uniforms: [...j.uniforms, { name: "u16", type: 1, value: [0] }], hash: undefined }
-        expect(() => fromJSON(seventeen)).toThrow(/this program declares 17 uniforms and a program may hold 16\./)
+        const over = { ...j, uniforms: [...j.uniforms, { name: "ux", type: 1, value: [0] }], hash: undefined }
+        expect(() => fromJSON(over)).toThrow(`this program declares ${UNIFORM_SLOTS + 1} uniforms and a program may hold ${UNIFORM_SLOTS}.`)
     })
 })

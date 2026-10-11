@@ -21,7 +21,7 @@ import { LIB_FUNCTIONS, SDF_CALLS } from "./lib/table"
 import { LIB_PARAM_NAMES } from "./lib/names"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
 import type { PREVIOUS, SourceInputName } from "./ir"
-import type { AttributeName } from "./lang/attributes"
+import type { AttributeName, TextureAttributeName } from "./lang/attributes"
 
 /** One function of the helper library, as its source declares it. */
 export interface LibSignature {
@@ -55,6 +55,8 @@ const INTRINSIC: Record<string, readonly string[]> = {
     lerp: ["x", "y", "s"], step: ["y", "x"], smoothstep: ["min", "max", "x"],
     tex2D: ["s", "t"],
     tex2Dlod: ["s", "t", "lod"],
+    textureSize: ["s"],
+    tex2Dfetch: ["s", "pixel"],
 }
 
 /**
@@ -163,6 +165,8 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
     ridged: "Turbulence made bright at its creases: ridges, lightning, cracks.",
     tex2D: "The colour of texture s at the uv t, with straight alpha.",
     tex2Dlod: "Texture s at uv t from mip level lod: 0 is full size, 1 half, and a fraction blends the two.",
+    textureSize: "The width and height of texture s in pixels, at full size, as a float2.",
+    tex2Dfetch: "One texel of texture s at pixel, unfiltered; a pixel past an edge reads the edge.",
     sdf: "The signed distance from p to a shape, negative inside: `sdf.circle(p, r)`.",
     ramp: "t mapped through evenly spaced colour stops, from the first at 0 to the last at 1.",
 }
@@ -179,6 +183,12 @@ export const ATTRIBUTE_DOCS: Readonly<Record<AttributeName, string>> = {
     Label: "The name the control shows, in place of the uniform's: [Label(\"Glow colour\")].",
     Color: "A colour picker, the value a colour as written, the same as a hex default. A float3 or a float4.",
     Hide: "No control: the host sets this uniform from code.",
+}
+
+/** One line on each texture attribute, for the same tooltips. */
+export const TEXTURE_ATTRIBUTE_DOCS: Readonly<Record<TextureAttributeName, string>> = {
+    Wrap: "How uv outside 0 to 1 reads: [Wrap(Repeat)] tiles, [Wrap(Mirror)] tiles mirrored, [Wrap(Clamp)] holds the edge.",
+    Filter: "How the texture reads between texels: [Filter(Point)] the nearest, [Filter(Linear)] a blend of four.",
 }
 
 /**

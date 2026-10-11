@@ -274,10 +274,45 @@ export function intUniformProblem(type: SLType, value: readonly number[]): strin
     return null
 }
 
+/** How a texture's coordinates outside 0 to 1 read: tiled, held at the edge, or tiled mirrored. */
+export type TextureWrap = "repeat" | "clamp" | "mirror"
+/** How a texture is read between texels: the nearest one, or a blend of the four around. */
+export type TextureFilter = "point" | "linear"
+
+/** The sampler a program sets for a texture, both halves filled in (`samplingOf`). */
+export interface TextureSampling {
+    wrap: TextureWrap
+    filter: TextureFilter
+}
+
+export const TEXTURE_WRAPS: readonly TextureWrap[] = ["repeat", "clamp", "mirror"]
+export const TEXTURE_FILTERS: readonly TextureFilter[] = ["point", "linear"]
+
 export interface TextureDecl {
     name: string
     /** Sampler slot, assigned in declaration order. */
     slot: number
+    /**
+     * How the program samples it, as written: `[Wrap(Repeat)]` and
+     * `[Filter(Point)]` in a `.sl` file, `sl.texture(name, { wrap, filter })`.
+     * Neither set, the texture samples as the texture bound to it is set,
+     * which is what every program did before IR 6. Either set, the program
+     * owns the sampler, and the half it leaves out is clamp or linear
+     * (`samplingOf`). Part of the hash, since the shader differs.
+     */
+    wrap?: TextureWrap
+    filter?: TextureFilter
+}
+
+/**
+ * The sampler a texture's program sets, or null when it samples as the bound
+ * texture is set. A program that names one half gets clamp or linear for the
+ * other, on every host: Unity's inline sampler states and WebGPU's samplers
+ * have no way to take one half from the texture and the other from the shader.
+ */
+export function samplingOf(t: Pick<TextureDecl, "wrap" | "filter">): TextureSampling | null {
+    if (t.wrap === undefined && t.filter === undefined) return null
+    return { wrap: t.wrap ?? "clamp", filter: t.filter ?? "linear" }
 }
 
 export interface Program {
@@ -308,8 +343,9 @@ export function tooManyUniforms(declared: number, source: "file" | "program"): s
 
 export function tooManyTextures(declared: number, source: "file" | "program"): string {
     return `this ${source} declares ${declared} textures and a program may sample ${TEXTURE_SLOTS}. ` +
-        `OneJS binds ${TEXTURE_SLOTS} textures to a program in the editor and a native player, so ` +
-        `this one would sample nothing there while a browser drew it: two pictures from one ${source}.`
+        `OneJS binds ${TEXTURE_SLOTS} textures to a program, so this one would have no slot to be ` +
+        `bound in; it is refused here rather than drawn blank. Pack two images into one texture's ` +
+        `channels, or draw in two passes.`
 }
 
 /**
@@ -321,6 +357,17 @@ export function tooManyTextures(declared: number, source: "file" | "program"): s
 export function checkCaps(p: Pick<Program, "uniforms" | "textures">): void {
     if (p.uniforms.length > UNIFORM_SLOTS) throw new SLError(tooManyUniforms(p.uniforms.length, "program"))
     if (p.textures.length > TEXTURE_SLOTS) throw new SLError(tooManyTextures(p.textures.length, "program"))
+}
+
+/** What is wrong with a texture's sampler, or null. The one check, for the builder and `fromJSON`. */
+export function samplingProblem(s: { wrap?: unknown; filter?: unknown }): string | null {
+    if (s.wrap !== undefined && !TEXTURE_WRAPS.includes(s.wrap as TextureWrap)) {
+        return `a wrap is ${TEXTURE_WRAPS.join(", ")}, and this is ${String(s.wrap)}`
+    }
+    if (s.filter !== undefined && !TEXTURE_FILTERS.includes(s.filter as TextureFilter)) {
+        return `a filter is ${TEXTURE_FILTERS.join(" or ")}, and this is ${String(s.filter)}`
+    }
+    return null
 }
 
 /**
@@ -446,14 +493,30 @@ export class Builder {
         return this.add({ k: "uniform", type, slot })
     }
 
-    texture(name: string): number {
+    texture(name: string, sampling: Pick<TextureDecl, "wrap" | "filter"> = {}): number {
+        const problem = samplingProblem(sampling)
+        if (problem !== null) throw new SLError(`texture "${name}": ${problem}`)
         const existing = this.textures.findIndex((t) => t.name === name)
-        if (existing >= 0) return this.textures[existing].slot
+        if (existing >= 0) {
+            // A second use may say nothing about the sampler, or the same thing again.
+            const t = this.textures[existing]!
+            for (const f of ["wrap", "filter"] as const) {
+                if (sampling[f] === undefined) continue
+                if (t[f] !== undefined && t[f] !== sampling[f]) {
+                    throw new SLError(`texture "${name}" is given two different ${f}s, ${t[f]} and ${sampling[f]}`)
+                }
+                t[f] = sampling[f] as never
+            }
+            return t.slot
+        }
         if (this.textures.length >= TEXTURE_SLOTS) {
             throw new SLError(tooManyTextures(this.textures.length + 1, "program"))
         }
         const slot = this.textures.length
-        this.textures.push({ name, slot })
+        const decl: TextureDecl = { name, slot }
+        if (sampling.wrap !== undefined) decl.wrap = sampling.wrap
+        if (sampling.filter !== undefined) decl.filter = sampling.filter
+        this.textures.push(decl)
         return slot
     }
 }
@@ -687,9 +750,15 @@ export function hashProgram(nodes: SLNode[], result: NodeRef, uniforms: UniformD
     // includes the library's text when it compiles, and none caches a compiled
     // program by hash across a library update, so the new text reaches every
     // shader without a bump.
-    const parts: string[] = [`v${SL_HASH_VERSION}:${programVersion(nodes, result)}`, of(result)]
+    const parts: string[] = [`v${SL_HASH_VERSION}:${programVersion(nodes, result, textures)}`, of(result)]
     for (const u of uniforms) parts.push(`U:${u.name}:${u.type}:${u.value.map(fixed).join(",")}`)
-    for (const t of textures) parts.push(`T:${t.name}:${t.slot}`)
+    // A texture's sampler as the shader has it, so `[Wrap(Clamp)]` and
+    // `[Filter(Linear)]` share a hash, and a texture with neither has the
+    // part it had before IR 6.
+    for (const t of textures) {
+        const s = samplingOf(t)
+        parts.push(`T:${t.name}:${t.slot}${s === null ? "" : `:${s.wrap}:${s.filter}`}`)
+    }
     return fnv1a(parts.join("|"))
 }
 
@@ -751,8 +820,8 @@ export function controlOf(c: UniformControl): UniformControl {
  * int constant a fold used up, say), and they draw nothing. `toJSON` writes
  * only the live ones, so an older reader never meets a dead newer node.
  */
-export function programVersion(nodes: readonly SLNode[], result: NodeRef): number {
-    let v = 2
+export function programVersion(nodes: readonly SLNode[], result: NodeRef, textures: readonly TextureDecl[] = []): number {
+    let v = textures.some((t) => samplingOf(t) !== null) ? 6 : 2
     for (const ref of reachable(nodes as SLNode[], result)) v = Math.max(v, nodeVersion(nodes[ref]!))
     return v
 }
@@ -774,6 +843,9 @@ function nodeVersion(n: SLNode): number {
     if (n.k !== "call") return 2
     if (IR4_OPS.has(n.op)) return 4
     switch (n.op) {
+        case SLOP.TEXTURE_SIZE:
+        case SLOP.SAMPLE_FETCH:
+            return 6
         case SLOP.SAMPLE_PREVIOUS: return 5
         case SLOP.SAMPLE_LOD: return 3
         case SLOP.SDF:
@@ -797,6 +869,8 @@ function nodeVersion(n: SLNode): number {
  *        one immediate
  *   SAMPLE_PREVIOUS  a float4 at a float2, and no immediates: there is one
  *        previous frame, so there is no slot to name
+ *   TEXTURE_SIZE  a float2 of nothing, the slot the one immediate
+ *   SAMPLE_FETCH  a float4 at a float2 pixel, the slot the one immediate
  */
 export function formProblem(n: Extract<SLNode, { k: "call" }>, nodes: readonly SLNode[]): string | null {
     const widths = n.args.map((a) => { const v = nodes[a]!; return v.k === "if" || v.k === "loop" ? "control" : v.type }).join(",")
@@ -814,6 +888,12 @@ export function formProblem(n: Extract<SLNode, { k: "call" }>, nodes: readonly S
         case SLOP.SAMPLE_PREVIOUS:
             if (widths === "2" && n.type === 4 && n.kind === undefined && (n.imm?.length ?? 0) === 0) return null
             return "the previous frame is a float4 read at a float2"
+        case SLOP.TEXTURE_SIZE:
+            if (widths === "" && n.type === 2 && n.kind === undefined && n.imm?.length === 1) return null
+            return "a texture's size is a float2, its slot the one immediate"
+        case SLOP.SAMPLE_FETCH:
+            if (widths === "2" && n.type === 4 && n.kind === undefined && n.imm?.length === 1) return null
+            return "a fetch is a float4 read at a float2 pixel, its slot the one immediate"
         default:
             return null
     }
@@ -855,8 +935,9 @@ export const SL_HASH_VERSION = 2
  *      operands, where they were immediates
  *   4  control flow (if, loop, their params and projs), ints, uints and bools
  *   5  the previous frame (SAMPLE_PREVIOUS), and the frame and deltaTime inputs
+ *   6  TEXTURE_SIZE and SAMPLE_FETCH, and a texture's sampler (`wrap`, `filter`)
  */
-export const SL_IR_VERSION = 5
+export const SL_IR_VERSION = 6
 
 function fnv1a(s: string): string {
     let h = 0x811c9dc5

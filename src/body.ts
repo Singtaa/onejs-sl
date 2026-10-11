@@ -21,7 +21,7 @@
  * gives common subexpression elimination for free.
  */
 
-import { INT_BOUNDS, SLError, TYPE, isWhole, valueAt, type InputName, type NodeRef, type StepInputName, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
+import { INT_BOUNDS, SLError, TYPE, isWhole, samplingOf, valueAt, type TextureSampling, type InputName, type NodeRef, type StepInputName, type Program, type SLKind, type SLType, type ValueNode } from "./ir"
 import { libClosure, LIB_FUNCTIONS } from "./lib"
 import { LIB_HLSL } from "./lib/hlsl"
 import { SLOP } from "./ops"
@@ -55,7 +55,8 @@ export interface BodyTarget {
      * - **Filtered and wrapped by the host.** The body does neither. OneJS's
      *   hosts, the generated shader and the web backends alike, use the
      *   bound texture's own filter and wrap modes, so a host that filters by
-     *   hand draws the same picture by following the texture's settings.
+     *   hand draws the same picture by following the texture's settings. A
+     *   texture whose program sets its sampler goes to `sampleWith` instead.
      *
      * What becomes of the result is the host's: OneJS writes it to the target
      * as it is, and a host that composites premultiplied multiplies on write.
@@ -72,6 +73,41 @@ export interface BodyTarget {
      * `tex2Dlod(s, float4(uv, 0, lod))` and Metal's `sample(s, uv, level(lod))`.
      */
     sampleLevel: (slot: number, uv: string, lod: string) => string
+    /**
+     * A float4 sample of a texture whose program sets its sampler
+     * (`[Wrap(Repeat)]`, `[Filter(Point)]`, IR 6), sampled that way whatever
+     * the bound texture's own settings: `sample` when `lod` is null, else
+     * `sampleLevel` at `lod`, with the same contract as those two in every
+     * other respect. `sampling` always has both halves (`samplingOf`):
+     *
+     * - `wrap`: `repeat` tiles, `mirror` tiles mirrored every other tile,
+     *   `clamp` holds the edge texel. The filter's footprint wraps the same
+     *   way, so a tiled texture has no seam.
+     * - `filter`: `point` reads the nearest texel and the nearest level,
+     *   `linear` blends the four nearest texels within the nearest level, as
+     *   Unity's Bilinear does.
+     *
+     * Optional, and `emitBody` refuses a program that samples such a texture
+     * when a target has none, rather than print one that samples as the
+     * bound texture is set. Unity's inline sampler states, a WebGPU sampler
+     * and a WebGL2 sampler object each say both halves.
+     */
+    sampleWith?: (slot: number, uv: string, lod: string | null, sampling: TextureSampling) => string
+    /**
+     * A float2 of the texture in `slot`'s width and height, in pixels, at full
+     * size (`textureSize(t)`, IR 6). Optional, as `previous` is.
+     */
+    size?: (slot: number) => string
+    /**
+     * A float4 of one texel of the texture in `slot`, unfiltered, at full size
+     * (`tex2Dfetch(t, pixel)`, IR 6). `pixel` is a float2 expression the body
+     * has already floored and held inside the texture with `size`, so a host
+     * converts it to an int2 and loads: HLSL's `t.Load(int3(pixel, 0))`,
+     * Metal's `t.read(uint2(pixel))`. Texel (0, 0) is the one `uv` (0, 0)
+     * samples. In the space `colour` names, as `sample` is, so an sRGB texture
+     * is decoded. Optional; needs `size` too.
+     */
+    fetch?: (slot: number, pixel: string) => string
     /**
      * A float4 of what this program drew the frame before, at `uv`, for a
      * host that keeps it (`tex2D(previous, uv)`, `Specs/SL_NEXT.md` 4).
@@ -113,7 +149,7 @@ export interface Body {
     uses: {
         /** Uniform slots the body reads, ascending. */
         uniforms: number[]
-        /** Texture slots the body samples, ascending. */
+        /** Texture slots the body samples, measures or fetches from, ascending. */
         textures: number[]
         /** Library functions the body calls, sorted: `sl_fbm`, `sl_sdfDistance`, ... `emitLibrary` prints them. */
         helpers: string[]
@@ -167,6 +203,26 @@ export function emitBody(p: Program, target: BodyTarget): Body {
     const constantOf = (ref: number): number[] | null => {
         const c = p.nodes[ref]!
         return c.k === "const" ? c.v : null
+    }
+    /** A texture's sampler, when its program sets one, and the target that has to honour it. */
+    const sampling = (slot: number): TextureSampling | null => {
+        const s = samplingOf(p.textures[slot]!)
+        if (s !== null && target.sampleWith === undefined) {
+            throw new SLError(`this target cannot set a texture's sampler, and the program samples ${p.textures[slot]!.name} with ${s.wrap} and ${s.filter}`)
+        }
+        return s
+    }
+    const plain = (slot: number, uv: string) => {
+        const s = sampling(slot)
+        return s === null ? target.sample(slot, uv) : target.sampleWith!(slot, uv, null, s)
+    }
+    const level = (slot: number, uv: string, lod: string) => {
+        const s = sampling(slot)
+        return s === null ? target.sampleLevel(slot, uv, lod) : target.sampleWith!(slot, uv, lod, s)
+    }
+    const size = (slot: number) => {
+        if (target.size === undefined) throw new SLError(`this target cannot measure a texture, and the program measures ${p.textures[slot]!.name}`)
+        return target.size(slot)
     }
     const splat = (ref: number, w: SLType) => (valueAt(p.nodes, ref).type === TYPE.FLOAT && w > 1 ? ctor(w, Array(w).fill(name(ref))) : name(ref))
 
@@ -334,7 +390,7 @@ export function emitBody(p: Program, target: BodyTarget): Body {
                 textures.add(slot)
                 // Where pixels part ways there are no neighbours to take a mip
                 // level from, so every backend samples level 0 there (`structure.ts`).
-                return inVaryingFlow(shape, ref) ? target.sampleLevel(slot, a[0]!, "0.0") : target.sample(slot, a[0]!)
+                return inVaryingFlow(shape, ref) ? level(slot, a[0]!, "0.0") : plain(slot, a[0]!)
             }
             case SLOP.SAMPLE_LOD: {
                 const slot = Math.round(imm[0] ?? 0)
@@ -343,9 +399,23 @@ export function emitBody(p: Program, target: BodyTarget): Body {
                 // whatever the texture's filter between levels, as the web
                 // emitters do (`isWhole`). Past the smallest level both read the
                 // smallest, as a whole level past it does.
-                if (isWhole(p.nodes, n.args[1]!)) return target.sampleLevel(slot, a[0]!, a[1]!)
+                if (isWhole(p.nodes, n.args[1]!)) return level(slot, a[0]!, a[1]!)
                 const below = `floor(${a[1]})`
-                return `lerp(${target.sampleLevel(slot, a[0]!, below)}, ${target.sampleLevel(slot, a[0]!, `${below} + 1.0`)}, frac(${a[1]}))`
+                return `lerp(${level(slot, a[0]!, below)}, ${level(slot, a[0]!, `${below} + 1.0`)}, frac(${a[1]}))`
+            }
+            case SLOP.TEXTURE_SIZE: {
+                const slot = Math.round(imm[0] ?? 0)
+                textures.add(slot)
+                return size(slot)
+            }
+            case SLOP.SAMPLE_FETCH: {
+                const slot = Math.round(imm[0] ?? 0)
+                textures.add(slot)
+                if (target.fetch === undefined) throw new SLError(`this target cannot fetch a texel, and the program reads ${p.textures[slot]!.name} with tex2Dfetch`)
+                // Floored and held inside, so a pixel past an edge reads the
+                // edge on every host rather than whatever a host's load returns
+                // out of range.
+                return target.fetch(slot, `clamp(floor(${a[0]}), float2(0.0, 0.0), ${size(slot)} - 1.0)`)
             }
             case SLOP.SAMPLE_PREVIOUS:
                 if (target.previous === undefined) throw new SLError("this target keeps no previous frame, and the program samples it")

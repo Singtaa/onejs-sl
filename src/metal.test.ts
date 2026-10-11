@@ -36,6 +36,17 @@ using namespace metal;
 #define SL_SAMPLE(slot, uv) tex.sample(smp, uv)
 #define SL_SAMPLE_LEVEL(slot, uv, lod) tex.sample(smp, uv, level(lod))
 #define SL_PREVIOUS(uv) prev.sample(smp, uv, level(0.0))
+// A program's own sampler (IR 6): one constexpr sampler per wrap and filter.
+#define SL_SAMPLE_WITH(slot, uv, w, f) tex.sample(sl_##w##_##f, uv)
+#define SL_SAMPLE_LEVEL_WITH(slot, uv, lod, w, f) tex.sample(sl_##w##_##f, uv, level(lod))
+#define SL_SIZE(slot) float2(tex.get_width(), tex.get_height())
+#define SL_FETCH(slot, pixel) tex.read(uint2(pixel))
+constexpr sampler sl_repeat_point(address::repeat, filter::nearest);
+constexpr sampler sl_repeat_linear(address::repeat, filter::linear);
+constexpr sampler sl_clamp_point(address::clamp_to_edge, filter::nearest);
+constexpr sampler sl_clamp_linear(address::clamp_to_edge, filter::linear);
+constexpr sampler sl_mirror_point(address::mirrored_repeat, filter::nearest);
+constexpr sampler sl_mirror_linear(address::mirrored_repeat, filter::linear);
 `
 
 const TARGET: BodyTarget = {
@@ -47,6 +58,11 @@ const TARGET: BodyTarget = {
     sample: (slot, uv) => `SL_SAMPLE(${slot}, ${uv})`,
     sampleLevel: (slot, uv, lod) => `SL_SAMPLE_LEVEL(${slot}, ${uv}, ${lod})`,
     previous: (uv) => `SL_PREVIOUS(${uv})`,
+    sampleWith: (slot, uv, lod, s) => lod === null
+        ? `SL_SAMPLE_WITH(${slot}, ${uv}, ${s.wrap}, ${s.filter})`
+        : `SL_SAMPLE_LEVEL_WITH(${slot}, ${uv}, ${lod}, ${s.wrap}, ${s.filter})`,
+    size: (slot) => `SL_SIZE(${slot})`,
+    fetch: (slot, pixel) => `SL_FETCH(${slot}, ${pixel})`,
     colour: "linear",
     result: "c",
 }

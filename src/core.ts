@@ -8,13 +8,14 @@
  * game never executes.
  */
 export * as sl from "./sl"
-export type { Float, Vec2, Vec3, Vec4, Num, ProgramInputs, PreviousFrame, Texture } from "./sl"
+export type { Float, Vec2, Vec3, Vec4, Num, ProgramInputs, PreviousFrame, Texture, TextureSamplingOptions } from "./sl"
 export {
     TYPE, INPUTS, STEP_INPUTS, PREVIOUS, MAX_NODES, SLError, hashProgram, widthName, SL_IR_VERSION, SL_HASH_VERSION,
-    inputsUsed, readsOf, CONTROL_FIELDS, controlProblem,
+    inputsUsed, readsOf, CONTROL_FIELDS, controlProblem, samplingOf, TEXTURE_WRAPS, TEXTURE_FILTERS,
 } from "./ir"
 export type {
     SLType, InputName, StepInputName, HostInputName, SLReads, NodeRef, SLNode, Program, UniformDecl, UniformControl, TextureDecl,
+    TextureSampling, TextureWrap, TextureFilter,
 } from "./ir"
 export { SLOP, SL_ARITY, SL_NAME, INPUT_ID, isSampling, UNIFORM_SLOTS, TEXTURE_SLOTS } from "./ops"
 export type { SLOpCode } from "./ops"

@@ -21,6 +21,12 @@ const MAGERIE: BodyTarget = {
     sample: (slot, uv) => `SL_SAMPLE(${slot}, ${uv})`,
     sampleLevel: (slot, uv, lod) => `SL_SAMPLE_LEVEL(${slot}, ${uv}, ${lod})`,
     previous: (uv) => `SL_PREVIOUS(${uv})`,
+    // IR 6: the program's own sampler, by its two words, and a size and a texel read.
+    sampleWith: (slot, uv, lod, s) => lod === null
+        ? `SL_SAMPLE_WITH(${slot}, ${uv}, ${s.wrap}, ${s.filter})`
+        : `SL_SAMPLE_LEVEL_WITH(${slot}, ${uv}, ${lod}, ${s.wrap}, ${s.filter})`,
+    size: (slot) => `SL_SIZE(${slot})`,
+    fetch: (slot, pixel) => `SL_FETCH(${slot}, ${pixel})`,
     colour: "linear",
     result: "c",
 }

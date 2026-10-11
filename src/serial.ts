@@ -10,9 +10,12 @@
  */
 import {
     INPUTS, STEP_INPUTS, SLError, SL_HASH_VERSION, SL_IR_VERSION, TYPE, checkCaps, controlOf, controlProblem, formProblem, hashProgram, intUniformProblem,
-    programVersion, type HostInputName, type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
+    programVersion, samplingProblem, type HostInputName, type NodeRef, type Program, type SLNode, type SLType, type TextureDecl, type UniformDecl,
 } from "./ir"
 import { SLOP, SL_ARITY, SL_NAME } from "./ops"
+
+/** The ops that name a texture slot in their first immediate. */
+const TEXTURE_OPS = new Set<number>([SLOP.SAMPLE, SLOP.SAMPLE_LOD, SLOP.TEXTURE_SIZE, SLOP.SAMPLE_FETCH])
 
 const HOST_INPUTS: Readonly<Record<HostInputName, SLType>> = { ...INPUTS, ...STEP_INPUTS }
 
@@ -54,7 +57,8 @@ export function fromJSON(json: unknown): Program {
     // as they are) or was edited. One that claims less than its nodes need
     // holds something its version never had, and a version 1 file has
     // nothing IR 3 added.
-    const needs = programVersion(written, j.result!)
+    const textures = (j.textures ?? []).map(texture)
+    const needs = programVersion(written, j.result!, textures)
     if (v < needs && (v >= 2 || needs >= 3)) fail(`it says IR version ${v} and holds nodes version ${needs} added; it was changed after it was written`)
     const { nodes, result } = v < 3 ? toOperands(written, j.result!) : { nodes: written, result: j.result! }
     nodes.forEach((n, i) => {
@@ -64,12 +68,14 @@ export function fromJSON(json: unknown): Program {
     const out = nodes[result]!
     if (out.k === "if" || out.k === "loop" || out.type !== TYPE.VEC4 || out.kind !== undefined) fail("its result is not a float4")
     const uniforms = (j.uniforms ?? []).map(uniform)
-    const textures = (j.textures ?? []).map(texture)
     checkCaps({ uniforms, textures })
     for (const n of nodes) {
         if (n.k === "uniform" && n.slot >= uniforms.length) fail(`a node reads uniform slot ${n.slot}, which is not declared`)
+        if (n.k === "call" && TEXTURE_OPS.has(n.op) && !(n.imm !== undefined && n.imm[0]! < textures.length)) {
+            fail(`a node reads texture slot ${String(n.imm?.[0])}, which is not declared`)
+        }
     }
-    const version = programVersion(nodes, result)
+    const version = programVersion(nodes, result, textures)
     const hash = hashProgram(nodes, result, uniforms, textures)
     // The same IR version and hash scheme, so the same hash; a different one
     // means the file was edited or damaged, and its cached shader belongs to
@@ -245,7 +251,12 @@ function uniform(u: unknown, i: number): UniformDecl {
 function texture(t: unknown, i: number): TextureDecl {
     const x = (t ?? {}) as Partial<TextureDecl>
     if (typeof x.name !== "string" || x.slot !== i) fail(`texture ${i} needs a name and slot ${i}`)
-    return { name: x.name!, slot: i }
+    const problem = samplingProblem(x)
+    if (problem !== null) fail(`texture ${i}: ${problem}`)
+    const out: TextureDecl = { name: x.name!, slot: i }
+    if (x.wrap !== undefined) out.wrap = x.wrap
+    if (x.filter !== undefined) out.filter = x.filter
+    return out
 }
 
 function fail(why: string): never {

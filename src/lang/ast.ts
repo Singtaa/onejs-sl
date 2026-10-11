@@ -99,7 +99,10 @@ export type AttributeArg =
     | { k: "str"; text: string; pos: Pos; length: number }
     | { k: "ident"; name: string; pos: Pos; length: number }
 
-/** `[Range(0, 2)]` before a uniform: Unity's spelling of what its control is. */
+/**
+ * `[Range(0, 2)]` before a uniform, Unity's spelling of what its control is,
+ * or `[Wrap(Repeat)]` before a texture, of how it is sampled.
+ */
 export interface Attribute {
     name: string
     args: AttributeArg[]
@@ -120,6 +123,8 @@ export interface UniformDecl {
 
 export interface TextureDecl {
     name: string
+    /** `[Wrap(...)]` and `[Filter(...)]`, in the order written. */
+    attrs: Attribute[]
     pos: Pos
 }
 
