@@ -237,6 +237,13 @@ on the parser's own scanner and word lists, so the highlighting is the parser's.
 It never throws, since it runs on every keystroke. It classifies by spelling,
 not scope: a local named `circle` still reads as a builtin where it is used.
 
+`classifyLine(line, state)` is the same for an editor that colours a line at a
+time, as Monaco does: the line's tokens and the state the next line starts
+from (inside a block comment or not, and the two tokens before it). Every line
+of a file classified that way gives what `classify` gives the whole file, a
+block comment over several lines coming back as one piece per line; the corpus
+holds it to that.
+
 `SL_KEYWORDS` and `SL_TYPES` (`words.ts`) are the lists the parser reads, and a
 name may be neither. `onejs-sl/tables` carries them, and `ATTRIBUTE_NAMES`, with
 a one line description of every builtin, input, attribute and prelude function; a prelude function's is the

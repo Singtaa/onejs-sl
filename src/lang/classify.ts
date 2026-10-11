@@ -46,11 +46,54 @@ const INPUT_NAMES: ReadonlySet<string> = new Set([...Object.keys(SOURCE_INPUTS),
 
 /** The tokens of `source`, comments included, in order, each with its class. */
 export function classify(source: string): SLClassifiedToken[] {
+    return run(source, "", "").tokens
+}
+
+/**
+ * Where a line starts, for `classifyLine`: what the lines before it leave
+ * behind that changes how it reads.
+ */
+export interface SLLineState {
+    /** The line before ended inside a block comment. */
+    readonly comment: boolean
+    /** The last two tokens before the line that were not comments, which decide what a name after a dot or a bracket is. */
+    readonly before: string
+    readonly beforeThat: string
+}
+
+const FIRST_LINE: SLLineState = { comment: false, before: "", beforeThat: "" }
+
+/**
+ * One line of a file, for an editor that colours a line at a time, as Monaco
+ * does: its tokens, with offsets within the line, and the state the next line
+ * starts from. Classifying every line of a file this way, each from the state
+ * the one before ended in, gives exactly what `classify` gives the whole file,
+ * a block comment over several lines coming back as one piece per line.
+ */
+export function classifyLine(line: string, state: SLLineState = FIRST_LINE): { tokens: SLClassifiedToken[]; state: SLLineState } {
+    // A line that starts inside a block comment is read with the comment's
+    // opening put back in front, so the lexer decides where it closes, and
+    // those two characters are taken off the tokens again.
+    const shift = state.comment ? 2 : 0
+    const read = run(state.comment ? "/*" + line : line, state.before, state.beforeThat)
+    const last = read.tokens[read.tokens.length - 1]
+    const comment = last !== undefined && last.kind === "comment" && last.text.startsWith("/*")
+        && !(last.text.length >= 4 && last.text.endsWith("*/"))
+    const tokens: SLClassifiedToken[] = []
+    for (const t of read.tokens) {
+        if (shift === 0) { tokens.push(t); continue }
+        if (t.offset === 0) {
+            if (t.length > shift) tokens.push({ ...t, text: t.text.slice(shift), length: t.length - shift })
+        } else {
+            tokens.push({ ...t, col: t.col - shift, offset: t.offset - shift })
+        }
+    }
+    return { tokens, state: { comment, before: read.before, beforeThat: read.beforeThat } }
+}
+
+function run(source: string, before: string, beforeThat: string): { tokens: SLClassifiedToken[]; before: string; beforeThat: string } {
     const tokens = lex(source, "", true)
     const out: SLClassifiedToken[] = []
-    // The last token that was not a comment, which decides what a name after a dot is.
-    let before = ""
-    let beforeThat = ""
     for (const t of tokens) {
         if (t.kind === "eof") break
         let kind: SLTokenClass
@@ -68,7 +111,8 @@ export function classify(source: string): SLClassifiedToken[] {
             kind = t.kind
         }
         out.push({ kind, text: t.text, line: t.line, col: t.col, offset: t.offset, length: t.length })
+        // The last token that was not a comment, which decides what a name after a dot is.
         if (t.kind !== "comment") { beforeThat = before; before = t.text }
     }
-    return out
+    return { tokens: out, before, beforeThat }
 }

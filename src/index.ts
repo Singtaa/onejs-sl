@@ -18,10 +18,10 @@
  */
 export * from "./core"
 export {
-    analyze, classify, diagnose, parse, parseUnit, preludeFunctions, tokenize, PRELUDE_SOURCE, SLParseError,
+    analyze, classify, classifyLine, diagnose, parse, parseUnit, preludeFunctions, tokenize, PRELUDE_SOURCE, SLParseError,
 } from "./lang"
 export type {
-    Checked, Expr, FuncDecl, ParseOptions, Pos, SLClassifiedToken, SLFix, SLTokenClass, Stmt, Token, Unit,
+    Checked, Expr, FuncDecl, ParseOptions, Pos, SLClassifiedToken, SLFix, SLLineState, SLTokenClass, Stmt, Token, Unit,
 } from "./lang"
 export { fromGLSL } from "./lang/glsl"
 export type { FromGLSL } from "./lang/glsl"

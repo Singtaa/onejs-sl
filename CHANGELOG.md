@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `classifyLine` classifies a line at a time from the state the line before ended in, for an editor like Monaco
+
 ## 0.8.0
 
 A fractional `tex2Dlod` level now blends the two levels either side on every backend. No existing program's hash changes, but a host now gets two whole-level samples and a blend where it got one fractional sample, so a host that blended levels itself would blend twice, which makes this a minor.

@@ -1,6 +1,9 @@
+import fs from "node:fs"
+import path from "node:path"
 import { describe, expect, it } from "vitest"
 import { SLParseError } from "./lexer"
-import { classify, parse, SL_KEYWORDS, SL_TYPES } from "./index"
+import { classify, classifyLine, parse, SL_KEYWORDS, SL_TYPES } from "./index"
+import type { SLLineState } from "./index"
 import { PRELUDE_SOURCE } from "./prelude-source"
 
 /**
@@ -184,5 +187,82 @@ describe("classify", () => {
     it("never throws, at any point while a file is typed", () => {
         const src = `${PRELUDE_SOURCE}\nfloat4 main() { return float4(palette(uv.x, 0.5, 0.5, 1, #00ff80), 1); } #zz @`
         for (let i = 0; i <= src.length; i++) expect(() => classify(src.slice(0, i))).not.toThrow()
+    })
+})
+
+describe("classifyLine", () => {
+    /** Every line of `src` through classifyLine, each starting from the state the one before ended in. */
+    function byLine(src: string): string[] {
+        const out: string[] = []
+        let state: SLLineState | undefined
+        src.split("\n").forEach((line, i) => {
+            const r = classifyLine(line, state)
+            for (const t of r.tokens) out.push(`${i + 1}:${t.offset}:${t.length}:${t.kind}`)
+            state = r.state
+        })
+        return out
+    }
+
+    /** classify over the whole of `src`, a block comment that spans lines cut at each line end, as an editor colours it. */
+    function whole(src: string): string[] {
+        const starts = [0]
+        for (let i = 0; i < src.length; i++) if (src[i] === "\n") starts.push(i + 1)
+        const out: string[] = []
+        for (const t of classify(src)) {
+            let from = t.offset
+            const end = t.offset + t.length
+            while (from < end) {
+                let line = starts.length - 1
+                while (starts[line]! > from) line--
+                const lineEnd = line + 1 < starts.length ? starts[line + 1]! - 1 : src.length
+                const to = Math.min(end, lineEnd)
+                if (to > from) out.push(`${line + 1}:${from - starts[line]!}:${to - from}:${t.kind}`)
+                from = lineEnd + 1
+            }
+        }
+        return out
+    }
+
+    it("colours every line of the corpus and the prelude as classify colours the whole file", () => {
+        const dir = path.join(__dirname, "../../corpus")
+        const sources = fs.readdirSync(dir).filter((f) => f.endsWith(".sl")).map((f) => fs.readFileSync(path.join(dir, f), "utf8"))
+        sources.push(PRELUDE_SOURCE)
+        expect(sources.length).toBeGreaterThan(30)
+        for (const src of sources) expect(byLine(src)).toEqual(whole(src))
+    })
+
+    it("carries a block comment, an attribute and a member across a line end", () => {
+        const src = [
+            "/* a comment", "", "   over three lines */ uniform float a;",
+            "[", "Range(0, 1)] uniform float b;",
+            "float4 main() { float3 c = sdf.", "circle(uv, 0.5).", "xxx; /* x */ /* y", "/ still */ return c.",
+            "rgba; } /* open at the end",
+        ].join("\n")
+        expect(byLine(src)).toEqual(whole(src))
+        const kinds = (line: number) => byLine(src).filter((t) => t.startsWith(line + ":")).map((t) => t.split(":")[3])
+        expect(kinds(3)).toEqual(["comment", "keyword", "type", "ident", "punct"])
+        expect(kinds(5)[0]).toBe("attribute")
+        expect(kinds(7)[0]).toBe("builtin")
+        expect(kinds(8)[0]).toBe("member")
+        expect(kinds(9)[0]).toBe("comment")
+    })
+
+    it("says whether a line ends inside a block comment", () => {
+        expect(classifyLine("float a; /* open").state.comment).toBe(true)
+        expect(classifyLine("float a; /* shut */").state.comment).toBe(false)
+        expect(classifyLine("/*/").state.comment).toBe(true)
+        const inside = classifyLine("/* open").state
+        expect(classifyLine("", inside).tokens).toEqual([])
+        expect(classifyLine("", inside).state.comment).toBe(true)
+        expect(classifyLine("*/", inside).state.comment).toBe(false)
+        expect(classifyLine("still */ float b;", inside).tokens.map((t) => `${t.kind}:${t.text}:${t.offset}`))
+            .toEqual(["comment:still */:0", "type:float:9", "ident:b:15", "punct:;:16"])
+    })
+
+    it("never throws, at any point while a line is typed", () => {
+        const line = "[Range(0, 1)] uniform float3 tint = #ff8040; /* x */ float4 main() { return sdf.circle(uv, 0.5).xxxx; } \"open @ #zz"
+        for (const state of [undefined, classifyLine("/* open").state]) {
+            for (let i = 0; i <= line.length; i++) expect(() => classifyLine(line.slice(0, i), state)).not.toThrow()
+        }
     })
 })
