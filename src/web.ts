@@ -259,11 +259,15 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             case SLOP.MIX: return `mix(${s[0]}, ${s[1]}, ${s[2]})`
             case SLOP.STEP: return `step(${s[0]}, ${s[1]})`
             case SLOP.SMOOTHSTEP: smoothsteps.add(t); return `sl_smoothstep${t}(${s[0]}, ${s[1]}, ${s[2]})`
-            // As the HLSL emitter does it: branchless, so every
-            // backend agrees on the edge value.
+            // A choice, never a blend. mix(f, t, s) is f + (t - f) * s, which
+            // rounds t away beside 1e9 and is NaN beside an infinity, so the
+            // side not chosen reached the one that was. The condition holds
+            // from 0.5 up, as the step it replaces did, and a NaN condition
+            // picks the false side, as the HLSL emitter's does. A bool vector
+            // makes GLSL's mix choose rather than blend.
             case SLOP.SELECT: {
-                const c = typeOf(n.args[0])
-                return `mix(${splat(n.args[2], t)}, ${splat(n.args[1], t)}, step(${k(0.5, c)}, ${a[0]}))`
+                const on = t === 1 ? `(${s[0]} >= ${lit(0.5)})` : W ? `(${s[0]} >= ${k(0.5, t)})` : `greaterThanEqual(${s[0]}, ${k(0.5, t)})`
+                return W ? `select(${s[2]}, ${s[1]}, ${on})` : t === 1 ? `(${on} ? ${s[1]} : ${s[2]})` : `mix(${s[2]}, ${s[1]}, ${on})`
             }
 
             case SLOP.HSV2RGB: return `${lib("sl_hsv2rgb")}(${a[0]})`

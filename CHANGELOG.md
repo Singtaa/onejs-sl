@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `?:` chooses one side instead of blending the two, so a large, infinite or NaN value on the side not chosen no longer reaches the result
+- A NaN condition picks the false side on every backend
+- Every program keeps its hash; one with a `?:` on floats compiles to new shader text, which a host's generated shaders pick up on their next build
+- The goldens anchor `select-extremes.sl` to arithmetic
+
 ## 0.9.0
 
 A program can hold 64 uniforms and 8 textures, say how it samples a texture, and read a texture's size and its texels unfiltered. Every existing program keeps its hash and draws as it did; one that uses the new texture features is IR 6, which a host has to implement (below) to draw.

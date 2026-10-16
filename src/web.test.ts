@@ -33,6 +33,24 @@ float4 main() {
 `
 
 describe("the web emitters", () => {
+    it("choose at ?: rather than blending, so the side not chosen never reaches the result", () => {
+        // mix(f, t, step(0.5, c)) let 1e9 on the side not chosen round t away
+        // and an infinity make it NaN; the goldens' select-extremes.sl draws it.
+        const p = parse(`float4 main() {
+    float t = uv.x > 0.5 ? 0.75 : 1e9;
+    float3 v = uv.y > 0.5 ? float3(0.1, 0.2, 0.3) : float3(1e9, 1e9, 1e9);
+    return float4(v * t, 1);
+}`)
+        const glsl = emitGLSL(p)
+        const wgsl = emitWGSL(p)
+        expect(glsl).not.toMatch(/\bmix\([^;]*\bstep\(/)
+        expect(glsl).toMatch(/float n\d+ = \(\(n\d+ >= 0\.5\) \? n\d+ : n\d+\);/)
+        expect(glsl).toMatch(/vec3 n\d+ = mix\(n\d+, n\d+, greaterThanEqual\(n\d+, vec3\(0\.5\)\)\);/)
+        expect(wgsl).not.toMatch(/\bmix\([^;]*\bstep\(/)
+        expect(wgsl).toMatch(/let n\d+: f32 = select\(n\d+, n\d+, \(n\d+ >= 0\.5\)\);/)
+        expect(wgsl).toMatch(/let n\d+: vec3f = select\(n\d+, n\d+, \(n\d+ >= vec3f\(0\.5\)\)\);/)
+    })
+
     it("refuses an input it has no mapping for, rather than drawing it as aspect", () => {
         const p = sl.program(({ uv, aspect }) => sl.vec4(uv, aspect, 1))
         const odd = { ...p, nodes: p.nodes.map((n) => (n.k === "input" && n.name === "aspect" ? { ...n, name: "bogus" } : n)) } as Program

@@ -166,7 +166,7 @@ either side, on a texture sampled nearest between levels), `wrap-repeat.sl`
 and `wrap-mirror.sl` (a program's own wrap over a texture the host binds
 clamped, the filter's footprint wrapping with it), `filter-point.sl` (its own
 point filter, to the byte, through `tex2D` and `tex2Dlod`) and `fetch.sl`
-(`tex2Dfetch` held at the edges and `textureSize`, to the byte), and `uniforms-64.sl` (every uniform slot arrives). `sdf-values.sl`, `fbm-values.sl` and `ramp-values.sl` are black unless a
+(`tex2Dfetch` held at the edges and `textureSize`, to the byte), `uniforms-64.sl` (every uniform slot arrives), and `select-extremes.sl` (`?:` chooses, so 1e9, an infinity or NaN on the side not chosen never reaches the one chosen). `sdf-values.sl`, `fbm-values.sl` and `ramp-values.sl` are black unless a
 shape, a noise or a ramp draws differently with its parameters as values than
 as constants.
 A fixture that reads the previous frame, `frame` or `deltaTime` is stepped

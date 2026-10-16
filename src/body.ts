@@ -362,10 +362,16 @@ export function emitBody(p: Program, target: BodyTarget): Body {
             case SLOP.MIX: return `lerp(${s[0]}, ${s[1]}, ${s[2]})`
             case SLOP.STEP: return `step(${s[0]}, ${s[1]})`
             case SLOP.SMOOTHSTEP: return `smoothstep(${s[0]}, ${s[1]}, ${s[2]})`
-            // Branchless, as the web emitters do it, rather than using an if.
-            // Two backends that pick differently here disagree on every edge
-            // value.
-            case SLOP.SELECT: return `lerp(${s[2]}, ${s[1]}, step(${k(0.5, t)}, ${s[0]}))`
+            // A choice, never a blend: lerp(f, t, s) is f + (t - f) * s, which
+            // rounds t away beside 1e9 and is NaN beside an infinity. True from
+            // 0.5 up, as the web emitters read it. Spelled per component, so
+            // each ?: takes one bool: HLSL 2021 refuses a vector condition, and
+            // this subset compiles as Metal too.
+            case SLOP.SELECT: {
+                const part = (i: number, ch: number) => (valueAt(p.nodes, n.args[i]!).type === TYPE.FLOAT ? a[i] : `${a[i]}.${SWZ[ch]}`)
+                const pick = (ch: number) => `(${part(0, ch)} >= ${lit(0.5)} ? ${part(1, ch)} : ${part(2, ch)})`
+                return t === TYPE.FLOAT ? pick(0) : ctor(t, Array.from({ length: t }, (_, ch) => pick(ch)))
+            }
 
             case SLOP.HSV2RGB: return `${helper("sl_hsv2rgb")}(${a[0]})`
             case SLOP.NOISE: return `${helper("sl_valueNoise")}(${a[0]})`

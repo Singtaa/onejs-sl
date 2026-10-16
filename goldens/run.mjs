@@ -231,6 +231,8 @@ const anchors = {
     "sdf-values.sl": { tolerance: 0, expect: () => [0, 0, 0, 255] },
     // Ints and uints worked out here, each channel 0 or 1.
     "int-ops.sl": { tolerance: 0, expect: (u, v) => intOpsPixel(u, v) },
+    // ?: beside 1e9, an infinity and NaN, white where the chosen side came through.
+    "select-extremes.sl": { tolerance: 0, expect: () => [255, 255, 255, 255] },
     // A loop leaving at its turn limit, exactly; green and blue are stored floats, so within 1.
     "loop-cap.sl": { tolerance: 1, expect: (u, v) => loopCapLinear(u, v).map(encode).concat(255) },
     // The program's own sampler over a host that binds the texture linear and

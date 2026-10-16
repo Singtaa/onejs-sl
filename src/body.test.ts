@@ -57,6 +57,20 @@ describe("emitBody for Magerie's target", () => {
         }
     })
 
+    it("chooses at ?: rather than blending, one bool per component", () => {
+        // lerp(f, t, step(0.5, c)) let 1e9 on the side not chosen round t
+        // away; the goldens' select-extremes.sl draws that on a GPU.
+        const p = parse(`float4 main() {
+    float t = uv.x > 0.5 ? 0.75 : 1e9;
+    float3 v = uv.y > 0.5 ? float3(0.1, 0.2, 0.3) : float3(1e9, 1e9, 1e9);
+    return float4(v * t, 1);
+}`)
+        const body = emitBody(p, MAGERIE).body
+        expect(body).not.toMatch(/\blerp\(/)
+        expect(body).toMatch(/float n\d+ = \(n\d+ >= 0\.5 \? n\d+ : n\d+\);/)
+        expect(body).toMatch(/float3 n\d+ = float3\(\(n(\d+)\.x >= 0\.5 \? n\d+\.x : n\d+\.x\), \(n\1\.y >= 0\.5 \? n\d+\.y : n\d+\.y\), \(n\1\.z >= 0\.5 \? n\d+\.z : n\d+\.z\)\);/)
+    })
+
     it("swizzles a narrow uniform out of its float4 slot", () => {
         expect(out.body).toMatch(/float n\d+ = SL_U\(0\)\.x;/)
     })
