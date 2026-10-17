@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.9.1
+
+`?:` now takes one side instead of blending the two, so a huge, infinite or NaN value on the side not taken no longer spoils the result. Every program keeps its hash; a host's generated shaders take the new text on their next build.
 
 - `?:` chooses one side instead of blending the two, so a large, infinite or NaN value on the side not chosen no longer reaches the result
 - A NaN condition picks the false side on every backend
