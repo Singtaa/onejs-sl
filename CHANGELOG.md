@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.2
+
+A fractional `tex2Dlod` level now weighs each level's colour by its alpha, so a transparent level no longer darkens the other. Every program keeps its hash; a host's generated shaders take the new text on their next build.
+
+- A fractional `tex2Dlod` level blends the two levels premultiplied, so a transparent level fades the other out instead of pulling it toward black
+- Opaque textures draw as they did, and so does colour under zero alpha
+- Every program keeps its hash; one with a fractional `tex2Dlod` compiles to new shader text, which a host's generated shaders pick up on their next build
+- The goldens anchor `lod-alpha.sl` to arithmetic, through a texture with alpha bound to a slot declared `edge`
+
 ## 0.9.1
 
 `?:` now takes one side instead of blending the two, so a huge, infinite or NaN value on the side not taken no longer spoils the result. Every program keeps its hash; a host's generated shaders take the new text on their next build.

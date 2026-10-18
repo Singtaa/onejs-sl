@@ -141,6 +141,7 @@ for (const [backend, source] of [["webgpu", library.wgsl], ["webgl2", library.gl
 }
 const textureBytes = await evaluate("goldens.textureBytes()")
 const mips = await evaluate("goldens.mips")
+const edge = await evaluate("goldens.edge")
 const SIZE = await evaluate("goldens.size")
 ws.close()
 server.close()
@@ -271,6 +272,21 @@ const anchors = {
             const level = u * 4.5, below = Math.floor(level), f = level - below
             const at = (l, ch) => (l === 0 ? bilinear(u, v, ch) : decode(mips[Math.min(l, mips.length) - 1][ch]))
             return [0, 1, 2].map((ch) => encode(at(below, ch) + (at(below + 1, ch) - at(below, ch)) * f)).concat(255)
+        },
+    },
+    // A level from 0 to 3.5 across the edge texture: the level below and the
+    // level above, each one's colour weighed by its alpha in linear light, then
+    // alpha divided back out; the plain blend where both are transparent.
+    "lod-alpha.sl": {
+        tolerance: 2,
+        expect: (u) => {
+            const level = u * 3.5, below = Math.floor(level), f = level - below
+            const at = (l) => edge[Math.min(l, edge.length - 1)]
+            const lo = at(below), hi = at(below + 1)
+            const a = (lo[3] * (1 - f) + hi[3] * f) / 255
+            if (a === 0) return [0, 1, 2].map((ch) => encode(decode(lo[ch]) * (1 - f) + decode(hi[ch]) * f)).concat(0)
+            const weighed = (ch) => (decode(lo[ch]) * lo[3] * (1 - f) + decode(hi[ch]) * hi[3] * f) / 255
+            return [0, 1, 2].map((ch) => encode(weighed(ch) / a)).concat(Math.round(a * 255))
         },
     },
 }
@@ -464,7 +480,8 @@ const out = {
     texture: "every sampled slot: 8 x 8, rgba8 sRGB, linear filter, clamp to edge; texel (x, y) with y from the top = " +
         "(32x + 16, 32y + 16, (x + y) even ? 200 : 40, 255); uv (0, 0) is the image's bottom left. Mip levels 1 to 3 " +
         `(4 x 4, 2 x 2, 1 x 1) are each one colour, ${mips.map((c) => `(${c.join(", ")}, 255)`).join(", ")}, ` +
-        "sampled nearest between levels",
+        "sampled nearest between levels. A slot declared edge gets instead an 8 x 8 sampled the same way whose levels 0 to 3 " +
+        `are each one colour with straight alpha, ${edge.map((c) => `(${c.join(", ")})`).join(", ")}`,
     uniforms: "each program's declared defaults; a colour uniform's default is sRGB as written",
     drawnOn: { webgpu: draw.webgpu.device, webgl2: draw.webgl2.device },
     backendsAgreeWithin: agreement,

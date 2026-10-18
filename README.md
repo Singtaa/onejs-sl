@@ -73,7 +73,10 @@ filtering and wrapping left to the host, which OneJS's hosts take from the
 bound texture's own settings. Between mip levels the body decides instead: a
 fractional `tex2Dlod` level blends the two levels either side by the fraction,
 whatever the texture's filter mode, since the body asks for both whole levels
-and blends them itself. A level it can prove whole (a whole constant, a
+and blends them itself. The blend weighs each level's colour by its alpha, as
+trilinear filtering of premultiplied texels does, so a level that reads
+transparent fades the other out instead of darkening it; where both levels are
+opaque, or both transparent, it is the plain blend. A level it can prove whole (a whole constant, a
 `floor`, an int) costs one sample, and a level past the smallest reads the
 smallest. A texture whose program sets its own sampler (`[Wrap(Repeat)]`,
 `[Filter(Point)]`) goes to `sampleWith` instead, with both halves filled in,
@@ -162,7 +165,10 @@ over every pixel, and the anchors must match arithmetic, not each other:
 stores as written), `texture.sl` (a texture's orientation and sRGB decode),
 `lod.sl` (each mip level `tex2Dlod` reads, the texture's smaller levels being
 solid colours), `lod-frac.sl` (a fractional level blends the two levels
-either side, on a texture sampled nearest between levels), `wrap-repeat.sl`
+either side, on a texture sampled nearest between levels), `lod-alpha.sl` (the
+same blend weighs each level's colour by its alpha, through a second texture,
+bound to a slot declared `edge`, whose levels are transparent, opaque and half
+transparent), `wrap-repeat.sl`
 and `wrap-mirror.sl` (a program's own wrap over a texture the host binds
 clamped, the filter's footprint wrapping with it), `filter-point.sl` (its own
 point filter, to the byte, through `tex2D` and `tex2Dlod`) and `fetch.sl`

@@ -224,8 +224,15 @@ export const local = (ref: NodeRef): string => `n${ref}`
  * Prints the body: every placed node in its region, each `if` and `loop` with
  * its regions inside it. `expr` prints a value node's expression; the result is
  * `local(p.result)` for the caller to return.
+ *
+ * `before` gives the statements a value node needs ahead of its own line,
+ * asked after `expr` has printed that node: locals of its own, named after
+ * `local(ref)`, for an expression that would otherwise repeat a texture read.
  */
-export function printBody(p: Program, s: Structure, syntax: Syntax, expr: (ref: NodeRef) => string, indent: string): string[] {
+export function printBody(
+    p: Program, s: Structure, syntax: Syntax, expr: (ref: NodeRef) => string, indent: string,
+    before: (ref: NodeRef) => readonly string[] = () => [],
+): string[] {
     const lines: string[] = []
     const loopRef = new Map<number, NodeRef>()
     for (const [ref, n] of p.nodes.entries()) if (n.k === "loop") loopRef.set(n.id, ref)
@@ -270,8 +277,11 @@ export function printBody(p: Program, s: Structure, syntax: Syntax, expr: (ref: 
                     lines.push(ind + syntax.value(ref, src.k === "loop" ? carried(n.src, n.index) : result(n.src, n.index)))
                     break
                 }
-                default:
-                    lines.push(ind + syntax.value(ref, expr(ref)))
+                default: {
+                    const e = expr(ref)
+                    for (const line of before(ref)) lines.push(ind + line)
+                    lines.push(ind + syntax.value(ref, e))
+                }
             }
         }
     }

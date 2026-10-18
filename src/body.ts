@@ -48,7 +48,8 @@ export interface BodyTarget {
      * do with the GPU's sampler:
      *
      * - **Straight alpha**, not premultiplied, in and out: the body never
-     *   multiplies or divides by alpha, and its result is straight too.
+     *   multiplies or divides by alpha, except to blend two mip levels
+     *   (`sampleLevel`), and its result is straight too.
      * - **In the space `colour` names.** With `linear`, rgb is linear light, so
      *   an sRGB texture is decoded before it is filtered, as an sRGB sampler
      *   does; with `gamma`, rgb is as stored.
@@ -68,7 +69,11 @@ export interface BodyTarget {
      * asks for whole levels, or for a level it cannot prove whole, floored and
      * floored plus one, which it blends by the fraction itself; so a fraction
      * draws the same whatever the texture's filter between levels, and a host
-     * has no blending to do. A level past the smallest reads the smallest.
+     * has no blending to do. The blend weighs each level's colour by its alpha,
+     * as trilinear filtering of premultiplied texels does, and divides alpha
+     * back out, so a level that reads transparent adds no colour; where both
+     * read transparent it is the plain blend. A level past the smallest reads
+     * the smallest.
      * Otherwise the same contract as `sample`. `tex2Dlod` in a program; HLSL's
      * `tex2Dlod(s, float4(uv, 0, lod))` and Metal's `sample(s, uv, level(lod))`.
      */
@@ -198,6 +203,8 @@ export function emitBody(p: Program, target: BodyTarget): Body {
     const textures = new Set<number>()
     const helpers = new Set<string>()
     const helper = (fn: string) => { helpers.add(fn); return fn }
+    /** The statements a node prints ahead of its own line (`printBody`'s `before`). */
+    const ahead = new Map<NodeRef, string[]>()
     /** A node at width `w`: a scalar repeated into a constructor, since HLSL refuses float3(x) and Metal x.xxx. */
     /** A constant node's value, or null for anything computed. */
     const constantOf = (ref: number): number[] | null => {
@@ -404,10 +411,22 @@ export function emitBody(p: Program, target: BodyTarget): Body {
                 // A fraction blends the level below and the level above,
                 // whatever the texture's filter between levels, as the web
                 // emitters do (`isWhole`). Past the smallest level both read the
-                // smallest, as a whole level past it does.
+                // smallest, as a whole level past it does. The blend weighs
+                // each level's colour by its alpha, as trilinear filtering of
+                // premultiplied texels does: a level that reads transparent
+                // adds no colour, rather than pulling the other toward black.
+                // Where both are opaque it is the plain lerp, and where both
+                // are transparent too, so colour under zero alpha survives.
                 if (isWhole(p.nodes, n.args[1]!)) return level(slot, a[0]!, a[1]!)
                 const below = `floor(${a[1]})`
-                return `lerp(${level(slot, a[0]!, below)}, ${level(slot, a[0]!, `${below} + 1.0`)}, frac(${a[1]}))`
+                const [lo, hi, mixed] = ["lo", "hi", "pm"].map((s) => `${name(ref)}_${s}`)
+                const pm = (v: string) => `float4(${v}.rgb * ${v}.a, ${v}.a)`
+                ahead.set(ref, [
+                    `float4 ${lo} = ${level(slot, a[0]!, below)};`,
+                    `float4 ${hi} = ${level(slot, a[0]!, `${below} + 1.0`)};`,
+                    `float4 ${mixed} = lerp(${pm(lo)}, ${pm(hi)}, frac(${a[1]}));`,
+                ])
+                return `float4(${mixed}.a > 0.0 ? ${mixed}.rgb / ${mixed}.a : lerp(${lo}.rgb, ${hi}.rgb, frac(${a[1]})), ${mixed}.a)`
             }
             case SLOP.TEXTURE_SIZE: {
                 const slot = Math.round(imm[0] ?? 0)
@@ -449,7 +468,7 @@ export function emitBody(p: Program, target: BodyTarget): Body {
         loopOpen: `${target.loopAttribute === undefined ? "" : target.loopAttribute + " "}for (;;) {`,
         breakUnless: (c, turns, max) => `if (!(${c}) || ${turns} >= ${max}) break;`,
     }
-    const lines = printBody(p, shape, syntax, expr, indent)
+    const lines = printBody(p, shape, syntax, expr, indent, (ref) => ahead.get(ref) ?? [])
     lines.push(target.result === undefined
         ? `${indent}return ${name(p.result)};`
         : `${indent}${target.result} = ${name(p.result)};`)

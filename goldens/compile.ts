@@ -93,6 +93,8 @@ export function compile(sources: Record<string, string>) {
             source,
             uniforms: p.uniforms,
             textures: p.textures.map((t) => t.slot),
+            // By slot: the page binds a slot declared `edge` to its texture with alpha.
+            textureNames: p.textures.map((t) => t.name),
             // What decides whether the page steps the program rather than drawing it at times.
             reads: readsOf(p),
             // Four floats per slot, as a host seeds them before a caller's own.

@@ -114,6 +114,8 @@ function emitWeb(p: Program, lang: WebLanguage): string {
     const splat = (ref: number, t: SLType) => (typeOf(ref) === 1 && t > 1 ? `${T(t)}(n${ref})` : `n${ref}`)
     /** A literal at width `t`. */
     const k = (v: number, t: SLType) => (t > 1 ? `${T(t)}(${lit(v)})` : lit(v))
+    /** The statements a node prints ahead of its own line (`printBody`'s `before`). */
+    const ahead = new Map<NodeRef, string[]>()
 
     const expr = (ref: NodeRef): string => {
         const n = valueAt(p.nodes, ref)
@@ -297,11 +299,25 @@ function emitWeb(p: Program, lang: WebLanguage): string {
                     : `textureLod(sl_Tex${slot}, ${a[0]}, ${level})`
                 // A fraction blends the level below and the level above,
                 // whatever the texture's filter between levels, as the HLSL
-                // emitter does (`isWhole`). Past the smallest level both read
-                // the smallest, as a whole level past it does.
+                // emitter does (`isWhole`), each level's colour weighed by its
+                // alpha, the plain blend where both are transparent. Past the
+                // smallest level both read the smallest, as a whole level past
+                // it does.
                 if (isWhole(p.nodes, n.args[1]!)) return at(a[1]!)
                 const below = `floor(${a[1]})`
-                return `mix(${at(below)}, ${at(`${below} + 1.0`)}, fract(${a[1]}))`
+                const [lo, hi, mixed] = ["lo", "hi", "pm"].map((s) => `${local(ref)}_${s}`)
+                const pm = (v: string) => `${T(4)}(${v}.rgb * ${v}.a, ${v}.a)`
+                const decl = (v: string, e: string) => (W ? `let ${v}: ${T(4)} = ${e};` : `${T(4)} ${v} = ${e};`)
+                ahead.set(ref, [
+                    decl(lo, at(below)),
+                    decl(hi, at(`${below} + 1.0`)),
+                    decl(mixed, `mix(${pm(lo)}, ${pm(hi)}, fract(${a[1]}))`),
+                ])
+                const plain = `mix(${lo}.rgb, ${hi}.rgb, fract(${a[1]}))`
+                const rgb = W
+                    ? `select(${plain}, ${mixed}.rgb / ${mixed}.a, ${mixed}.a > 0.0)`
+                    : `(${mixed}.a > 0.0 ? ${mixed}.rgb / ${mixed}.a : ${plain})`
+                return `${T(4)}(${rgb}, ${mixed}.a)`
             }
             case SLOP.TEXTURE_SIZE: {
                 const slot = Math.round(imm[0] ?? 0)
@@ -405,7 +421,7 @@ function emitWeb(p: Program, lang: WebLanguage): string {
             loopOpen: "for (;;) {",
             breakUnless: (c, turns, max) => `if (!(${c}) || ${turns} >= ${max}) break;`,
         }
-    const body = printBody(p, shape, syntax, expr, "    ").join("\n")
+    const body = printBody(p, shape, syntax, expr, "    ", (ref) => ahead.get(ref) ?? []).join("\n")
     const library = [...[...smoothsteps].sort().map((w) => smoothstep(w, lang)), ...librarySource(need, lang)].join("\n")
     const header = `// GENERATED from a shader language program (${p.hash}). Do not edit.`
     // Only the textures the program reads, and in WGSL only the samplers it

@@ -79,6 +79,24 @@ function textureBytes() {
     return out
 }
 
+/**
+ * The texture a slot declared `edge` gets instead: 8 x 8 again, its four levels
+ * each one colour with its own straight alpha, `EDGE[level]`. A transparent
+ * level meets an opaque one, the opaque one a half transparent one, and that a
+ * transparent level again, so a fractional `tex2Dlod` crosses each of them. The
+ * two transparent levels store black and white, which a blend weighted by alpha
+ * never mixes into a level that is not transparent. Sampled as the other is.
+ */
+const EDGE = [[0, 0, 0, 0], [224, 64, 32, 255], [32, 224, 64, 128], [255, 255, 255, 0]]
+function edgeBytes(level) {
+    const size = TEX >> level
+    const out = new Uint8Array(size * size * 4)
+    for (let i = 0; i < size * size; i++) out.set(EDGE[level], i * 4)
+    return out
+}
+/** The texture a fixture's slot is bound to, by the name the program declares it with. */
+const textureFor = (fx, slot, textures) => (fx.textureNames?.[slot] === "edge" ? textures.edge : textures.golden)
+
 /** The history format, and the one a host keeps the previous frame in. */
 const HISTORY = "rgba16float"
 
@@ -118,6 +136,11 @@ async function webgpu(fixtures, times, steps) {
     for (let level = 1; level <= MIPS.length; level++) {
         const size = TEX >> level
         device.queue.writeTexture({ texture: tex, mipLevel: level }, mipBytes(level), { bytesPerRow: size * 4 }, [size, size])
+    }
+    const edge = device.createTexture({ size: [TEX, TEX], mipLevelCount: EDGE.length, format: "rgba8unorm-srgb", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST })
+    for (let level = 0; level < EDGE.length; level++) {
+        const size = TEX >> level
+        device.queue.writeTexture({ texture: edge, mipLevel: level }, edgeBytes(level), { bytesPerRow: size * 4 }, [size, size])
     }
     const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" })
     const address = { repeat: "repeat", clamp: "clamp-to-edge", mirror: "mirror-repeat" }
@@ -169,7 +192,7 @@ async function webgpu(fixtures, times, steps) {
         const entries = [{ binding: 0, resource: { buffer: ubo } }]
         for (const m of fx.wgsl.matchAll(/var sl_tex(\d+)/g)) {
             const s = Number(m[1])
-            entries.push({ binding: 2 + 2 * s, resource: tex.createView() })
+            entries.push({ binding: 2 + 2 * s, resource: textureFor(fx, s, { golden: tex, edge }).createView() })
             // A slot only measured or fetched from declares no sampler.
             if (!fx.wgsl.includes(`var sl_samp${s}:`)) continue
             const note = samplerNote(fx.wgsl, s)
@@ -254,10 +277,19 @@ async function webgl2(fixtures, times, steps) {
     for (let level = 1; level <= MIPS.length; level++) {
         gl.texImage2D(gl.TEXTURE_2D, level, gl.SRGB8_ALPHA8, TEX >> level, TEX >> level, 0, gl.RGBA, gl.UNSIGNED_BYTE, mipBytes(level))
     }
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    const sampledAsTheGoldens = () => {
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    }
+    sampledAsTheGoldens()
+    const edge = gl.createTexture()
+    gl.bindTexture(gl.TEXTURE_2D, edge)
+    for (let level = 0; level < EDGE.length; level++) {
+        gl.texImage2D(gl.TEXTURE_2D, level, gl.SRGB8_ALPHA8, TEX >> level, TEX >> level, 0, gl.RGBA, gl.UNSIGNED_BYTE, edgeBytes(level))
+    }
+    sampledAsTheGoldens()
     const vsSource = `#version 300 es
 void main() {
     vec2 c = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
@@ -326,7 +358,7 @@ void main() { o = texelFetch(h, ivec2(gl_FragCoord.xy), 0); }`, "the display pas
         for (const m of fx.glsl.matchAll(/uniform sampler2D sl_Tex(\d+);/g)) {
             const unit = Number(m[1])
             gl.activeTexture(gl.TEXTURE0 + unit)
-            gl.bindTexture(gl.TEXTURE_2D, tex)
+            gl.bindTexture(gl.TEXTURE_2D, textureFor(fx, unit, { golden: tex, edge }))
             gl.uniform1i(gl.getUniformLocation(prog, `sl_Tex${unit}`), unit)
             // A sampler object overrides the texture's own settings, as OneJS's host does.
             const note = samplerNote(fx.glsl, unit)
@@ -425,6 +457,7 @@ window.goldens = {
     compiles,
     textureBytes: () => Array.from(textureBytes()),
     mips: MIPS,
+    edge: EDGE,
     layout(l) {
         SLOTS = l.uniforms
         TEXTURE_SLOTS = l.textures
