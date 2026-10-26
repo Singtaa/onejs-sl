@@ -31,7 +31,7 @@ import {
 import { SLOP, SL_HLSL, SL_NAME, type SLOpCode } from "./ops"
 import { SL_SDF_PARAMS, SL_SDF_SHAPES, type SlSdfKind } from "./shapes"
 
-// MARK: values
+// values
 
 type Swz = "x" | "y" | "z" | "w" | "r" | "g" | "b" | "a"
 const CHAN: Record<string, number> = { x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, b: 2, a: 3 }
@@ -202,7 +202,7 @@ function withKind<T extends SLNode>(n: T, kind: SLKind | undefined): T {
     return kind === undefined ? n : { ...n, kind }
 }
 
-// MARK: recording context
+// recording context
 
 let current: Builder | null = null
 
@@ -288,7 +288,7 @@ function un(op: SLOpCode, a: Val): Val {
     return mk(a.owner, a.owner.call(op, a.width, [a.ref]), a.width)
 }
 
-// MARK: kinds (IR 4)
+// kinds (IR 4)
 
 /** The ops an int or a uint keeps its kind through. Anything else takes it as a float. */
 const INT_OPS = new Set<number>([SLOP.ADD, SLOP.SUB, SLOP.MUL, SLOP.DIV, SLOP.MOD, SLOP.MIN, SLOP.MAX, SLOP.CLAMP])
@@ -486,7 +486,7 @@ function typed(b: Builder, v: Num, t: ValType): NodeRef {
     return v.ref
 }
 
-// MARK: the public surface
+// the public surface
 
 export interface ProgramInputs {
     uv: Vec2

@@ -243,7 +243,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         }
     })
 
-    // MARK: bodies
+    // bodies
 
     // The prelude's own bodies are checked once, where it is built, against a
     // unit that has no uniforms of its own. Re-checking them here would let a
@@ -492,7 +492,7 @@ export function check(unit: Unit, prelude: FuncDecl[], options: CheckOptions = {
         return `this can never run: every way through the ${above} above ends in a return, break or continue`
     }
 
-    // MARK: expressions
+    // expressions
 
     function checkExpr(fn: FuncDecl, e: Expr, scope: Set<string>): void {
         switch (e.k) {

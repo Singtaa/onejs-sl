@@ -43,7 +43,7 @@ export type Colour = "gamma" | "linear"
 
 export class TranslateError extends Error {}
 
-// MARK: lexer
+// lexer
 
 interface Tok { t: "id" | "num" | "p" | "pp" | "eof"; v: string; line: number }
 
@@ -108,7 +108,7 @@ function lex(src: string, file: string): Tok[] {
     return out
 }
 
-// MARK: syntax tree
+// syntax tree
 
 export type Expr =
     | { k: "num"; text: string; int: boolean; uint?: boolean; line: number; ty?: Ty }
@@ -152,7 +152,7 @@ const isUint = (t: Ty | undefined): boolean => t === "uint" || t === "uint2"
 /** The operators that take uints only. */
 const BITWISE = new Set(["^", "&", "|", "<<", ">>"])
 
-// MARK: parser
+// parser
 
 class Parser {
     private i = 0
@@ -399,7 +399,7 @@ export function parseLibrary(src: string, file: string): Fn[] {
     return new Parser(lex(src, file), file).file_()
 }
 
-// MARK: checker
+// checker
 
 /**
  * The intrinsics in the subset. `kind` is how the result's type follows from
@@ -782,7 +782,7 @@ export function check(fns: Fn[]): Checked {
     return { fns, deps, overloaded, assigned }
 }
 
-// MARK: printers
+// printers
 
 export const TYPE_NAME: Record<Lang, Record<Ty, string>> = {
     glsl: { float: "float", float2: "vec2", float3: "vec3", float4: "vec4", int: "int", uint: "uint", uint2: "uvec2", bool: "bool" },

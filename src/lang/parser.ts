@@ -82,7 +82,7 @@ class Parser {
         private readonly errors?: SLParseError[],
     ) {}
 
-    // MARK: token plumbing
+    // token plumbing
 
     private peek(n = 0): Token { return this.tokens[Math.min(this.i + n, this.tokens.length - 1)]! }
     private next(): Token { return this.tokens[this.i++]! }
@@ -107,7 +107,7 @@ class Parser {
         this.errors.push(e)
     }
 
-    // MARK: recovery
+    // recovery
 
     /**
      * Runs one statement's or one declaration's parse. Collecting, an error is
@@ -184,7 +184,7 @@ class Parser {
         this.fail(`"${t.text}" is not a type; the types are float, float2, float3, float4, int, uint and bool`, t)
     }
 
-    // MARK: the file
+    // the file
 
     parseUnit(): Unit {
         const unit: Unit = {
@@ -328,7 +328,7 @@ class Parser {
         return { name: name.text, ret, params, body, pos: start, prelude: false }
     }
 
-    // MARK: statements
+    // statements
 
     private parseBlock(): Stmt[] {
         this.expect("{", "to open a body")
@@ -538,7 +538,7 @@ class Parser {
         return { k: "switch", value, cases, pos: kw }
     }
 
-    // MARK: expressions
+    // expressions
 
     parseExpr(): Expr { return this.parseBinary(0) }
 

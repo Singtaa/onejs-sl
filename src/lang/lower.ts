@@ -317,7 +317,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         })
     }
 
-    // MARK: declarations
+    // declarations
 
     function declareUniform(name: string, type: TypeName, c: number[], control: UniformControl): Val {
         switch (type) {
@@ -429,7 +429,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         }
     }
 
-    // MARK: functions
+    // functions
 
     /** A function's body run to its return, in `scope`, which holds its parameters. */
     function callBody(fn: FuncDecl, scope: Scope): LV {
@@ -442,7 +442,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         return frame.retval
     }
 
-    // MARK: statements
+    // statements
 
     /**
      * Runs a body. What it does to the locals is in their bindings and what it
@@ -621,7 +621,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         return fit(v, t, `${fn.name}'s result`, pos)
     }
 
-    // MARK: loops
+    // loops
 
     function runLoop(s: Extract<Stmt, { k: "for" | "while" }>, scope: Scope, frame: Frame): void {
         const loopScope = new Scope(scope)
@@ -765,7 +765,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         return r === undefined ? null : { min: r.min, max: r.max }
     }
 
-    // MARK: switch
+    // switch
 
     /**
      * A switch as the if chain it means: `x == 1 || x == 2` per case, in order,
@@ -801,7 +801,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         return out[0] ?? { k: "if", cond: { k: "bool", value: true, pos: s.pos }, then: [], else: [], pos: s.pos }
     }
 
-    // MARK: conversions
+    // conversions
 
     /**
      * A value as a declared type, as a declaration, an assignment and a
@@ -919,7 +919,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         return b.width === 1 ? parts[0]! : at(pos, () => compose(b.width, parts))
     }
 
-    // MARK: expressions
+    // expressions
 
     /**
      * `want` is the kind the value is going into, an int or a uint, which makes
@@ -1307,7 +1307,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
     }
 }
 
-// MARK: tables and small helpers
+// tables and small helpers
 
 type ArithOp = "+" | "-" | "*" | "/" | "%"
 type BitOp = "&" | "|" | "^" | "<<" | ">>"

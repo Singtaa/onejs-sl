@@ -52,7 +52,7 @@ export function hash22(x, y) {
     return pcg2d(u32(kx + 1759714724), u32(ky + 3002137945)).map(unit)
 }
 
-// MARK: probes
+// probes
 
 /** Bits 11 - 3g, 10 - 3g and 9 - 3g of a value's top twelve, as a pixel. */
 function bits(h, group) {

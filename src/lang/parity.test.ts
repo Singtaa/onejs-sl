@@ -36,7 +36,7 @@ function pair(name: string, source: string, build: () => Program): void {
 }
 
 describe("a .sl file and its EDSL twin are the same program", () => {
-    // MARK: the GPU fixtures, one for one with fixtures/gen.test.ts
+    // the GPU fixtures, one for one with fixtures/gen.test.ts
 
     pair("uv passthrough",
         `float4 main() { return float4(uv, 0, 1); }`,
@@ -104,7 +104,7 @@ describe("a .sl file and its EDSL twin are the same program", () => {
         `float4 main() { return #ff4705; }`,
         () => sl.program(() => sl.color("#ff4705")))
 
-    // MARK: the example on play.onejs.com
+    // the example on play.onejs.com
 
     pair("the tuner's plasma", `
         uniform float warp = 0.5;
@@ -137,7 +137,7 @@ describe("a .sl file and its EDSL twin are the same program", () => {
             return sl.vec4(rgb, 1)
         }))
 
-    // MARK: the constructs the EDSL spells differently
+    // the constructs the EDSL spells differently
 
     pair("a for loop is sl.repeat", `
         float4 main() {
