@@ -175,9 +175,42 @@ describe("sl GPU fixtures", () => {
                 }
             `, { file: "branch.sl" }), [0.75, 0, 0, 1])
 
+        // The centre pixel's ray is the camera's forward: from (3, 0, -4) to the
+        // origin is (-3, 0, 4) / 5, which * 0.5 + 0.5 is (0.2, 0.5, 0.9).
+        add("lookRay at the centre looks at the target",
+            "forward from (3, 0, -4) to the origin is (-0.6, 0, 0.8), drawn as rd * 0.5 + 0.5",
+            parse(`
+                float4 main() {
+                    return float4(lookRay(float3(3, 0, -4), float3(0, 0, 0), 1.5) * 0.5 + 0.5, 1);
+                }
+            `, { file: "lookray-centre.sl" }), [0.2, 0.5, 0.9, 1])
+
         if (existsSync(dirname(OUT))) {
             writeFileSync(OUT, JSON.stringify({ generatedBy: "onejs-sl/src/fixtures/gen.test.ts", fixtures: fx }, null, 1))
         }
         expect(fx.length).toBeGreaterThan(10)
+    })
+
+    // Every pixel's ray against Unity's own camera (SLLookRayTests.cs): the
+    // container renders this at a size of its choosing and compares each pixel
+    // with Camera.ViewportPointToRay for the same eye, target and field of view.
+    // The answer is Unity's, not anything in this repository, which is what
+    // holds the handedness: a mirrored basis passes the centre and fails here.
+    it("writes the lookRay grid for Unity's camera to check", () => {
+        const view = { eye: [2, 1.5, -6], target: [0.5, 0.25, 1], lens: 1.2 }
+        const p = parse(`
+            float4 main() {
+                return float4(lookRay(float3(${view.eye.join(", ")}), float3(${view.target.join(", ")}), ${view.lens}) * 0.5 + 0.5, 1);
+            }
+        `, { file: "lookray-grid.sl" })
+        const out = resolve(dirname(OUT), "sl-lookray.json")
+        if (existsSync(dirname(OUT))) {
+            writeFileSync(out, JSON.stringify({
+                generatedBy: "onejs-sl/src/fixtures/gen.test.ts",
+                note: "rd * 0.5 + 0.5 for every pixel; fov = 2 atan(0.5 / lens)",
+                ...view, hash: p.hash, hlsl: emitShader(p, { name: `Hidden/SLTest/${p.hash}` }),
+            }, null, 1))
+        }
+        expect(p.hash).toBeTruthy()
     })
 })

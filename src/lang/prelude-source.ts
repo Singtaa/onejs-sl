@@ -40,6 +40,14 @@ float2 tile(float2 p, float n) {
 float3 palette(float t, float3 a, float3 b, float3 c, float3 d) {
     return a + b * cos(6.28318530718 * (c * t + d));
 }
+
+// This pixel's ray from eye toward target, as Unity's camera casts it. lens is 0.5 / tan(fov / 2).
+float3 lookRay(float3 eye, float3 target, float lens) {
+    float3 forward = normalize(target - eye);
+    float3 right = normalize(cross(float3(0, 1, 0), forward));
+    float3 up = cross(forward, right);
+    return normalize(forward * lens + right * centered.x + up * centered.y);
+}
 `
 
 /** Each prelude function's name, in the order the source declares them. */

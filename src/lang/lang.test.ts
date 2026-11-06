@@ -415,10 +415,27 @@ describe("functions", () => {
                 float d = min(circle(r, 0.3), box(t, float2(0.2, 0.2)));
                 float3 c = palette(q.y + d, float3(0.5, 0.5, 0.5), float3(0.5, 0.5, 0.5),
                                    float3(1, 1, 1), float3(0, 0.33, 0.67));
-                return float4(c, 1);
+                float3 rd = lookRay(float3(0, 1, -4), float3(0, 0, 0), 1.5);
+                return float4(c * rd.z, 1);
             }
         `)
         expect(compile(p).hlsl.length).toBeGreaterThan(0)
+    })
+})
+
+describe("lookRay", () => {
+    // What it is, spelled out: the same graph, so the GPU fixture's numbers
+    // (Unity's own camera rays, SLLookRayTests.cs) hold the formula, not a copy.
+    it("is the ray through centered from a y up camera, right = cross(up, forward)", () => {
+        const call = parse(`float4 main() { return float4(lookRay(float3(1, 2, -5), float3(0, 0.5, 0), 1.5), 1); }`)
+        const spelled = parse(`
+            float4 main() {
+                float3 f = normalize(float3(0, 0.5, 0) - float3(1, 2, -5));
+                float3 r = normalize(cross(float3(0, 1, 0), f));
+                float3 u = cross(f, r);
+                return float4(normalize(f * 1.5 + r * ((uv - 0.5) * float2(aspect, 1)).x + u * ((uv - 0.5) * float2(aspect, 1)).y), 1);
+            }`)
+        expect(call.hash).toBe(spelled.hash)
     })
 })
 
@@ -427,6 +444,6 @@ describe("the prelude itself", () => {
         const checked = analyze(PRELUDE_SOURCE, { file: "prelude.sl", requireMain: false })
         expect(checked.unit.main).toBe(null)
         expect(checked.unit.funcs.map((f) => f.name).sort())
-            .toEqual(["box", "circle", "palette", "polar", "rotate", "tile"])
+            .toEqual(["box", "circle", "lookRay", "palette", "polar", "rotate", "tile"])
     })
 })
