@@ -125,6 +125,14 @@ constant 7 before the IR sees it. `sin(0.5)` is two instructions, because
 folding it would mean a second implementation of `sin` in JavaScript, and a
 second implementation is somewhere for the two backends to disagree.
 
+**A hex colour takes the width its place wants.** Alone, `#ff8040` is a
+float4. Where a float3 is wanted (a float3's declaration, a float3 function's
+return, a float3 parameter, `float3(#ff8040)`, the other side of an op or a
+choice, or a builtin's other arguments) it is that float3, its alpha dropped.
+A choice between two hexes counts as one. A computed float4 does not fit a
+float3 this way: that is still an error, since its alpha may be meant
+(`writtenHex` and `asWidth` in `lower.ts`; `hex-width.test.ts`).
+
 **A hex default makes a uniform a colour.** `uniform float4 tint = #ff8040;`
 stores the sRGB components as its default, which is what the host sets and what
 the generated shader's Properties block shows, and every read of `tint` goes

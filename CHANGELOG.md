@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A hex colour is a float3 wherever a float3 is wanted: returned, passed, in `float3(...)`, or beside a float3 in an op, a choice or a builtin
+- A program that compiled before keeps its hash
+
 ## 0.9.2
 
 A fractional `tex2Dlod` level now weighs each level's colour by its alpha, so a transparent level no longer darkens the other. Every program keeps its hash; a host's generated shaders take the new text on their next build.

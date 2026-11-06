@@ -570,7 +570,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             case "switch": exec([switchAsIf(s, scope)], scope, frame); break
             case "block": exec(s.body, new Scope(scope), frame); break
             case "return": {
-                const v = lowerExpr(s.value, scope, want(frame.ret))
+                const v = asWidth(lowerExpr(s.value, scope, want(frame.ret)), s.value, frame.ret.width, s.pos)
                 frame.retval = returned(v, frame, s.pos)
                 frame.returned = true
                 break
@@ -604,6 +604,25 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             v = writeComponents(b, member, toFloat(v, s.pos), s.pos)
         }
         b.value = fit(v, b, name, s.pos)
+    }
+
+    /**
+     * A colour written as a hex, `#ff8000`, or a choice between two. It has
+     * no width of its own: alone it is a float4, and where a float3 is wanted
+     * (a float3's declaration, return or argument, the other side of an op or
+     * a choice, a builtin's other arguments) it is that float3, its alpha
+     * dropped. Before, only a declaration dropped it, and returning one from a
+     * float3 function, passing one, or mixing one with a float3 was an error
+     * (learn Mac, 6 Nov 2026, lessons 7 and 8).
+     */
+    function writtenHex(e: Expr): boolean {
+        return e.k === "hex" || (e.k === "cond" && writtenHex(e.then) && writtenHex(e.else))
+    }
+
+    /** `v`, lowered from `e`, as the float3 a place wants when `e` is a written hex; otherwise as it is. */
+    function asWidth(v: LV, e: Expr, width: number, pos: Pos): LV {
+        if (width !== 3 || widthOf(v) !== 4 || !writtenHex(e)) return v
+        return at(pos, () => asVal(v).swz("xyz") as unknown as Val)
     }
 
     /** A return's value as the function's type. Only the kind converts; a width has to match. */
@@ -993,6 +1012,8 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
 
     /** A binary op on operands already lowered from `ea` and `eb`. */
     function combine(op: BinaryOp, a: LV, b: LV, ea: Expr, eb: Expr, scope: Scope, pos: Pos): LV {
+        a = asWidth(a, ea, widthOf(b), pos)
+        b = asWidth(b, eb, widthOf(a), pos)
         // A whole number beside an int is an int: `i < 10`, `i % 3`.
         if (isIntLike(a) && typeof b === "number" && wholeExpr(eb)) b = lowerExpr(eb, scope, kindWant(a))
         if (isIntLike(b) && typeof a === "number" && wholeExpr(ea)) a = lowerExpr(ea, scope, kindWant(b))
@@ -1134,6 +1155,8 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         if (cond instanceof Test) void cond.float
         let t = lowerExpr(e.then, scope, want)
         let f = lowerExpr(e.else, scope, want)
+        t = asWidth(t, e.then, widthOf(f), e.pos)
+        f = asWidth(f, e.else, widthOf(t), e.pos)
         if (isIntLike(t) && typeof f === "number" && wholeExpr(e.else)) f = lowerExpr(e.else, scope, kindWant(t))
         if (isIntLike(f) && typeof t === "number" && wholeExpr(e.then)) t = lowerExpr(e.then, scope, kindWant(f))
         const kinded = [t, f].some((v) => typeof v === "bigint" || v instanceof Uint || typeof v === "boolean" || (v instanceof Val && v.kind !== undefined))
@@ -1163,7 +1186,11 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         const n = (callee as Extract<Expr, { k: "ident" }>).name
 
         if (n === "int" || n === "uint" || n === "bool") return convert(n, e, scope)
-        if (n in TYPE_WIDTH) return construct(n as TypeName, floats(e.args), e.pos)
+        if (n in TYPE_WIDTH) {
+            // float3(#ff8000) is the colour's rgb, as a float3 declared from it is.
+            const one = e.args.length === 1 ? asWidth(toFloat(lowerExpr(e.args[0]!, scope), e.args[0]!.pos), e.args[0]!, TYPE_WIDTH[n as TypeName], e.pos) : null
+            return construct(n as TypeName, one !== null ? [one as number | Val] : floats(e.args), e.pos)
+        }
 
         if (n === "textureSize" || n === "tex2Dfetch") {
             const tex = samplers.get((e.args[0] as Extract<Expr, { k: "ident" }>).name)!
@@ -1210,6 +1237,9 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
         const builtin = BUILTINS[n]
         if (builtin !== undefined) {
             let args = e.args.map((a) => lowerExpr(a, scope))
+            // A hex among float3s is a float3: lerp(#ff8000, sky, t).
+            const others = Math.max(0, ...args.filter((_, i) => !writtenHex(e.args[i]!)).map(widthOf))
+            args = args.map((v, i) => asWidth(v, e.args[i]!, others, e.args[i]!.pos))
             // min, max, abs and clamp keep ints ints; everything else takes floats.
             if (INT_BUILTINS.has(n) && args.some(isIntLike) && args.every((v, i) => isIntLike(v) || (typeof v === "number" && wholeExpr(e.args[i]!)))) {
                 const k = kindWant(args.find(isIntLike)!)
@@ -1264,7 +1294,7 @@ export function lower(checked: Checked, errors?: SLParseError[]): Program {
             const arg = e.args[i]!
             // In the caller's scope, where the argument is written; as the
             // parameter's kind, so a whole number passed to an int is one.
-            const v = lowerExpr(arg, caller, want(t))
+            const v = asWidth(lowerExpr(arg, caller, want(t)), arg, t.width, arg.pos)
             const got = widthOf(v)
             if (got !== t.width) {
                 fail(
