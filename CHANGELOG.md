@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.9.3
 
+A hex colour is a float3 wherever a float3 is wanted, and `lookRay(eye, target, lens)` gives the ray through this pixel from a camera. Every program that compiled before keeps its hash.
+
+- `lookRay(eye, target, lens)` returns the ray through this pixel from a y up camera at `eye` looking at `target`, as Unity's camera casts it; `lens` is `0.5 / tan(fov / 2)`
 - A hex colour is a float3 wherever a float3 is wanted: returned, passed, in `float3(...)`, or beside a float3 in an op, a choice or a builtin
 - A program that compiled before keeps its hash
 
